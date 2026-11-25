@@ -20,22 +20,22 @@ The package contract lives in [6/59-local-daemons](../6/59-local-daemons.md).
 ## Scope note
 
 `D` is a channel-flavoured historical exception that bled in before the
-phase 5/8 split was clean. Per-platform adapter behaviour belongs next to
+phase `resreg/README.md` split was clean. Per-platform adapter behaviour belongs next to
 the daemon (`slakd/README.md`), not in a phase-8 spec; future
 channel-specific items go there.
 
 ## Deleted 2026-08-02
 
-| was                          | why                                                                                                                                                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `00-finalise-plan.md`        | a pre-split meta-plan to carve `gated` into `routerd`/`agent-runnerd`/`mcp-hostd`. `gated` was deleted outright at v0.50.0; the specs it sequenced now live in `5/`.                                    |
-| `F-audit-stream.md`          | proposed `ipc_audit`. Migration `0066` consolidated `ipc_audit` + `cli_audit` into the per-daemon **`audit_log`**, specced in [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md). Superseded. |
-| `G-slack-multi-workspace.md` | unbuilt Slack OAuth multi-workspace, and channel-specific by the scope note above — belongs in `slakd/README.md` if it revives.                                                                         |
-| `H-per-daemon-secrets.md`    | claimed `<DAEMON>_CHANNEL_SECRET` had shipped. It never existed (zero code hits), and `CHANNEL_SECRET` itself is retired — adapters now exchange an ES256 service token via `AUTHD_SERVICE_KEY`.        |
-| `Z-egred-mitm.md`            | 593 lines proposing HTTPS-MITM on an `egred` daemon that was never built, premised on `gated`. Its own opening quoted `5/13` _rejecting_ MITM, then reintroduced it. `crackbox` (`6/24`) is the answer. |
+| was                          | why                                                                                                                                                                                                             |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `00-finalise-plan.md`        | a pre-split meta-plan to carve `gated` into `routerd`/`agent-runnerd`/`mcp-hostd`. `gated` was deleted outright at v0.50.0; the specs it sequenced now live in `5/`.                                            |
+| `F-audit-stream.md`          | proposed `ipc_audit`. Migration `0066` consolidated `ipc_audit` + `cli_audit` into the per-daemon **`audit_log`**, specced in `audit/README.md`. Superseded.                                                    |
+| `G-slack-multi-workspace.md` | unbuilt Slack OAuth multi-workspace, and channel-specific by the scope note above — belongs in `slakd/README.md` if it revives.                                                                                 |
+| `H-per-daemon-secrets.md`    | claimed `<DAEMON>_CHANNEL_SECRET` had shipped. It never existed (zero code hits), and `CHANNEL_SECRET` itself is retired — adapters now exchange an ES256 service token via `AUTHD_SERVICE_KEY`.                |
+| `Z-egred-mitm.md`            | 593 lines proposing HTTPS-MITM on an `egred` daemon that was never built, premised on `gated`. Its own opening quoted `EXTENDING.md` _rejecting_ MITM, then reintroduced it. `crackbox` (`6/24`) is the answer. |
 
 There is no secret-broker spec in this phase: the broker is specced in
-[`../5/13-ext-mcp.md`](../5/13-ext-mcp.md).
+`EXTENDING.md`.
 
 ## Deleted 2026-11-07
 

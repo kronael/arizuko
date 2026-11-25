@@ -134,7 +134,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// TestHoldGate_HoldApproveRun is spec 5/19's acceptance path end to end at the
+// TestHoldGate_HoldApproveRun is the hold acceptance path (reference/grants.html) end to end at the
 // gate: a hold rule suspends the call and records a row, an approval runs THAT
 // call inside the same turn, and a tool no rule covers is never delayed.
 func TestHoldGate_HoldApproveRun(t *testing.T) {

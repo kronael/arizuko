@@ -64,7 +64,7 @@ func tarOneFolder(t *testing.T, folders ...string) []byte {
 
 // TestExtractGroups_HoldsEveryExtractedFolder: every folder whose tree is
 // actually written gets its run slot claimed first and released after. This
-// is the guarantee spec 5/8 asks for — no agent turn can start mid-extraction.
+// is the guarantee runed/README.md asks for — no agent turn can start mid-extraction.
 func TestExtractGroups_HoldsEveryExtractedFolder(t *testing.T) {
 	tarBytes := tarOneFolder(t, "atlas", "borealis")
 

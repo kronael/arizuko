@@ -1,6 +1,6 @@
 package main
 
-// OAuth / login surface (/auth/*), owned by authd (spec 5/1): the provider
+// OAuth / login surface (/auth/*), owned by authd (authd/README.md): the provider
 // dance is the auth library's pure wrappers, and authd mints an ES256 access
 // token plus a rotating refresh. proxyd mounts no /auth/* routes; it 302s
 // unauthenticated callers here.
@@ -38,7 +38,7 @@ type oauth struct {
 	dex   *oidc.Provider
 }
 
-// registerOAuth mounts /auth/* on mux, per configured provider (spec 5/1
+// registerOAuth mounts /auth/* on mux, per configured provider (authd/README.md
 // § OAuth routes), and only when AUTH_BASE_URL is set.
 func (s *server) registerOAuth(mux *http.ServeMux, cfg *core.Config) {
 	if cfg == nil || cfg.AuthBaseURL == "" {
@@ -132,7 +132,7 @@ func (o *oauth) redirect(provider string) http.HandlerFunc {
 }
 
 // authReturnCookie is the same-origin hand-off proxyd writes before bouncing a
-// caller to /auth/login. proxyd's requireAuth is its ONLY writer (spec 5/31-identity-pairing):
+// caller to /auth/login. proxyd's requireAuth is its ONLY writer (SECURITY.md):
 // a backend that wrote one too would bounce a caller proxyd had already let
 // through.
 const authReturnCookie = "auth_return"
@@ -271,10 +271,10 @@ func (o *oauth) discordCallback(w http.ResponseWriter, r *http.Request) {
 
 // dispatch resolves the provider identity to a canonical authd user (creating
 // or linking as needed) and issues an ES256 session. Alias resolution happens
-// HERE, at mint (spec 5/32-acl-unified): `acl.principal` keys on provider subs, so a
+// HERE, at mint (auth/README.md): `acl.principal` keys on provider subs, so a
 // linked alias must mint the ACCOUNT's canonical sub or it is a principal
 // with none of the account's grants; nothing downstream resolves. The three
-// cases of spec 5/1 § Account linking, in order: explicit link, returning
+// cases of authd/README.md linking, in order: explicit link, returning
 // login, first login.
 func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, providerSub, name string, intent auth.StateIntent) {
 	if providerSub == "" {
@@ -290,7 +290,7 @@ func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, provi
 	}
 	if err := o.a.st.LinkOAuthIdentity(canonical, name, provider, providerSub); err != nil {
 		// A link that targets an identity another account owns is refused: the
-		// hard fail of spec 5/1, not a merge.
+		// hard fail of authd/README.md, not a merge.
 		slog.Error("oauth upsert user", "user", canonical, "login", login, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -317,7 +317,7 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 		return
 	}
 	access := m.token
-	// Store the BARE canonical sub (spec 5/1 "sub prefix rule": the
+	// Store the BARE canonical sub (authd/README.md: the
 	// user:/service: prefix lives ONLY in the JWT sub claim). Refresh re-adds
 	// the prefix when it mints.
 	refresh, err := o.a.IssueRefresh(sub, scope, "")
@@ -367,7 +367,7 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 		auth.JSSafe(accessJS), auth.JSSafe(destJS))
 }
 
-// snapshot resolves the login-time scope ceiling (spec 5/1): empty-scope when
+// snapshot resolves the login-time scope ceiling (authd/README.md): empty-scope when
 // no grants fetcher is wired or the sub has no grants (→ /onboard);
 // fail-closed (ok=false) only when the grants backend is down.
 func (o *oauth) snapshot(ctx context.Context, bareSub string) (scope []string, folder string, ok bool) {

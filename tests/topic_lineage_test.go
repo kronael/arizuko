@@ -1,4 +1,4 @@
-// Integration tests for session-spanning features shipped in spec 5/F-topic-lineage
+// Integration tests for session-spanning features shipped in ROUTING.md
 // (topic lineage + plain-cp fork + cross-folder ambient + per-group
 // observe-window) — MCP edge. Each test boots an in-memory store,
 // wires RoutdFns the way routd does, binds an MCP socket, and drives

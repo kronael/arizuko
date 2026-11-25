@@ -35,8 +35,3 @@ reads links and `depends:`; `tests/webdocs` reads the published pages and, as
 of 2026-09-20, accepts a colon after "spec" so `Spec:&nbsp;7/F` no longer slips
 past it. Source comments have no guard at all, which is why they are the thing
 a renumber has to sweep by hand (BUGS `L43`, `L237`).
-
-**Do not rewrite `5/34` on sight.** An older note here warned that `5/34` in
-code meant cost caps. RE-MEASURED 2026-09-20: all eleven `5/34` sites are about
-dedup, outbound resolution and route targets, which is exactly what
-`specs/5/34 — Channel adapter protocol` holds. The citations are correct.

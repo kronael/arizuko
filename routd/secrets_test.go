@@ -76,7 +76,7 @@ func (d *DB) folderSecrets(folder string) map[string]string {
 	return out
 }
 
-// REST-face tests for the spec 5/16 secrets fold: POST /v1/secrets (create =
+// REST-face tests for the secrets resource (resreg/README.md): POST /v1/secrets (create =
 // set/seal) and DELETE /v1/secrets/{key} now ride the shared secretsHandler via
 // resreg.RegisterREST — a FORWARDER (Store nil) so resreg writes no audit row and
 // opens no tx; the existing sealing, audited s.db.SetSecret/DeleteSecret own the
@@ -196,7 +196,7 @@ func TestSecretEnvProfileKeyAtFolderRejected(t *testing.T) {
 	}
 }
 
-// TestSecretRESTContainmentDenied is the security tightening (spec 5/16): the
+// TestSecretRESTContainmentDenied is the security tightening (resreg/README.md): the
 // folded Authz binds the target scope to the caller's authority, so a folder-
 // scoped caller may write only WITHIN its own subtree. A tier-1 caller ("world/a")
 // writes its own descendant (allowed) but is DENIED a cross-world folder scope —

@@ -71,7 +71,7 @@ func TestInstalledPackagesRegistered(t *testing.T) {
 }
 
 // Every declared action must carry an MCPDoc entry, or it silently gets no agent
-// tool and no x-mcp-when annotation (5/17: strict, no fallback to summary).
+// tool and no x-mcp-when annotation (resreg/README.md: strict, no fallback to summary).
 func TestInstalledPackagesEveryActionHasAgentDoc(t *testing.T) {
 	for _, e := range InstalledPackagesEndpoints {
 		if InstalledPackagesMCPDoc[e.Action] == "" {

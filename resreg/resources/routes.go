@@ -44,7 +44,7 @@ var RoutesResponses = map[resreg.Action]reflect.Type{
 }
 
 // RoutesMCPNames maps each action to the flat tool name the live agent calls
-// (spec 5/16).
+// (resreg/README.md).
 var RoutesMCPNames = map[resreg.Action]string{
 	resreg.Action("add"): "add_route",
 	resreg.Action("set"): "set_routes",
@@ -88,7 +88,7 @@ func init() {
 		MCPArgs:       RoutesMCPArgs,
 		MCPNames:      RoutesMCPNames,
 		// No folder scope: routes.target carries a query mode and topic fragment,
-		// not column-equal to a folder (spec 5/8 §"FK posture"), so Apply
+		// not column-equal to a folder (resreg/README.md), so Apply
 		// rebuilds routes wholesale. `id` is server-owned: Diff ignores it, it
 		// is never a create argument, and a row without one gets one minted.
 		StampedFields: []string{"ID"},

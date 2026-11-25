@@ -4,7 +4,7 @@ status: defected
 # L538: § "Where the axis deliberately does NOT reach" says the container
 # capabilities refuse the action lattice; routd reads them through it
 defects: [L538]
-depends: [5/32-acl-unified, 5/A-primitives-framing]
+depends: [5/A-primitives-framing]
 ---
 
 # specs/5/33 — paths, roles, and grant-option (tiers removed)
@@ -14,7 +14,7 @@ depends: [5/32-acl-unified, 5/A-primitives-framing]
 > governs re-delegation. Authority flows by delegation — a subset of what you
 > hold — never by a depth number.
 
-`5/32` owns the `acl` row and the `Authorize` evaluator. **This spec owns the
+`auth/README.md` owns the `acl` row and the `Authorize` evaluator. **This spec owns the
 model decision**: what an identity carries, where default power comes from, and
 how authority moves between principals. The two do not overlap.
 
@@ -56,7 +56,7 @@ the tier axis was net cost.
    grants rather than tree position.
 
 5. **Only worlds + delegated subgroups.** Top-level is a world (where users
-   onboard, `5/18`); everything under it exists by delegation. No third
+   onboard, `onbod/README.md`); everything under it exists by delegation. No third
    structural tier.
 
 6. **Mounts and egress are grants.** Filesystem share, network egress, and web
@@ -99,7 +99,7 @@ the tier axis was net cost.
 
 13. **A turn authorizes on two axes, and the identity axis is confined.** See
     §"Two axes" below. It is a decision of this spec because it answers "what
-    does an identity carry"; `5/32` owns only how the evaluator reads it.
+    does an identity carry"; `auth/README.md` owns only how the evaluator reads it.
 
 ## Two axes
 
@@ -140,7 +140,7 @@ both required:
    mechanism — `/root`, gated on `IsOperator`, one-shot, explicit
    (`routd.cmdRoot`) — and this must not become an implicit second one. It is
    the namespace isolation `auth.actionCovers` applies to holds and shell env
-   (`5/19` Hazard 2).
+   (`template/web/pub/arizuko/reference/grants.html` Hazard 2).
 
 **Deny is never bounded by the axes.** Within the selected layer, a person's deny refuses the turn
 they triggered wherever it reaches. That is the only NARROWING a union of grant
@@ -188,7 +188,7 @@ Three reads stay single-axis on `folder:<folder>`, and each for its own reason:
   held is a property of the folder's policy, not of who asked.
 
 All three already refuse the action lattice for the same family of reason
-(`5/19` Hazard 2). Adding an axis to any of them is a separate decision.
+(`template/web/pub/arizuko/reference/grants.html` Hazard 2). Adding an axis to any of them is a separate decision.
 
 ### Residual, recorded
 

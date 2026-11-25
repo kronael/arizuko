@@ -1,7 +1,7 @@
 package auth
 
 // JWKS publication + offline verification. authd serves PublicJWKS at /v1/keys;
-// backends verify against it (specs/5/1 "offline verification, no hot-path hop").
+// backends verify against it (auth/README.md).
 //
 // Two verify paths, one VerifyToken entrypoint. Backends call FetchKeys(authdURL) → a
 // KeySet backed by go-oidc's RemoteKeySet, which handles caching, rotation and
@@ -134,7 +134,7 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 	if err := json.Unmarshal(payload, &c); err != nil {
 		return Subject{}, ErrInvalidToken
 	}
-	// Pin the issuer — only authd-minted tokens are accepted (specs/5/1).
+	// Pin the issuer — only authd-minted tokens are accepted (auth/README.md).
 	if c.Iss != Issuer {
 		return Subject{}, ErrInvalidToken
 	}
@@ -144,7 +144,7 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 	if c.Exp == 0 || c.Nbf == 0 || c.Iat == 0 {
 		return Subject{}, ErrInvalidToken
 	}
-	// typ is a required claim that drives verifier policy (spec 5/1 § JWT claim
+	// typ is a required claim that drives verifier policy (auth/README.md claim
 	// set): it must be one of user|service|downscoped — a missing/unknown typ is
 	// a reject (no fail-open), and a downscoped token must carry parent_jti.
 	switch c.Typ {

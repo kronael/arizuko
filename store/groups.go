@@ -469,7 +469,7 @@ func (s *Store) SetGroupOpen(folder string, open bool) error {
 // GroupObserveWindow returns the per-group observe-window caps. (-1,-1) means
 // "not set; fall back to env defaults". Per-route caps win over per-group,
 // per-group over env. A store failure or a settings document that does not
-// parse is an error, never "not set". Spec 5/F-topic-lineage.
+// parse is an error, never "not set". ROUTING.md.
 func (s *Store) GroupObserveWindow(folder string) (msgs, chars int, err error) {
 	msgs, chars = -1, -1
 	it, ok, err := s.groupItem(context.Background(), folder)
@@ -578,7 +578,7 @@ func (s *Store) SetGroupSettings(folder string, settings map[string]json.RawMess
 
 // SiblingFolders returns folders that share folder's immediate parent,
 // excluding folder itself and any closed sibling. Root folders have no
-// siblings. Spec 5/F-topic-lineage ambient join.
+// siblings. ROUTING.md ambient join.
 func (s *Store) SiblingFolders(folder string) ([]string, error) {
 	parent := groupfolder.ParentOf(folder)
 	if parent == "" {

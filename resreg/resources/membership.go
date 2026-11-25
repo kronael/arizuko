@@ -24,7 +24,7 @@ type ACLMembershipRow struct {
 var ErrMembershipCycle = errors.New("acl_membership: cycle")
 var ErrMembershipSelf = errors.New("acl_membership: self")
 
-// The resource carries exactly ONE action (spec 5/31-identity-pairing § Unpair): delete,
+// The resource carries exactly ONE action (resreg/README.md): delete,
 // scoped to added_by='pairing' so it can never reach role membership. There
 // is no add face. The DELETE is body-addressed because the PK is composite.
 var ACLMembershipEndpoints = []resreg.Endpoint{
@@ -42,7 +42,7 @@ var ACLMembershipMCPDoc = map[resreg.Action]string{
 		"the agent handling that chat, or the account holder over REST. It only " +
 		"touches links made by pairing, never role membership, and it cannot add " +
 		"authority (there is no inverse verb). Takes effect on the identity's next " +
-		"tool call. Spec 5/31.",
+		"tool call.",
 }
 
 var ACLMembershipMCPArgs = map[resreg.Action][]resreg.MCPArg{
@@ -70,8 +70,8 @@ func init() {
 		MCPDoc:        ACLMembershipMCPDoc,
 		MCPArgs:       ACLMembershipMCPArgs,
 		MCPNames:      ACLMembershipMCPNames,
-		// CRITICAL (spec 5/8 §"Cross-subsystem apply"): pairing edges are
-		// consented runtime state (spec 5/31-identity-pairing), never operator intent, and must
+		// CRITICAL (resreg/README.md): pairing edges are
+		// consented runtime state (resreg/README.md), never operator intent, and must
 		// stay OUT of every manifest-visible read AND write, or a rollback
 		// would silently resurrect authority a caller deliberately revoked.
 		// Ne, not `IS NULL OR <>`: a filter has no OR, and every row carries
@@ -85,7 +85,7 @@ func init() {
 // ancestor: the same walk store.AddMembership runs (objstore.Reachable), over
 // the MANIFEST's graph alone, since an apply wipes the projection before it
 // writes. The pairing edges the RowFilter excludes are outside this graph by
-// the same declaration (spec 5/31-identity-pairing). It runs BEFORE the wipe; an apply has no
+// the same declaration (resreg/README.md). It runs BEFORE the wipe; an apply has no
 // rollback.
 func noMembershipCycle(ctx context.Context, rows any) error {
 	edges, ok := rows.([]ACLMembershipRow)

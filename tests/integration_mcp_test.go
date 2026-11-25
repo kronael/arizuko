@@ -240,7 +240,7 @@ func TestMCP_SocialActions(t *testing.T) {
 }
 
 // Route management (add_route/list_routes/delete_route) moved from the ipc
-// ServeMCP surface to the routd routes resreg seam (spec 5/16); parity is covered
+// ServeMCP surface to the routd routes resreg seam (resreg/README.md); parity is covered
 // by routd/routes_resource_test.go. This ipc-level harness no longer serves them.
 
 func TestMCP_InviteTools(t *testing.T) {
@@ -327,7 +327,7 @@ func TestMCP_MessageInspection(t *testing.T) {
 	})
 }
 
-// web_route MCP tools moved to routd's resreg resource (spec 5/16 pilot);
+// web_route MCP tools moved to routd's resreg resource (resreg/README.md);
 // coverage lives in routd/web_routes_resource_test.go (real socket + seam).
 
 func TestMCP_GroupObservation(t *testing.T) {

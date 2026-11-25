@@ -56,7 +56,7 @@ func tokenIssue(st *store.Store, args []string) {
 	}
 	fs := flag.NewFlagSet("token issue", flag.ContinueOnError)
 	var context string
-	fs.StringVar(&context, "context", "", "per-link processing instructions stored on the token (spec 5/W)")
+	fs.StringVar(&context, "context", "", "per-link processing instructions stored on the token")
 	fs.StringVar(&context, "c", "", "per-link processing instructions (short)")
 	if err := flexParse(fs, args); err != nil || fs.NArg() < 2 || fs.NArg() > 4 {
 		usage(err, issueUsage)

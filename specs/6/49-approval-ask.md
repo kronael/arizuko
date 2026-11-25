@@ -1,6 +1,5 @@
 ---
 status: partial
-depends: [../5/19-hitl-firewall, ../5/32-acl-unified]
 ---
 
 # specs/6/49 — approvals: one line to ask, one rule to stop asking
@@ -30,7 +29,7 @@ later policy changes. Local exceptions remain the operator's data.
 ## Decision 1 — the gate asks, in the agent's words
 
 The gate asks, not the agent. The call is suspended at the socket
-(`5/19-hitl-firewall §"Blocking is the default"`), so the agent
+(`template/web/pub/arizuko/reference/grants.html`), so the agent
 cannot speak until the verdict. A question the agent asked before the call
 would be answered twice: once to the agent, once on the gate's notice. A chat
 answer to the agent is not a verdict: a verdict needs an `admin` grant on the
@@ -85,7 +84,7 @@ A tool with `none` gets no `/always`.
 
 The notice is the ask line, one line that says what `/always` means, and the
 three verdicts as buttons. A green or red reaction resolves the row
-(`5/19-hitl-firewall §"Reactions — the universal answer"`), and
+(`template/web/pub/arizuko/reference/grants.html`), and
 `/dash/approvals/` lists every held row with the portal banner counting them.
 
     ⏸ rhias/nemo wants to react 👀 to message 156 — ok? (647ec18e)

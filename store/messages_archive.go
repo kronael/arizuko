@@ -187,8 +187,8 @@ func archiveRowFrom(it objstore.Item) ArchiveMessageRow {
 }
 
 // ImportMessagesJSONL reads JSONL from r and appends every row, keyed on its
-// own coordinate: an idempotent bulk append, not a rebuild (spec 5/8 "Message
-// history"). It answers the rows read, the chats touched (for the caller to
+// own coordinate: an idempotent bulk append, not a rebuild (cmd/arizuko/README.md § Rows
+// files and the dump). It answers the rows read, the chats touched (for the caller to
 // derive agent_cursor from), and the rows it refused.
 //
 // EVERY TIMESTAMP IS RE-RENDERED THROUGH core.TS on the way in: an archive is

@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/16 routes migration: the agent's
+// Parity tests for the resreg/README.md routes migration: the agent's
 // add_route/set_routes/list_routes/delete_route now ride resreg's MCP mechanism
 // through the ServeMCP postBuild seam instead of four hand-rolled ipc bodies. Each
 // test drives the REAL unix socket end-to-end (not the handler directly) so the
@@ -556,7 +556,7 @@ func TestRoutesMCP_AuditRowLands(t *testing.T) {
 // helpers, moved here from ipc when the route tools migrated to resreg (their only
 // callers moved with them).
 //
-// A route target is a BARE folder path. Spec 5/34-channel-protocol gives targets no prefix
+// A route target is a BARE folder path. ROUTING.md gives targets no prefix
 // vocabulary and no writer emits one, so `folder:`/`daemon:`/`builtin:` are not
 // folders — the prefixed cases below pin that they are within nothing and are
 // nobody's self-default, rather than being silently stripped back into a folder

@@ -12,7 +12,7 @@ import (
 )
 
 // proxyd reads routd's `acl` directly, per request, instead of calling routd's
-// HTTP face. Spec 5/16 § "The hot-path exception" decides that stays. This test
+// HTTP face. proxyd/README.md decides that stays. This test
 // pins the property the decision rests on, so the rejected design fails a test
 // instead of passing review. (`route_tokens` was the other hot-path read;
 // That resolution lives in webd now, webd/README.md.)
@@ -20,7 +20,7 @@ import (
 // A grant revoked in `acl` is denied on the very next request, even though the
 // caller's still-valid JWT carries the folder in its login-time Scope claim.
 //
-// This is the whole of the trade-off spec 5/16 § "The hot-path exception"
+// This is the whole of the trade-off proxyd/README.md
 // weighed: swapping the per-request `auth.UserScopes(s.stRoutd, …)` read for
 // `sub.Scope` would serve this request from the token's stale snapshot and
 // return 200, leaving a revoked grant live until the token refreshes
@@ -60,6 +60,6 @@ func TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403: the acl row is gone, so the revocation "+
 			"must bite now. A 200 means groups came from the token's stale Scope "+
-			"claim, not from routd.db (spec 5/16 § The hot-path exception)", w.Code)
+			"claim, not from routd.db (proxyd/README.md hot-path exception)", w.Code)
 	}
 }

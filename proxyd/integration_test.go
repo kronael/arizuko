@@ -48,7 +48,7 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 }
 
 // TestAuthGate_Unauthorized: GET /panel/* without a JWT bounces to /auth/login.
-// (/chat/ is public per spec 5/W; /panel/ is the new user-authed surface.)
+// (/chat/ is public per ROUTING.md; /panel/ is the new user-authed surface.)
 func TestAuthGate_Unauthorized(t *testing.T) {
 	s, _, _ := newIntegProxy(t, "integsecret")
 

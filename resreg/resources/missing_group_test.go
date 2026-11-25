@@ -1,6 +1,6 @@
 package resources
 
-// The missing-group rule (spec 5/8 §"The missing-group rule") against the REAL
+// The missing-group rule (resreg/README.md) against the REAL
 // resource declarations and the REAL schema — nothing under the rule binds a
 // folder reference to a group, so the rule is the only thing that catches one,
 // and a synthetic resource would prove nothing.

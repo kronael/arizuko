@@ -7,7 +7,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// Spec 5/Z-message-actions — pin_message, unpin_message, unpin_all MCP tool integration.
+// EXTENDING.md — pin_message, unpin_message, unpin_all MCP tool integration.
 // Tests verify the routd wiring: tool calls dispatch to RoutdFns.Pin/Unpin
 // and gracefully handle missing capabilities (nil funcs → error, not panic).
 

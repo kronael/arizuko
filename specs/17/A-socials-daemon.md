@@ -16,12 +16,12 @@ both ways.
 The socials daemon presents every social capability (post, schedule, monitor
 feed, engagement metrics, cross-post) through **one MCP surface** and injects it
 into the router — the same broker-connector seam other MCP integrations use
-(`specs/5/13-ext-mcp.md`), not a chanlib adapter.
+(`EXTENDING.md`), not a chanlib adapter.
 
 ## Consequences
 
 - chanlib + the interactive-prompt primitive
-  ([5/19](../5/19-hitl-firewall.md)) target **chat channels only**
+  (`template/web/pub/arizuko/reference/grants.html`) target **chat channels only**
   (telegram/discord/slack/whatsapp/email); socials are out of scope for
   buttons/HITL prompts.
 - The `socials` product (`packages/socials/`) consumes this daemon, not

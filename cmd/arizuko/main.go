@@ -74,10 +74,10 @@ func main() {
 		"budget":       cmdBudget,
 		"usage":        cmdUsage,
 		"token":        cmdToken,
-		"plan":         cmdPlan,  // spec 5/8
-		"get":          cmdGet,   // spec 5/8
-		"dump":         cmdDump,  // spec 5/8
-		"apply":        cmdApply, // spec 5/8
+		"plan":         cmdPlan,  // cmd/arizuko/README.md
+		"get":          cmdGet,   // cmd/arizuko/README.md
+		"dump":         cmdDump,  // cmd/arizuko/README.md
+		"apply":        cmdApply, // cmd/arizuko/README.md
 	}
 	remote := map[string]func([]string){"talk": cmdTalk, "probe": cmdProbe, "model-pauses": cmdModelPauses}
 	if fn, ok := remote[os.Args[1]]; ok {

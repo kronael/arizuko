@@ -759,7 +759,7 @@ func classifySendErr(err error, firstID string) error {
 
 // isMentioned returns true when the bot is in the Discord-populated
 // Mentions list — i.e. the user typed `@<bot>` in body. Reply-to-bot
-// promotion lives in gateway/api (spec 5/L), driven by ReplyTo + the
+// promotion lives in gateway/api (ROUTING.md), driven by ReplyTo + the
 // stored is_bot_message column; no per-adapter ring buffer needed.
 func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 	botID := b.session.State.User.ID

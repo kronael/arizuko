@@ -1,6 +1,6 @@
 package chanlib
 
-// Adapter service-token auth on routd ingress (spec 5/1, the split's A1). A
+// Adapter service-token auth on routd ingress (authd/README.md, the split's A1). A
 // RouterClient with a service-token source exchanges its AUTHD_SERVICE_KEY for a
 // service:<adapter> JWT against an in-process authd and presents that JWT on
 // /v1/messages; a routd-shaped server verifies it over the SAME auth.FetchKeys

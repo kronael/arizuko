@@ -32,9 +32,9 @@ var (
 	idRe   = regexp.MustCompile(`(?i)\b(?:id|name)\s*=\s*"([^"]+)"`)
 
 	// specPathRe matches a spec named by filename — in an href
-	// ("…/blob/main/specs/5/17-openapi-mcp.md"), in prose, or in a JS
+	// ("…/blob/main/specs/5/33-paths-roles.md"), in prose, or in a JS
 	// comment. specIDRe matches the shorter form the pages also use, where
-	// the slug is left off: "spec 5/17", "spec&nbsp;5/17", "specs/5/17".
+	// the slug is left off: "spec 5/33", "spec&nbsp;5/33", "specs/5/33".
 	// All three are in the tree, so all three are checked.
 	specPathRe = regexp.MustCompile(`specs/([1-9][0-9]?)/([0-9A-Za-z][0-9A-Za-z_.-]*)\.md`)
 	// The separator class carries a COLON as well as whitespace: a page writes
@@ -197,8 +197,8 @@ func TestWebDocsFragmentsResolve(t *testing.T) {
 func TestWebDocsSpecPathsResolve(t *testing.T) {
 	// A regex that stops matching passes over every page. Run it over a planted
 	// sample first: the first must match, the second must not.
-	if !specPathRe.MatchString(`<a href="https://github.com/o/r/blob/main/specs/5/17-openapi-mcp.md">`) ||
-		specPathRe.MatchString(`the specs/ directory and the 5/17 handle`) {
+	if !specPathRe.MatchString(`<a href="https://github.com/o/r/blob/main/specs/5/33-paths-roles.md">`) ||
+		specPathRe.MatchString(`the specs/ directory and the 5/33 handle`) {
 		t.Fatal("specPathRe no longer separates a spec path from prose; the extraction is broken")
 	}
 	checked := 0
@@ -225,7 +225,7 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 }
 
 // TestWebDocsSpecIDsResolve covers the shorter form the same pages use —
-// "spec 5/17", "spec&nbsp;5/17", "specs/5/17" — where the slug is left off
+// "spec 5/33", "spec&nbsp;5/33", "specs/5/33" — where the slug is left off
 // and only a glob can resolve it. A renumbered phase leaves this form
 // dangling while every filename beside it is correct; nine were dead
 // alongside the sixteen paths.
@@ -235,12 +235,12 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 // but a published page that does so hands its reader a 404.
 func TestWebDocsSpecIDsResolve(t *testing.T) {
 	// Same self-check as the path test, over the three spellings the pages use.
-	for _, sample := range []string{"spec 5/17", "spec&nbsp;5/17", "see Spec: 5/17."} {
+	for _, sample := range []string{"spec 5/33", "spec&nbsp;5/33", "see Spec: 5/33."} {
 		if !specIDRe.MatchString(sample) {
 			t.Fatalf("specIDRe does not match %q; the extraction is broken", sample)
 		}
 	}
-	if specIDRe.MatchString("chapter 5/17 of the guide, 3/4 of the pages") {
+	if specIDRe.MatchString("chapter 5/33 of the guide, 3/4 of the pages") {
 		t.Fatal("specIDRe matches a plain fraction; the extraction is broken")
 	}
 	checked := 0
@@ -252,7 +252,7 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 		s := string(body)
 		for _, loc := range specIDRe.FindAllStringSubmatchIndex(s, -1) {
 			// Skip an ID that is the head of a real filename: the path check
-			// above already owns "specs/5/17-openapi-mcp.md", and reporting
+			// above already owns "specs/5/33-paths-roles.md", and reporting
 			// it twice hides which form actually needs the edit. A trailing
 			// slug that is NOT a filename stays this check's business —
 			// "specs/7/D-*" is a glob two pages wrote, and skipping on the

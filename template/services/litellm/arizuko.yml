@@ -1,6 +1,6 @@
 name: litellm
 # What the gateway needs from the instance .env, provisioned by `packages add`
-# and again by every generate (spec 5/8 `env`). Neither secret has a meaning a
+# and again by every generate (resreg/README.md `env`). Neither secret has a meaning a
 # human could supply, so both are minted once and land in .env as the
 # operator's lines; the URL is what routd mints against and runed hands every
 # spawn, and it is the compose service name, so it holds unless the operator

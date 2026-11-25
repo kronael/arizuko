@@ -1,12 +1,6 @@
 ---
 status: partial
-depends:
-  [
-    ../5/34-channel-protocol,
-    ../5/13-ext-mcp,
-    ../5/14-credentials,
-    ../5/Q-unified-routing,
-  ]
+depends: [../5/14-credentials]
 ---
 
 # specs/6/45 — googd: Google Drive comment threads as a channel
@@ -219,8 +213,7 @@ the final cause, and deletes it when the turn succeeds
 `comments.create`, never edits a document or a person's reply. Resolving or
 reopening a thread, opening a new (anchored) thread through `insertComment`,
 and every document edit are state changes and go through an MCP connector
-under per-tool grants and holds — `specs/5/13-ext-mcp.md` §"Shape 2 — MCP HTTP
-connector (shipped)", `specs/5/19-hitl-firewall.md` — exactly the line
+under per-tool grants and holds — `EXTENDING.md`, `template/web/pub/arizuko/reference/grants.html` — exactly the line
 `gitd/README.md` states for
 GitHub.
 

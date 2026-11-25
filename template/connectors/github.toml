@@ -1,4 +1,4 @@
-# GitHub MCP connector (spec 5/13). Operator copy: drop this block into
+# GitHub MCP connector (EXTENDING.md). Operator copy: drop this block into
 # <data_dir>/connectors.toml (multi-block file) and restart routd.
 #
 # This is GitHub's HOSTED MCP server — nothing is installed. The connector is an
@@ -14,7 +14,7 @@
 #
 # For PAT sources, replace GITHUB_INSTALLATION_TOKEN with GITHUB_TOKEN in both
 # secrets and Authorization. GITHUB_TOKEN keeps its folder/user secret meaning,
-# including surrogate OAuth (spec 5/15). Neither mode exposes tokens to the agent.
+# including surrogate OAuth (EXTENDING.md). Neither mode exposes tokens to the agent.
 #
 # THE TOKEN DOES NOT GO IN THE HOST .env. `readSecrets` passes only
 # `store.EnvProfileKeys` (the model credentials) into a container, so a
@@ -25,7 +25,7 @@
 # cannot approve a pull request however it is reached.
 #
 # GRANTS. Each remote tool is gated as `mcp:github_<tool>`, so a deny row or a
-# `hold:` row (spec 5/19) can name one operation — the per-call authority the
+# `hold:` row (template/web/pub/arizuko/reference/grants.html) can name one operation — the per-call authority the
 # shell route cannot express.
 [[connector]]
 name      = "github"

@@ -40,7 +40,7 @@ type SendRequest struct {
 // Option is one pickable answer. Data is what a press SENDS: the adapter
 // delivers the press as an ordinary InboundMsg whose Content is that string,
 // so a press and a typed command are one inbound path under one gate (spec
-// 5/19); an adapter never interprets an option.
+// EXTENDING.md); an adapter never interprets an option.
 type Option struct {
 	Label string `json:"label"`
 	Data  string `json:"data"`

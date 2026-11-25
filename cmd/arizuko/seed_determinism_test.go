@@ -18,7 +18,7 @@ import (
 // skips the checksum compare, so nothing caught it.
 //
 // The guard is on the SEED, not on the hash: Checksum must stay sha256 of the
-// exact bytes Export emits (one renderer, spec 5/8).
+// exact bytes Export emits (one renderer, cmd/arizuko/README.md).
 func TestFreshInstancesAgreeOnSeedChecksum(t *testing.T) {
 	_, a := openInstance(t)
 	// Cross a wall-clock second so a CURRENT_TIMESTAMP seed is guaranteed to

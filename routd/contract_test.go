@@ -20,7 +20,7 @@ import (
 
 // stubRunner records the POST /v1/runs body and, on Run, replies through
 // routd's append-and-deliver (the sole appender) then returns
-// {outcome:ok, session_id:stub}. Mirrors the stub runed of spec 5/E-routd
+// {outcome:ok, session_id:stub}. Mirrors the stub runed of routd/README.md
 // §"Code pointers", the standalone-readiness bar.
 type stubRunner struct {
 	t        *testing.T
@@ -64,7 +64,7 @@ func newTestRoutd(t *testing.T) (*DB, *Server, *stubRunner) {
 	return db, srv, runner
 }
 
-// TestContractRoundTrip is the standalone-readiness bar of spec 5/E-routd
+// TestContractRoundTrip is the standalone-readiness bar of routd/README.md
 // §"Code pointers": ingest → route → loop dispatches a stub run → callback
 // reply appends one bot row → submit_turn recorded in turn_results, duplicate
 // dropped.
@@ -124,7 +124,7 @@ func TestContractRoundTrip(t *testing.T) {
 // batch is re-fed next poll), NOT surface an error (so the queue breaker never
 // trips — busy ≠ failure), and leave turn_context 'running' (so the re-dispatch
 // is live). Once capacity frees, the SAME turn_id re-dispatches and completes.
-// Spec 5/E-routd § routd↔runed interface — busy is retryable, not a route-miss and
+// routd/README.md↔runed interface — busy is retryable, not a route-miss and
 // not a delivery failure.
 func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
@@ -373,7 +373,7 @@ func TestResultRecordsOutcome(t *testing.T) {
 // TestRouteTokenRoundTrip checks a REST-minted token resolves. Resolution is
 // deliberately NOT an HTTP leg: webd and proxyd are FS-mounted on routd.db and
 // call store.LookupRouteToken in-process, so that is what the round trip
-// exercises (spec 5/W § Resolution).
+// exercises (ROUTING.md).
 func TestRouteTokenRoundTrip(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -389,7 +389,7 @@ func TestRouteTokenRoundTrip(t *testing.T) {
 	if rec.Code != 201 {
 		t.Fatalf("issue status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// Unified fold shape (5/16): {token,jid,url}, not the retired RouteTokenResponse.
+	// Unified fold shape (resreg/README.md): {token,jid,url}, not the retired RouteTokenResponse.
 	var issued struct {
 		Token string `json:"token"`
 		JID   string `json:"jid"`

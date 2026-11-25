@@ -1,7 +1,7 @@
 package routd
 
 // routes_resource.go puts the agent's routing tools on ONE resreg.Resource
-// (spec 5/16). A route's TARGET decides which group a chat's turns fire in,
+// (resreg/README.md). A route's TARGET decides which group a chat's turns fire in,
 // so two invariants hold EXACTLY, in the HANDLER (each needs a read the
 // handler already performs), not the Gate: TARGET CONTAINMENT — a target must
 // be within the caller's reach via the injected contain seam, and set ALSO
@@ -334,7 +334,7 @@ func argJSONString(args resreg.Args, key string) string {
 // coordinate is (seq, target, match) with `seq` padded so text order IS
 // precedence order, and its `id` is minted from a counter store owns — two
 // concurrent adds reading a maximum would hand one handle to two rules.
-// added_by/added_via carry the same (who, act) pair onbod stamps (spec 5/18):
+// added_by/added_via carry the same (who, act) pair onbod stamps (onbod/README.md):
 // a reader must not need to know which daemon wrote a rule to learn who did.
 
 func routeTargetWithin(target, owner string) bool {

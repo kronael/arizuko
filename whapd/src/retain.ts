@@ -1,5 +1,5 @@
 // Durable inbound retention — whapd's half of the inbound delivery guarantee
-// (spec 5/34). The WhatsApp read receipt tells Baileys never to offer the
+// (whapd/README.md). The WhatsApp read receipt tells Baileys never to offer the
 // message again, so it is sent only after the message is recorded here: a routd
 // that is restarting must not lose it (BUGS L39). slakd and discd hold the same
 // guarantee through `chanlib.RouterClient.RetainInbound` (BUGS L25); whapd is

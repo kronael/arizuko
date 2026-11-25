@@ -1,6 +1,5 @@
 ---
 status: draft
-depends: specs/5/8-yaml-manifests.md, specs/5/17-openapi-mcp.md
 ---
 
 # specs/9/7 — Configurable autocalls
@@ -29,7 +28,7 @@ What the fixed registry cannot do:
 - An operator cannot inject "you have 3 unread in solo/inbox" or
   "siblings: eng, sre, oncall" without a routd code change.
 - A deployment cannot carry its autocall set in its config dump
-  (5/8 manifest) — the facts an agent sees aren't operator data,
+  (`resreg/README.md` manifest) — the facts an agent sees aren't operator data,
   they're frozen in the binary.
 - The planned `unread`/`errors` entries imply cheap store reads are
   acceptable, but the `autocallCtx` contract is "no I/O, no
@@ -137,17 +136,17 @@ The definitions are one `resreg.Resource` (`autocalls`), owned by
 "MCP + REST hand-rolled and uniform … one hand-written handler").
 The win is uniformity, not codegen: the resource declares one
 `RowType` + `Handler` + `Authz`, and because it sets
-`RowType`/`Table`/`PKFields`/`Scope`, the 5/8 engine drives the
+`RowType`/`Table`/`PKFields`/`Scope`, the `resreg/README.md` engine drives the
 mechanical CRUD/scan/parse/emit off that struct. From that one
 declaration the platform's existing surfaces reach it:
 
 - REST CRUD (`/v1/autocalls`, scoped paths under a group),
 - MCP tools (`autocalls.create`, `.list`, `.delete`, …),
 - YAML manifest round-trip (`arizuko get`/`apply`),
-- `/openapi.json` schema (5/8 §"OpenAPI emission"),
+- `/openapi.json` schema (`resreg/README.md` §"OpenAPI emission"),
 - one audit row per mutation, ACL-gated by `autocalls:<action>`.
 
-The per-resource cost is the same as any 5/8 resource — a struct, a
+The per-resource cost is the same as any `resreg/README.md` resource — a struct, a
 `Register` call, and a `ValidateRow` hook (below); not zero, but
 small and uniform. The `RowType` struct is the single contract; all
 surfaces decode into it. No second config path, no env-var fallback,
@@ -198,7 +197,7 @@ type Row struct {
 
 `Scope` is `yaml:"-"`: in a manifest it's set from the YAML position,
 not a row field, exactly as `acl`/`scheduled_tasks` derive their
-folder in 5/8. Two positions:
+folder in `resreg/README.md`. Two positions:
 
 ```yaml
 # base.yaml — instance-wide rows: top-level resource key, scope = ''
@@ -223,7 +222,7 @@ atlas:
 
 The parser maps the instance-wide list to `scope=''` rows and the
 nested list to `scope=<folder>` rows. PK is `(scope, name)`, so the
-5/8 merge rules apply unchanged: same `(scope, name)` with identical
+`resreg/README.md` merge rules apply unchanged: same `(scope, name)` with identical
 payload across files dedups; with differing payload it's a parse-time
 error; twice in one file is a parse-time error.
 
@@ -237,7 +236,7 @@ decodes to that probe's typed arg schema (unknown keys reject); for
 `{now}`).
 
 **`params` is a typed hole, acknowledged.** It's a JSON `TEXT` column
-so the row schema stays one flat struct (the 5/8 engine handles
+so the row schema stays one flat struct (the `resreg/README.md` engine handles
 scalar columns, not per-probe variant shapes). Its _contents_ are not
 free-form: `ValidateRow` decodes `params` against the named probe's
 declared arg schema and rejects unknown/mistyped keys. The OpenAPI
@@ -321,7 +320,7 @@ degrades that group's latency. Bounding (§Decided model #2) caps the
 blast radius to the budget; ownership caps who can arm it.
 
 - **Operator-owned by default.** `autocalls:create` / `:update` /
-  `:delete` are ACL actions (`specs/5/32-acl-unified.md`); the seed
+  `:delete` are ACL actions (`auth/README.md`); the seed
   grant scopes them to operators (the `**` grant row). An ordinary
   group member cannot define an autocall.
 - **Per-folder delegation is a grant, not a default.** An operator
@@ -443,7 +442,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
   §Autocalls paragraph gains one sentence: "operators may define
   additional autocalls; they appear in the same block and are equally
   authoritative."
-- **resreg adoption** rides 5/8's engine: `autocalls` is one more
+- **resreg adoption** rides `resreg/README.md`'s engine: `autocalls` is one more
   `resreg.Resource` with `RowType`/`Table`/`PKFields`/`Scope` set —
   it gets CRUD/YAML/OpenAPI from the engine. The only non-generic
   code is the routd-side renderer integration and the probe
@@ -474,13 +473,13 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - `EXTENDING.md` § Adding an autocall — the shipped hardcoded registry this
   generalizes; its planned `unread`/`errors` entries become the first
   two probes here.
-- `specs/5/8-yaml-manifests.md` — the DB-backed resreg substrate;
+- `resreg/README.md` — the DB-backed resreg substrate;
   `autocalls` is one more catalog resource, manifest-addressable,
   scoped by group nesting (`scope` implied like `acl`).
-- `specs/5/17-openapi-mcp.md` — `resreg.Resource` wires one
+- `resreg/README.md` — `resreg.Resource` wires one
   hand-rolled handler to REST + MCP + audit + the ACL gate;
   `autocalls:<action>` is the action key.
-- `specs/5/32-acl-unified.md` — `autocalls:*` actions; operator-owned
+- `auth/README.md` — `autocalls:*` actions; operator-owned
   by default, folder-delegable by explicit grant.
 - An MCP tool is the escape hatch for facts that need real work (shell,
   network, unbounded); autocalls stay cheap and inline.
@@ -500,7 +499,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
    self-folder-scoped unless a concrete need says otherwise.
 2. **Per-probe cache.** `siblings`/`topics` change rarely but render
    every turn. A short TTL cache keyed `(probe, folder, params)`
-   could cut even the budgeted read. Deferred: 5/8's no-config-cache
+   could cut even the budgeted read. Deferred: `resreg/README.md`'s no-config-cache
    rule applies to config rows, not to a probe _result_ cache, but a
    stale-read window needs its own justification. Wait for a measured
    hot path before adding.

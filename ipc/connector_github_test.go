@@ -9,11 +9,11 @@ import (
 
 // TestConnector_GitHubPATIntegration drives the REAL GitHub remote MCP server
 // through the connector when GITHUB_TOKEN is set, mirroring the operator path.
-// Skips otherwise. Spec 5/13 shape 2.
+// Skips otherwise. EXTENDING.md shape 2.
 //
 // It needs no local runtime: the endpoint is hosted, which is the whole reason
 // the connector moved off stdio (BUGS L132). A PAT is accepted as the bearer;
-// the same slot takes a surrogate-OAuth access token (spec 5/15).
+// the same slot takes a surrogate-OAuth access token (SECURITY.md).
 func TestConnector_GitHubPATIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test; needs network + github PAT")

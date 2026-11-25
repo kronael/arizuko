@@ -1,6 +1,6 @@
 package routd
 
-// Single-source guard for the spec 5/16 + 5/17 fold: each folded routd resource mounts
+// Single-source guard for resreg (resreg/README.md): each routd resource mounts
 // the endpoint set the resreg registry publishes under that resource's own Name — the
 // SAME slice the registry emits into /openapi.json.
 //
@@ -66,7 +66,7 @@ func testServer(t *testing.T) *Server {
 	return NewServer(db, nil, &recDeliverer{}, fakeVerifier{}, 0, "")
 }
 
-// TestResourceEndpoints_SingleSource is spec 5/16's "shared-identity test": every
+// TestResourceEndpoints_SingleSource pins the shared identity (resreg/README.md): every
 // resource routd MOUNTS carries a Name that is a registered wire identity, and the
 // endpoint set the registry publishes under that name. Resolving through mounted.Name
 // rather than a hand-written pairing is what catches the 2026-07-01 shape, where
@@ -270,7 +270,7 @@ func TestRoutdMux_ServesNoForeignResource(t *testing.T) {
 func TestRouteTokens_NoHandRolledResolve(t *testing.T) {
 	for _, e := range resources.RouteTokensEndpoints {
 		if strings.HasSuffix(e.Path, "/resolve") {
-			t.Fatalf("RouteTokensEndpoints declares %s %s — token delivery has no REST face (spec 5/W)", e.Verb, e.Path)
+			t.Fatalf("RouteTokensEndpoints declares %s %s — token delivery has no REST face (ROUTING.md)", e.Verb, e.Path)
 		}
 	}
 
@@ -295,7 +295,7 @@ func TestRouteTokens_NoHandRolledResolve(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_ScheduledTasksAdvertised proves spec 5/17's acceptance for
+// TestOpenAPI_ScheduledTasksAdvertised proves the two faces (resreg/README.md) for
 // scheduled_tasks against the real emitted document: every served endpoint is in
 // the doc, no unserved path is, and x-mcp-when marks exactly the actions with an
 // MCPDoc entry. Before F21 the resource was absent from OpenAPIResources
@@ -339,8 +339,8 @@ func TestOpenAPI_ScheduledTasksAdvertised(t *testing.T) {
 			continue
 		}
 		checked++
-		// operationId is <action>_<name> — spec 5/17 §"Resource name = wire
-		// identity" ruled for the emitted form (BUGS F28): OpenAPI RECOMMENDS an
+		// operationId is <action>_<name> — resreg/README.md § One handler, two faces
+		// rules the emitted form (BUGS F28): OpenAPI RECOMMENDS an
 		// operationId follow "common programming naming conventions" because
 		// generators turn it into a method name, and every major generator
 		// sanitizes a dot out. Pinned so the convention cannot drift.
@@ -348,7 +348,7 @@ func TestOpenAPI_ScheduledTasksAdvertised(t *testing.T) {
 			t.Errorf("%s %s: operationId = %q, want %q", e.Verb, e.Path, op.OperationID, want)
 		}
 		// x-mcp-when is present iff the action carries agent-facing prose —
-		// spec 5/17's "no MCPDoc entry → no tool and no annotation".
+		// resreg/README.md.
 		_, hasDoc := resources.ScheduledTasksMCPDoc[e.Action]
 		if hasDoc && op.MCPWhen == "" {
 			t.Errorf("%s %s: action %q has an MCPDoc entry but no x-mcp-when", e.Verb, e.Path, e.Action)

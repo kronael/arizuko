@@ -32,7 +32,7 @@ type DB struct {
 	secretKeyring [][]byte
 
 	// nil → no refresh; ConnectorSecrets reads the stored value unchanged
-	// (spec 5/15).
+	// (SECURITY.md).
 	surrogate *surrogate.Engine
 
 	// release drops the private namespace OpenMem reserved; nil against the
@@ -422,7 +422,7 @@ func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string
 	return d.store().BumpEngagementWith(ctx, jid, topic, folder, time.Now().Add(ttl), rec)
 }
 
-// Engagement is one LIVE engagement window (spec 5/G-engagement). An alias, not a struct:
+// Engagement is one LIVE engagement window (ROUTING.md). An alias, not a struct:
 // a second copy of the four fields is a second place for the shape to drift.
 type Engagement = store.Engagement
 
@@ -582,7 +582,7 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status, failure string,
 // TurnHasBotReply reports whether the agent already delivered a bot message
 // for this turn: the "delivered" fact recordTurnResult and check_turn read.
 // Interim verb="status" rows are excluded: an auto-status must NEVER count as the
-// reply, or the agent's real answer is swallowed (spec 5/24).
+// reply, or the agent's real answer is swallowed (routd/README.md).
 func (d *DB) TurnHasBotReply(chatJID, turnID string) bool {
 	return d.store().TurnHasBotReply(chatJID, turnID)
 }

@@ -1,6 +1,6 @@
 package main
 
-// Regression tests for the authd/auth bug-hunt fixes (specs/5/1, bugs.md
+// Regression tests for the authd/auth bug-hunt fixes (authd/README.md, bugs.md
 // "Codex oracle deeper pass"). Each test fails if its fix is reverted:
 //   - refresh rotation race  (atomic compare-and-set claim of a one-time token)
 //   - rotation atomicity     (exactly one active signing key under concurrency)

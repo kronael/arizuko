@@ -81,8 +81,8 @@ A daemon mounts only the data-dir subpaths it opens
 owner's files and every live MCP socket under `ipc/`. routd and runed take the
 whole tree: routd reads `connectors.toml`, `surrogate/*.toml` and `tts/` from
 the root and writes `audit-*.jl` there, and runed drives the spawn path. dashd
-mounts `groups/` and `surrogate/`, onbod `groups/` and `web/`. authd, webd and
-proxyd mount nothing.
+mounts `groups/`, `surrogate/` and `packages/`, onbod `groups/` and `web/`.
+proxyd mounts `web/` read-only. authd and webd mount nothing.
 
 ## The compose-managed .env block
 

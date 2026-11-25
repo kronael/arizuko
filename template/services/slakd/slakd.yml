@@ -2,7 +2,7 @@
 # Webhook route: slakd-routes.json (proxyd forwards /slack/ verbatim).
 # store/slakd/ only: slakd reads pane_sessions on the store server and writes
 # panes back over routd HTTP. The directory carries eyes.json, the watched-message
-# state; it needs no other part of the data dir (spec 5/16 step 7).
+# state; it needs no other part of the data dir (compose/README.md).
 services:
   slakd:
     container_name: ${APP}_slakd_${FLAVOR}

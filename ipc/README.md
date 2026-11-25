@@ -171,7 +171,11 @@ reopen a window that the agent cleared during that turn.
 Invites: `invite_create`, `invite_list`, `invite_revoke`. Route tokens:
 `issue_chat_link`, `issue_webhook`, `list_tokens`, `revoke_token`. Slack
 pane: `pane_set_prompts`, `pane_set_title`. Web: `get_web_presence`, a
-presence report, not `web_routes` CRUD.
+presence report, not `web_routes` CRUD. It reports the hosting domain, the
+derived host, an alias host, the canonical host, the public and private base
+URLs and `pub_path`. The tool and routd's `GET /v1/web_presence` call one
+function, `WebPresenceFor`, and a caller may ask for its own folder or a
+descendant; an elevated turn may ask for any folder.
 
 **Cold tier.** The `routes`, `web_routes`, `network_rules`,
 `scheduled_tasks` and `acl` tools, and the rest of routd's resreg
@@ -199,6 +203,11 @@ subtree; an elevated `/root` turn sees every folder.
   access the guest does not have, and that access would defeat the guest
   boundary. A mutating operator verb belongs in its own family, never in
   `inspect_*`.
+- **Four history tools, one per intent.** `inspect_messages` shows what the
+  store recorded for one chat, `get_thread` one topic of a chat,
+  `fetch_history` what the platform holds before a reply, and
+  `find_messages` a message by what it says. Each tool description names the
+  other three, so the agent picks by intent and no `mode` argument exists.
 - **`find_messages`** is a bounded newest-first scan of the store: terms
   that must all appear, `"exact phrase"`, `-exclude`; no OR, wildcard or
   NEAR. Optional `scope` (a chat JID or a folder subtree; the turn's folder

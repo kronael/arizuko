@@ -50,7 +50,7 @@ type recDeliverer struct {
 	permIdem string
 	pid      string
 	// viaChannels records the explicit adapter pin of every SendVia call
-	// (spec 5/34-channel-protocol outbound resolution step 1).
+	// (ROUTING.md: the explicit pin comes first).
 	viaChannels []string
 	// roundDones records every RoundDone call's chat JID (the SSE subscriber
 	// key, verbatim), to assert publishRoundDone passes it underived.
@@ -255,7 +255,7 @@ func TestSubmitStatusDeliversInterimWithoutEndingTurn(t *testing.T) {
 	}
 }
 
-// TestSubmitStatusEditsLiveMessageInPlace is spec 5/24: the first status of a
+// TestSubmitStatusEditsLiveMessageInPlace is routd/README.md: the first status of a
 // turn sends one "⏳ …" message; each later status EDITS that same message
 // instead of appending a new notice — a live checklist that updates in place.
 func TestSubmitStatusEditsLiveMessageInPlace(t *testing.T) {
@@ -319,7 +319,7 @@ func TestSubmitStatusHardEditErrorSurfaces(t *testing.T) {
 	}
 }
 
-// TestStatusRowDoesNotSuppressReply is the critical guard (spec 5/24): a verb=
+// TestStatusRowDoesNotSuppressReply is the critical guard (routd/README.md): a verb=
 // status ⏳ row must NOT count as the agent's reply, or recordTurnResult skips
 // delivering the real answer (every multi-step turn since the auto-TodoWrite
 // status would lose its prose). A genuine reply row still counts.
@@ -426,7 +426,7 @@ func TestDispatchShipsUserSecrets(t *testing.T) {
 
 // TestRunErrorMarksAndNotifies is the outcome:error fix: a clean
 // outcome:error advances past the batch, marks the chat errored, and sends a
-// failure notice — not a silent success (spec 5/E-routd § outcome).
+// failure notice — not a silent success (routd/README.md).
 func TestRunErrorMarksAndNotifies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -730,7 +730,7 @@ func TestDeleteGroup_CascadesRoutes(t *testing.T) {
 
 // TestIngressIdempotencyKey is the POST /v1/messages key fix: a stable id +
 // X-Idempotency-Key is ambiguous (400); a key with no id mints
-// <adapter>-<key> (spec 5/E-routd § POST /v1/messages key rules).
+// <adapter>-<key> (routd/README.md /v1/messages key rules).
 func TestIngressIdempotencyKey(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -770,7 +770,7 @@ func TestIngressIdempotencyKey(t *testing.T) {
 
 // TestReactionTopicInheritance is the reaction topic-inheritance fix: a
 // reaction/reply with no topic inherits the parent's topic so it routes to the
-// parent's thread (spec 5/E-routd § Channel ingress).
+// parent's thread (routd/README.md ingress).
 func TestReactionTopicInheritance(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -800,7 +800,7 @@ func TestReactionTopicInheritance(t *testing.T) {
 // pending bot row older than 30s is re-dispatched (adapter dedups on the
 // stable id). Age alone never fails a row — the retired 24h bound killed a
 // 25h-old row that no sweep had tried, which lost a message the platform had
-// never refused. The attempt cap is the only bound (spec 5/Q § Outbound is
+// never refused. The attempt cap is the only bound (ROUTING.md is
 // poll-reconciled).
 func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	db, err := OpenMem()
@@ -893,7 +893,7 @@ func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
 // TestSweepExpiredRunning is the expired-sweep fix: a stale state='running'
 // turn older than the run timeout flips to the DISTINCT 'expired' (not
 // 'done'), so it stops being re-fed by crash recovery yet does not trip the
-// done-guard against a legitimate re-dispatch (spec 5/E-routd § turn lifecycle).
+// done-guard against a legitimate re-dispatch (routd/README.md lifecycle).
 func TestSweepExpiredRunning(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -1043,7 +1043,7 @@ func statusOf(t *testing.T, db *DB, id string) string {
 
 // TestRoutesReplaceScopedToSubtree: a folder-scoped caller replacing its own
 // routes must NOT wipe a sibling folder's routes. Before the fix
-// handleRoutesReplace ran a global DELETE FROM routes (spec 5/E-routd § route
+// handleRoutesReplace ran a global DELETE FROM routes (routd/README.md
 // ownership): folder A's PUT erased folder B.
 func TestRoutesReplaceScopedToSubtree(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:write:own_group"}, folder: "a"})

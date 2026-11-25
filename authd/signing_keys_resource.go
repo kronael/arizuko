@@ -4,7 +4,7 @@ package main
 // GET /v1/signing_keys: kid, algorithm, lifecycle timestamps, and whether the
 // key still verifies. Never key material: authstore.SigningKeyMetadata's
 // projection is the enforcement. `GET /v1/keys` serves the JWK Set, which says
-// nothing about a key's life (spec 5/1).
+// nothing about a key's life (authd/README.md).
 
 import (
 	"context"

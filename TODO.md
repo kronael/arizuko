@@ -64,16 +64,15 @@ for shipped milestones.
   that is not a regression. See
   `.claude/skills/eval/gates.md` and `anteval/`.
 
-- **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),
+- **Deploy pending** — Phase B+D of the worlds work (invites + chats.is_group),
   cli-chat, doc refresh, web UI gaps, and the verb-taxonomy work all
   sit on detached HEAD. krons is the test target; `sudo make images
 && sudo systemctl restart arizuko_krons`. sloth only on explicit
   request.
-- **Phase C of 5/5** (secrets resolver) — Phase B (invites) and
+- **Phase C of the worlds work** (secrets resolver) — Phase B (invites) and
   Phase D (chats.is_group) shipped. C reads `chats.is_group` and
-  layers folder/user-scope secrets at container spawn. Spec at
-  `specs/5/5-worlds-agents-sessions.md`.
-- **Operator view of pairing edges (`5/31` follow-up, needs a call).**
+  layers folder/user-scope secrets at container spawn.
+- **Operator view of pairing edges (SECURITY.md follow-up, needs a call).**
   Listing outstanding pairing TOKENS is correctly not a surface — a
   10-minute single-use bearer gives an operator nothing to act on. The
   resulting `acl_membership` claims are the opposite: durable, and the
@@ -244,7 +243,7 @@ Not yet:
 ### Filestore = WebDAV; auth extensions later
 
 The platform's filestore primitive is `davd` (WebDAV via dufs, spec
-`specs/5/M-webdav.md`, shipped). Today auth is proxyd JWT/cookie. Bigger
+proxyd/README.md, shipped). Today auth is proxyd JWT/cookie. Bigger
 auth surface (per-folder API keys, signed pre-share URLs, time-bounded
 tokens, public-read for specific subtrees) is a future extension —
 parked, not active.
@@ -255,7 +254,7 @@ Agents should be able to iterate + build out the platform itself. Open
 target list (capture; pick + spec as they mature):
 
 - **YAML manifest model**: declarative resource intent dispatched per
-  daemon, k8s-style. Shipped as `specs/5/8-yaml-manifests.md`.
+  daemon, k8s-style. Shipped as resreg/README.md.
 - **Product registry + clone/distribute**: agent products as
   distributable artifacts (git repo manifest + skill bundle +
   PERSONA). Foundation for the "agents managing agents" loop.

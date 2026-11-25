@@ -7,7 +7,7 @@ package authstore
 //
 // An identity is sorted by "<provider>:<provider_sub>", the sub a login
 // presents, so an identity another account already owns is ONE item and a
-// link that targets it cannot create a second (the hard fail of spec 5/1,
+// link that targets it cannot create a second (the hard fail of authd/README.md,
 // enforced by the key). One identity per (account, provider) is not the key's
 // uniqueness, so LinkOAuthIdentity displaces the previous identity in its own
 // batch.
@@ -55,7 +55,7 @@ func (s *Store) OAuthIdentityForSub(sub string) (userID, name, createdAt string,
 // login and never rewritten: `acl.principal` rows key on it, so a canonical
 // that moved would silently strip an account of its grants. Do not add a
 // write that moves the item, and do not let an unlink remove the identity
-// whose provider:provider_sub equals the account's sub (spec 5/32-acl-unified § Alias
+// whose provider:provider_sub equals the account's sub (auth/README.md
 // resolution). A link that targets an identity another account owns is
 // REFUSED, twice over: this read sees the other owner, and the identity's own
 // Put refuses to overwrite one that appeared since.

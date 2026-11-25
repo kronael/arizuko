@@ -1,7 +1,7 @@
 package main
 
 // A rows file is a partial dump: `arizuko apply` writes the rows it names and
-// deletes nothing it does not name (spec 5/8 §"Rows file").
+// deletes nothing it does not name (cmd/arizuko/README.md).
 
 import (
 	"bytes"

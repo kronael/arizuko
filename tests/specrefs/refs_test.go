@@ -200,7 +200,7 @@ func TestEveryProseSpecIDResolves(t *testing.T) {
 	t.Logf("resolved %d prose spec IDs", checked)
 }
 
-// sectionRe matches a quoted section pointer — `spec 5/8 §"Surface"` and
+// sectionRe matches a quoted section pointer — `spec 6/42 §"Ties"` and
 // `spec 6/42-dynamo-over-postgres § "Ties"`. BOTH spacings, because the tree
 // writes both and two earlier sweeps each covered one: three stale pointers sat
 // in the gap between them (BUGS L356).
@@ -221,7 +221,7 @@ func unwrap(s string) string { return strings.TrimSpace(unwrapRe.ReplaceAllStrin
 
 // TestEverySectionCitationResolves is the half no guard read. The other tests
 // stop at the number, so a pointer could name a live spec and a section that
-// spec dropped — 30 of them did, 13 in `5/8` alone, the most-cited spec in the
+// spec dropped — 30 of them did, 13 in the manifest spec alone, the most-cited spec in the
 // tree.
 //
 // It asserts the quoted text appears ANYWHERE in the spec, not that it is a
@@ -395,8 +395,14 @@ func TestEverySpecCitationInGoResolves(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) < 20 {
-		t.Fatalf("only %d citations found; the pattern stopped matching", len(seen))
+	// The corpus shrinks as specs retire into the docs, so a count floor would
+	// fail on a correct tree. The pattern is proved on a known sample instead,
+	// and an empty set still fails: a check that finds nothing cannot fail.
+	if m := cite.FindStringSubmatch("an error names (spec 5/33)"); m == nil || m[1] != "5" || m[2] != "33" {
+		t.Fatal("the citation pattern stopped matching its own sample")
+	}
+	if len(seen) == 0 {
+		t.Fatal("no citations found; the pattern stopped matching the corpus")
 	}
 
 	for key, where := range seen {

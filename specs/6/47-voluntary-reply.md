@@ -1,13 +1,6 @@
 ---
 status: partial
-depends:
-  [
-    44-delivery-contract,
-    46-turn-progress,
-    34-resident-prompt,
-    ../5/24-live-tasklist-status,
-    ../5/G-engagement,
-  ]
+depends: [44-delivery-contract, 46-turn-progress, 34-resident-prompt]
 ---
 
 # specs/6/47 — the voluntary reply: a turn speaks through a tool call, thinks in prose, and is nudged once from one place
@@ -104,14 +97,14 @@ turn-context attribute beside `trigger_sender` (`store/turn_context.go:36`).
 Two readers: `recordTurnResult` and `check_turn`. Nothing re-derives it from the
 JID or the message — `identity_derived_not_read` is the bug class.
 
-| The turn fired because                                                                                   | addressed | Reason from the code                                                                                                              |
-| -------------------------------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| a `web:` JID resolved directly (`routd/loop.go:696` `directFolder`)                                      | yes       | a person typing in the chat widget; `anteval` `rest-roundtrip` asserts a visible answer                                           |
-| a `hook:` JID resolved directly                                                                          | no        | an event, not a person; the link's `<link-context>` carries its silence policy (`ant/skills/self/chat-link.md`)                   |
-| a bare-folder JID resolved directly                                                                      | no        | a system turn with no channel; `routd/turns.go:146` dead-letters anything sent there                                              |
-| a route rule matched with mode trigger (`rt.Mode != "observe"`), whether or not the chat is also engaged | yes       | the operator's rule says "fires a turn (you reply)" (`ant/skills/self/chat-routing.md` §"Modes")                                  |
-| engagement alone (`routd/loop.go:636`, `:650`): the rule is observe, or there is no rule                 | no        | `../5/G-engagement.md` keeps the agent in a conversation it was once addressed in; `L445` is this row, and its silence is correct |
-| the trigger sender is `timed`, `timed-*` or `system*` (`routd/dispatch.go:667` `turnCallerSub`)          | no        | a task is not a person; a task that wants a message says `send` in its text; `timed-isolated:` never speaks                       |
+| The turn fired because                                                                                   | addressed | Reason from the code                                                                                                    |
+| -------------------------------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| a `web:` JID resolved directly (`routd/loop.go:696` `directFolder`)                                      | yes       | a person typing in the chat widget; `anteval` `rest-roundtrip` asserts a visible answer                                 |
+| a `hook:` JID resolved directly                                                                          | no        | an event, not a person; the link's `<link-context>` carries its silence policy (`ant/skills/self/chat-link.md`)         |
+| a bare-folder JID resolved directly                                                                      | no        | a system turn with no channel; `routd/turns.go:146` dead-letters anything sent there                                    |
+| a route rule matched with mode trigger (`rt.Mode != "observe"`), whether or not the chat is also engaged | yes       | the operator's rule says "fires a turn (you reply)" (`ant/skills/self/chat-routing.md` §"Modes")                        |
+| engagement alone (`routd/loop.go:636`, `:650`): the rule is observe, or there is no rule                 | no        | `ROUTING.md` keeps the agent in a conversation it was once addressed in; `L445` is this row, and its silence is correct |
+| the trigger sender is `timed`, `timed-*` or `system*` (`routd/dispatch.go:667` `turnCallerSub`)          | no        | a task is not a person; a task that wants a message says `send` in its text; `timed-isolated:` never speaks             |
 
 The envelope's `verb="mention"` (`router/router.go:133`) is not this predicate:
 a bare route fires on every message and a DM carries no mention. The manual
@@ -257,12 +250,12 @@ renders it per `46-turn-progress.md` §"The declaration" — one message edited
 in place where the channel can edit, nothing elsewhere. routd's second reader
 (`routd/turns.go:65`) goes with the prose path, so the `L438` shape cannot
 return; no third reader is added. The `TodoWrite` hook
-(`../5/24-live-tasklist-status.md`) is unchanged.
+(`routd/README.md`) is unchanged.
 A `status` tool was declined (§"Declined"): a second interim path beside the
 block is the drift `L438` already cost.
 
 The final text is a `reply`; a progress message is never the answer
-(`5/24-live-tasklist-status.md` §"Design", the `verb=status` exclusion).
+(`routd/README.md`, the `verb=status` exclusion).
 
 ## What leaves
 
@@ -338,7 +331,7 @@ existing turn context (`addressed`, `nudged`), owned by routd like
 
 ## Declined
 
-- **A `status` tool.** `../5/24-live-tasklist-status.md` moved progress off model-invoked
+- **A `status` tool.** `routd/README.md` moved progress off model-invoked
   mechanisms on purpose; a tool beside the block is a second interim path.
 - **A `silent` tool.** Silence is the absence of a call. A tool makes silence
   something the agent can forget to do.

@@ -275,7 +275,7 @@ func extResultText(t *testing.T, r *mcp.CallToolResult) (string, bool) {
 	return tc.Text, r.IsError
 }
 
-// F69 / spec 5/15 § "Refresh at call time": on a 401 the call refreshes the
+// F69 / SECURITY.md: on a 401 the call refreshes the
 // credential and retries ONCE. Without it, an access token that dies mid-turn
 // (a provider with an optimistic expires_in, so the proactive near-expiry
 // refresh never fires) fails the agent's call outright.
@@ -350,7 +350,7 @@ func TestCallExtTool_NoSecondRetryWhen401Persists(t *testing.T) {
 }
 
 // Non-401 failures never retry — the repo rule is that only transient errors do,
-// and a 500 or a 403 is not the expired-token case 5/15 describes. A refresh
+// and a 500 or a 403 is not the expired-token case SECURITY.md describes. A refresh
 // that renews nothing (a pasted PAT) also does not re-send.
 func TestCallExtTool_NoRetryOnNon401OrNoOpRefresh(t *testing.T) {
 	for _, c := range []struct {

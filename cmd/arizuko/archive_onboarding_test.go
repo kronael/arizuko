@@ -1,6 +1,6 @@
 package main
 
-// Pending onboarding admissions in the archive (spec 5/8 §"Message history",
+// Pending onboarding admissions in the archive (cmd/arizuko/README.md,
 // BUGS Z3). They cannot ride the config lane — `onboarding` is
 // SkipApplyRebuild, so `arizuko apply` never writes the table — and they
 // cannot be rederived on import, because setting agent_cursor marks the

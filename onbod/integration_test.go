@@ -79,7 +79,7 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, config) {
 }
 
 // TestOnboardingFlow walks the full onboarding state machine after the fold
-// (spec 5/31-identity-pairing): awaiting_message -> prompt (a PAIRING token, outbound queued) ->
+// (onbod/README.md): awaiting_message -> prompt (a PAIRING token, outbound queued) ->
 // RedeemPairing writes the edge -> the poll observer admits -> approved + group
 // folder seeded on disk + groups + acl + routes rows.
 func TestOnboardingFlow(t *testing.T) {

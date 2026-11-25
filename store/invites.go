@@ -445,7 +445,7 @@ func (s *Store) consumeInvite(token, userSub string) (*Invite, error) {
 	return inv, nil
 }
 
-// --- the archive lane (spec 5/8 "Secret and token values") ----------------
+// --- the archive lane (SECURITY.md) ----------------
 
 // ArchiveInviteRow is one row of the archive's invites document: InvitesRow's
 // shape (resreg/resources/invites.go) with Ref emitted. The config manifest

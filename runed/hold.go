@@ -8,7 +8,7 @@ import (
 )
 
 // Run kinds: the spawns.kind values that select Manager.Run's post-claim
-// executor (spec 5/8).
+// executor (runed/README.md).
 const (
 	// KindAgent is a normal turn: spawn the agent container. The default.
 	KindAgent = "agent"

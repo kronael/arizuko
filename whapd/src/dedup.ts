@@ -1,5 +1,5 @@
 // Durable outbound dedup — whapd's half of the D5 delivery contract
-// (spec 5/34 § Outbound delivery). Every Go adapter has had this since
+// (whapd/README.md § Outbound dedup). Every Go adapter has had this since
 // chanlib/dedup.go; whapd was the last one outside it, so a routd resend after
 // a lost /send response double-posted on WhatsApp (BUGS L32).
 //

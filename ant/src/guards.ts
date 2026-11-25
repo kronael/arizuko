@@ -9,7 +9,7 @@ import { ALLOW, ToolEvent, Verdict } from './policy.js';
 import { blockingVerdict } from './skillguard.js';
 
 // GH_DENIED are the `gh` spellings the agent may not run once a folder holds a
-// GitHub shell credential (spec 5/13 §Shell credentials). Each entry is the
+// GitHub shell credential (SECURITY.md credentials). Each entry is the
 // subcommand path plus, optionally, a flag that must also be present.
 //
 // All three harnesses can refuse a tool call.

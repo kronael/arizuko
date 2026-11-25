@@ -586,7 +586,8 @@ meaning, because a field that means two things in two transports is the failure
 that this shape prevents. The grant namespaces also stay separate. The tools of
 an `mcp` connector authorize on `mcp:`. The tools of a `rest` connector add
 their `ext:` scope. No subprocess transport exists. An endpoint needs no
-runtime, and the image of `routd` has none.
+runtime, and the image of `routd` has none. No built-in Go tool receives
+folder secrets. The first such tool adds that broker path in the same change.
 
 Boot parses and validates the file and dials nothing, because the credential
 belongs to a folder and boot has no folder. A `url` that is not `https://` is

@@ -44,6 +44,13 @@ per phase (`ant/src/tool-log.ts`: `phase`, `turn_id`, `tool`,
 and logs it at debug, and nothing writes it to the store. A hook that wrote
 a row would make every agent tool call a distributed transaction.
 
+Message actions write rows of category `agent`: `message.like`,
+`message.dislike`, `message.edit`, `message.delete`, `message.pin` and
+`message.unpin`, where `unpin_all` is `message.unpin` with `{"all":true}`.
+These verbs append no `messages` row, so the audit row is their only durable
+trace. routd writes it after the platform call through `EmitTo`, because no
+local transaction spans a remote platform.
+
 The slog line is not this shape either. resreg logs every call it serves
 with `caller`, `resource`, `action`, `surface`, `outcome` and `duration_ms`
 (`resreg/resreg.go` `logCall`), whether or not a row follows. When the
@@ -51,8 +58,12 @@ line and the row disagree, the row wins: the line is lossy.
 
 Redaction runs first, then truncation: each string value is capped at 200
 runes, then the whole map at 512 bytes. A key matching `password`, `token`,
-`secret`, `credential`, `authorization`, `cookie`, `dsn`, `api_key` or a
-`_key` suffix is replaced with `<redacted:Nchars>`. `session` is not
+`secret`, `credential`, `authorization`, `cookie`, `dsn`, `api_key`, the
+exact key `key`, or a `_key` or `-key` suffix is replaced with
+`<redacted:Nchars>`. The suffix is singular and anchored, so `serving_keys`
+stays readable. A string cut at 200 runes ends in `…<truncated:Nchars>`.
+When the map still exceeds 512 bytes, the row keeps its keys and gains
+`"_truncated": true`. `session` is not
 redacted: a session id is a turn identifier, and hiding it would break the
 forensic join.
 
@@ -80,7 +91,9 @@ Reading:
   folder plus the folder-less instance rows. Derive it from the authorization
   the caller just passed, NEVER from a JWT claim: an operator's JWT omits the
   folder claim, but so does a tenant holding two grants, so "empty folder
-  claim" is not "is an operator".
+  claim" is not "is an operator". A bounded read matches the folder and
+  everything under it, and excludes the folder-less instance rows such as
+  `daemon.start`, which are facts about the instance.
 - `AllCategories` — the closed enum, exported so a UI renders the whole
   vocabulary instead of a distinct-values query that would have to ask three
   daemons what the enum already answers.

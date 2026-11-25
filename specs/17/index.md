@@ -21,7 +21,7 @@ control API; the API ships before the products that depend on it.
 | [4-chat-web-app.md](4-chat-web-app.md)           | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                        |
 | [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                           |
 | [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                       |
-| [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher. |
+| `template/web/pub/arizuko/reference/grants.html` | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher. |
 
 ## Product catalog
 
@@ -50,7 +50,7 @@ No `packages/` template, no page — intent only, kept as lines:
 
 ### Cross-product blockers
 
-The HITL firewall ([5/19](../5/19-hitl-firewall.md)) shipped 2026-08-07 and
+The HITL firewall (`template/web/pub/arizuko/reference/grants.html`) shipped 2026-08-07 and
 no longer blocks `creator`/`socials`. What remains: per-channel budgets
 (`routd/README.md`, the
 cap the gateway enforces)
@@ -74,13 +74,13 @@ gate `support` and `socials`.
   already said "see product-creator.md". Its one non-duplicate idea —
   each authoring group renders drafts to a `content_target` under `/pub/`,
   preview vs permanent — is recorded here and nowhere else; it needs a
-  `5/V` web-vhost decision before it is a design.
+  `proxyd/README.md` web-vhost decision before it is a design.
 - `6-web-routes.md` — **deleted, shipped**. `web_routes` landed in
   `store/migrations/0045-web-routes.sql` + `store/web_routes.go`, read by
   `proxyd/main.go` and managed by the `set_web_route`/`del_web_route`/
   `list_web_routes` MCP tools (`ipc/ipc.go`). The spec had already drifted:
   it specified a 10s `sync.RWMutex` route cache; proxyd takes a
-  per-request snapshot instead (`proxyd/main.go:140`, spec `5/8`).
+  per-request snapshot instead (`proxyd/main.go:140`, `resreg/README.md`).
 
 ### Claims corrected, not carried forward
 

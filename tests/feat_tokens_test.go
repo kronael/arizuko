@@ -94,7 +94,7 @@ func TestFeature_RouteTokens(t *testing.T) {
 		}
 	})
 
-	// Link context (spec 5/W § link context): mint with context round-trips
+	// Link context (ROUTING.md context): mint with context round-trips
 	// through resolve and list; a context-less mint stays empty.
 	t.Run("issue-with-context", func(t *testing.T) {
 		db := mustRoutdDB(t)
@@ -148,7 +148,7 @@ func TestFeature_RouteTokens(t *testing.T) {
 		}
 	})
 
-	// Spec 5/16 REST-face fold: list + revoke ride the SAME shared handler as
+	// resreg/README.md REST-face fold: list + revoke ride the SAME shared handler as
 	// the agent's list_tokens/revoke_token, mounted via resreg.RegisterREST.
 	// Issue → GET list ({tokens:[...]}) → DELETE revoke → row gone.
 	t.Run("http-list-and-revoke-folded", func(t *testing.T) {

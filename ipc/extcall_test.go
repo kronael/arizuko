@@ -370,7 +370,7 @@ func TestCallExtToolScrubsTheSecretFromATransportError(t *testing.T) {
 	}
 }
 
-// The 401 refresh retry (spec 5/15).
+// The 401 refresh retry (SECURITY.md).
 
 func TestCallExtToolRetriesOnceWithRefreshedCredentials(t *testing.T) {
 	const stale, fresh = "stale-token", "fresh-token"

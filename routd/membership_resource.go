@@ -96,8 +96,8 @@ func (s *Server) mountMembership(mux *http.ServeMux) {
 		if s.verify == nil {
 			return nil
 		}
-		// c.Sub carries the JWT "user:" prefix; the stored parent is bare (5/1's
-		// sub prefix rule). Comparing them raw never matches.
+		// c.Sub carries the JWT "user:" prefix; the stored parent is bare (auth/README.md
+		// § Files, sub.go). Comparing them raw never matches.
 		if c.Sub == "" || auth.BareSub(c.Sub) != target {
 			return resreg.Errorf(http.StatusForbidden,
 				"only the linked account may unpair it")

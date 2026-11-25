@@ -1,7 +1,7 @@
 package main
 
-// E2E tests for `arizuko dump`/`apply` (spec 5/8 "The
-// full-instance archive"). Reuses openInstance (apply_test.go) for real
+// E2E tests for `arizuko dump`/`apply` (cmd/arizuko/README.md § Rows files
+// and the dump). Reuses openInstance (apply_test.go) for real
 // routd.db/onbod.db bootstraps — the REAL schema, unlike resreg/
 // archive_test.go's store.Migrate frozen-messages.db fixture, which
 // predates routd/migrations/0019 (messages.link_context). That's exactly
@@ -347,7 +347,7 @@ func TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget(t *testing.T) {
 }
 
 // TestArchive_Apply_RefusesNewerFormatVersion is the "refuse an older
-// target binary" rule (spec 5/8 "Cross-instance portability").
+// target binary" rule (cmd/arizuko/README.md).
 func TestArchive_Apply_RefusesNewerFormatVersion(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
@@ -376,7 +376,7 @@ func TestArchive_Apply_RefusesNewerFormatVersion(t *testing.T) {
 
 // TestArchive_Apply_SkipsNonEmptyFolderUnlessForce is the filesystem half
 // of "Restoring onto a populated instance": ONE flag governs both the
-// checksum override and the filesystem-non-empty override (spec 5/8: "the
+// checksum override and the filesystem-non-empty override (cmd/arizuko/README.md: "the
 // same flag apply --force already uses... not a second flag for a second
 // concept") — so without --force a non-empty target folder is preserved,
 // and with --force it is overwritten.

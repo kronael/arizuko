@@ -13,7 +13,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// spec 5/16: the /v1/groups REST list is scoped to the caller's subtree (closes
+// resreg/README.md: the /v1/groups REST list is scoped to the caller's subtree (closes
 // the rest_listall leak), while the agent MCP refresh_groups stays unscoped.
 func TestGroupsList_RESTScopedMCPUnscoped(t *testing.T) {
 	db, err := OpenMem()

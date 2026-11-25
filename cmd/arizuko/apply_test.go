@@ -241,7 +241,7 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 
 // TestGetRoundTrip_NoOp: `get <resource>` emits a fragment that, parsed
 // and diffed against the live DB, reports no change — the round-trip
-// honesty acceptance criterion (spec 5/8 §"Round-trip honesty").
+// honesty acceptance criterion (cmd/arizuko/README.md).
 func TestGetRoundTrip_NoOp(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]

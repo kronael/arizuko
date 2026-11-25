@@ -1,7 +1,7 @@
 package routd
 
 // groups_resource.go folds the agent's group tools onto ONE resreg.Resource
-// (spec 5/16). register_group's FS side-effects CANNOT ride a resreg tx, so
+// (resreg/README.md). register_group's FS side-effects CANNOT ride a resreg tx, so
 // this is a FORWARDER (Store nil): resreg writes no audit row and the handler
 // emits the event itself. resreg SKIPS the Gate for forwarders, so ALL of
 // register_group's auth rides Authz: db.Authorize scoped to cover the CHILD

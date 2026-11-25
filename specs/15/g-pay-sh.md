@@ -13,7 +13,7 @@ Reference: pay.sh, `github.com/solana-foundation/pay`.
 
 ## Blocked on HITL
 
-Human-in-the-loop approval ([5/19](../5/19-hitl-firewall.md)) must ship
+Human-in-the-loop approval (`template/web/pub/arizuko/reference/grants.html`) must ship
 first. Until an agent's spend can be held for approval, it cannot
 autonomously spend money. This is the whole gate; everything below is
 cheap once it lifts.

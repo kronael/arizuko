@@ -656,7 +656,7 @@ func (l *Loop) delegate(targetFolder, prompt, originJID string) {
 	l.q.EnqueueMessageCheck(targetFolder)
 }
 
-// cmdResolveHold records a human's verdict on a held tool call (spec 5/19).
+// cmdResolveHold records a human's verdict on a held tool call (template/web/pub/arizuko/reference/grants.html).
 // The agent's call is suspended on the row, so the verdict IS the answer: the
 // waiter runs or refuses the call inside that turn; there is no out-of-turn
 // dispatcher. Who may answer is decided inside resolveHoldInto, the SAME core

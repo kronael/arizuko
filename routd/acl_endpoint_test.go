@@ -1,6 +1,6 @@
 package routd
 
-// REST-face tests for the spec 5/16 acl fold: POST /v1/acl (add) and body-DELETE
+// REST-face tests for the acl resource (resreg/README.md): POST /v1/acl (add) and body-DELETE
 // /v1/acl (remove) now ride the SAME shared aclHandler the agent's
 // add_acl/remove_acl MCP tools use, via resreg.RegisterREST + the injected
 // restCaller/aclRESTGate. The *Endpoint tests below are the operator/root
@@ -156,7 +156,7 @@ func TestACLEndpointMissingFields(t *testing.T) {
 	}
 }
 
-// TestACLRESTContainmentDenied is the security fix (spec 5/16). The folded REST
+// TestACLRESTContainmentDenied is the security fix (resreg/README.md). The folded REST
 // Gate binds the body `scope` to the caller's subtree (ownsFolder), so a
 // folder-scoped caller may grant only WITHIN its own authority. A caller at
 // "world/a" grants inside its subtree (allowed, row written) but is DENIED an

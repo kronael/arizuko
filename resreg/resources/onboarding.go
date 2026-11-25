@@ -33,7 +33,7 @@ var OnboardingEndpoints = []resreg.Endpoint{
 }
 
 // OnboardingMCPDoc gives the agent face its one-liners; every REST action is
-// reachable over MCP too (5/17).
+// reachable over MCP too (resreg/README.md).
 var OnboardingMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:         "List pending and admitted onboarding rows — who is waiting to be let in, which gate queued them, and when each was greeted, queued and admitted. Filter with status= (awaiting_message, token_used, queued, approved). Never returns the setup link itself.",
 	resreg.ActionCreate:       "Record an unrouted chat jid and its inbound sender as awaiting onboarding. Existing senders and admission verdicts stay fixed; expired awaiting greetings may re-arm.",

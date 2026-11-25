@@ -1,6 +1,6 @@
 # proxyd
 
-proxyd is the one HTTP entry point of an instance. It authenticates the caller, stamps the identity onto the request and forwards the request to a backend by path. routd routes messages, and `ROUTING.md` describes that. The trust rule for the stamped headers is in [SECURITY.md](../SECURITY.md#only-proxyd-stamps-identity-headers).
+proxyd is the one HTTP entry point of an instance. It authenticates the caller, stamps the identity onto the request and forwards the request to a backend by path. It signs no token, terminates no TLS and keeps no service discovery: a backend is a fixed URL, and TLS is the job of the proxy in front. routd routes messages, and `ROUTING.md` describes that. The trust rule for the stamped headers is in [SECURITY.md](../SECURITY.md#only-proxyd-stamps-identity-headers).
 
 ## A request through proxyd
 
@@ -73,7 +73,7 @@ Four rules keep the mapping closed (`worldForHost`, `vhostRedirect`).
 - proxyd does no existence lookup. An unknown world also answers 302.
 - `Location` is always a relative `/pub/...` path, so a `Host` that an attacker supplies cannot open-redirect. A path with `..`, `%2e%2e` or `%2f` gets 400.
 
-The redirect runs at bare `/` and at the final catch-all, and nowhere else. The 302 lands in `/pub/`, which never redirects again, so it cannot loop. `worldForHost` and `vhostRedirect` stay in proxyd for three reasons. A row keys on the path, and these functions key on the `Host`. They run on every unmatched request. The front door of a world must not depend on webd.
+The redirect runs at bare `/` and at the final catch-all, and nowhere else. The 302 lands in `/pub/`, which never redirects again, so it cannot loop. `worldForHost` and `vhostRedirect` stay in proxyd for three reasons. A row keys on the path, and these functions key on the `Host`. They run on every unmatched request. The front door of a world must not depend on webd. Every reserved surface answers on every world host, because a route row matches before the catch-all, so `/dash/` and `/auth/login` work on `W.<HOSTING_DOMAIN>` and no separate dashboard domain exists.
 
 ### web_routes hold the rules of a group for its public tree
 

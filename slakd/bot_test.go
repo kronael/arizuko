@@ -310,7 +310,7 @@ func TestInbound_DMNeverMentionVerb(t *testing.T) {
 }
 
 // A message inside a thread must carry ReplyTo = thread root, so the spec
-// 5/L reply-to-bot promotion can fire when the root is the bot's own message
+// ROUTING.md reply-to-bot promotion can fire when the root is the bot's own message
 // (atlas auto-attends a thread it started without a re-@mention).
 func TestInbound_ThreadReplySetsReplyTo(t *testing.T) {
 	mock := newSlackMock()

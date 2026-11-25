@@ -126,7 +126,7 @@
     </dl>
     <p>On every turn, the agent gets a <code>&lt;topic name=&quot;X&quot; /&gt;</code> envelope, so it knows its scope. No <code>&lt;inherited&gt;</code> block exists, because the history of the parent is already in the child session.</p>
     <p><code>sessions.observed_cursor</code> is also per topic. So two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> messages, and one topic does not use them up for the other.</p>
-    <p>Forks have two limits. The copy is a Claude Code transcript, so codex and pi start the child with no history. Every fork is a full copy of the parent file, and nothing deletes the copies, so <code>.claude/projects/</code> in a busy folder only grows.</p>
+    <p>Forks have two limits. The copy covers Claude Code and pi sessions, so a codex child starts with no history. Every fork is a full copy of the parent file, and nothing deletes the copies, so <code>.claude/projects/</code> in a busy folder only grows.</p>
 
     <h2>A user can pin a chat to a topic</h2>
     <p>A user can pin a chat to a topic with a message that contains only <code>#support</code>. <code>routd</code> stores the pin in the <code>sticky_topic</code> field of the <code>chats</code> row. Every later message in that chat runs under <code>#support</code> until someone sends a bare <code>#</code> to clear it. A pinned topic wins over the thread ID from the platform.</p>
@@ -140,7 +140,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/topics.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

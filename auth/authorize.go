@@ -14,13 +14,13 @@ import (
 
 // Caller is the bearer of a request. Principal is the JWT subject as authd minted it:
 // for a human that is the ACCOUNT's canonical provider sub, already resolved at mint
-// (spec 5/32-acl-unified). There is no resolve step here — Authorize evaluates the principal it
+// (auth/README.md). There is no resolve step here — Authorize evaluates the principal it
 // is handed, and `acl.principal` rows key on that same value.
 type Caller struct {
 	Principal string
 	Claims    map[string]string
 	// Extra principals to fold into the expansion set without a DB lookup,
-	// e.g. the room JID for channel-bot inbound (spec 5/32-acl-unified §Membership).
+	// e.g. the room JID for channel-bot inbound (auth/README.md).
 	Extra []string
 	// Route is the ROUTE axis (spec 5/33-paths-roles §"Two axes"): the folder the router
 	// resolved this request TO. Empty on every single-axis caller — operator REST,
@@ -184,7 +184,7 @@ func withinSubtree(folder, scope string) bool {
 // for an `mcp:<tool>` request).
 //
 // It refuses actionCovers' cross-namespace lattice for the reason namespacedEffect
-// already refuses it (spec 5/19 Hazard 2): an operator's (`*`, `**`) row covers
+// already refuses it (auth/README.md): an operator's (`*`, `**`) row covers
 // every action, so reading the lattice here would make every message an operator
 // sends silently elevate the turn that answered it. Elevation by identity already
 // HAS a mechanism — `/root`, gated on IsOperator and one-shot (routd.cmdRoot) — and
@@ -582,7 +582,7 @@ func ParamsSpec(values map[string]string) (string, error) {
 
 // HoldPrefix namespaces hold rules. A hold is NEVER an `effect` on a plain
 // `mcp:<tool>` row: Authorize treats every non-deny effect as ALLOW, so such a
-// row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
+// row would silently GRANT the tool it meant to gate (auth/README.md).
 //
 // store declares the wire prefix.
 const HoldPrefix = store.HoldPrefix
@@ -590,7 +590,7 @@ const HoldPrefix = store.HoldPrefix
 // EffectSkipApproval is the deny effect on a namespaced rule row — on a `hold:`
 // row it means "do not hold this shape", on a `shell:env:` row "do not grant
 // this key". It is spelled `deny` because Authorize reads every OTHER value as
-// ALLOW (spec 5/19 Hazard 1), so a third effect name would be the same trap
+// ALLOW (auth/README.md), so a third effect name would be the same trap
 // wearing a friendlier word. The constant exists so the wire spelling and the
 // operator-facing wording ("skip approval") cannot drift apart.
 //
@@ -603,7 +603,7 @@ const EffectSkipApproval = store.EffectDeny
 // rule can say: the tool call WAITS inside the agent's turn until a human
 // answers. A call worth gating is a call worth not proceeding without, so there
 // is no spelling for "return now and tell the agent later" — one let an agent
-// report an action it had not taken (spec 5/19, 2026-09-02).
+// report an action it had not taken (auth/README.md, 2026-09-02).
 const EffectHoldBlock = store.EffectAllow
 
 // CheckHold returns whether a tool call requires approval, or an error if policy cannot be read.

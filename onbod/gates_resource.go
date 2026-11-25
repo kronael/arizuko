@@ -1,7 +1,7 @@
 package main
 
 // gates_resource.go is the /v1/gates REST face folded onto the shared resreg
-// handler (spec 5/16). It retires onbod's three hand-rolled gate handlers
+// handler (resreg/README.md). It retires onbod's three hand-rolled gate handlers
 // (handleGate{List,Put,Delete}); resreg owns the plumbing (handler dispatch +
 // one batch carrying the mutation AND its audit_log row), onbod owns the auth
 // POLICY via the injected REST Caller + Gate. onbod has NO agent socket, so this

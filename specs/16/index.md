@@ -25,8 +25,8 @@ crash-durable agent session_:
   `GET /agent/threads/{key}/events?after_event_id=` replays from a
   durable event log and emits a terminal snapshot on reconnect.
 - ~~arizuko has no final-delivery guarantee~~ — closed: the pending bot
-  row + backoff sweep + adapter dedup ledger IS the outbox (`5/Q`,
-  `5/E`).
+  row + backoff sweep + adapter dedup ledger IS the outbox (`ROUTING.md`,
+  `routd/README.md`).
 - arizuko has **no presence**: a shared web chat can't show who else is
   watching or that the agent is mid-turn.
 - arizuko has **no published agent catalog**: the operator sees groups

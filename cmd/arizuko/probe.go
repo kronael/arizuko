@@ -21,7 +21,7 @@ import (
 //
 // Secondarily a conformance check for a component whose source you do not have.
 // Real but rare: per 6/7 "capabilities federate, infrastructure conforms", a
-// stranger adding a capability uses 5/13 and never touches this contract.
+// stranger adding a capability uses EXTENDING.md and never touches this contract.
 //
 // What it CANNOT do, stated so nobody reads a pass as more than it is: it
 // detects paths the doc advertises and the mux does not serve, never the

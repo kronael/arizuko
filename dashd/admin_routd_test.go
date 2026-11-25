@@ -186,7 +186,7 @@ func TestRouteTokenList_ReadsRoutdV1(t *testing.T) {
 		t.Error("tokens page did not render the row routd served")
 	}
 	if !strings.Contains(body, "push events; summarize") {
-		t.Error("tokens page did not render the row's context (spec 5/W link context)")
+		t.Error("tokens page did not render the row's context (ROUTING.md link context)")
 	}
 }
 

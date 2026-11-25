@@ -1,6 +1,5 @@
 ---
 status: reference
-depends: [17-openapi-mcp, W-webhook-routes]
 ---
 
 # specs/5/35 — connecting Hermes to arizuko's messaging plane
@@ -62,12 +61,12 @@ B has proven the envelope mapping.
 
 Each is a property arizuko enforces structurally, not a feature Hermes
 could add cheaply: **persistence** (every message a row in `routd.db` with
-ranked search, `5/C`) · **audit** (one `audit_log` row per state transition,
-emitted in the mutation's own transaction via `audit.EmitInTx`, `5/I` —
+ranked search, `ipc/README.md`) · **audit** (one `audit_log` row per state transition,
+emitted in the mutation's own transaction via `audit.EmitInTx`, `audit/README.md` —
 not a droppable log line) · **grants** (`auth.Authorize` gates every tool
-call on `(action, scope, params)` bound to the caller's folder, `5/32`) ·
+call on `(action, scope, params)` bound to the caller's folder, `auth/README.md`) ·
 **secrets injection** (folder- and user-scoped capability credentials
-broker-resolved on the host at tool-call time, `5/13`, so they never sit
+broker-resolved on the host at tool-call time, `EXTENDING.md`, so they never sit
 in the agent's process environment) · **tenancy** (the
 folder coordinate is tenant, ACL, route, egress, web host, and file tree
 at once — one Hermes deployment serves many tenants without Hermes
@@ -110,7 +109,7 @@ Both must close before Mode A ships to a tenant that isn't the operator.
   through an `acl_membership` edge (`auth/authorize_test.go`
   `TestAuthorize_JIDClaimViaMembership`). `handleMessages` rejects a
   sender outside a scheme the adapter registered (`Entry.OwnsScheme`,
-  `5/34`). What that does NOT do is bound an edge to a sub-namespace
+  `chanlib/README.md`). What that does NOT do is bound an edge to a sub-namespace
   _within_ its scheme, so a compromised adapter can still assert any user
   of its own platform. **An integration is trusted for its platform, not
   beyond it.**

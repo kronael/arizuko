@@ -35,7 +35,7 @@ var ACLEndpoints = []resreg.Endpoint{
 }
 
 // ACLMCPNames maps each action to the flat tool name the live agent calls
-// (spec 5/16).
+// (resreg/README.md).
 var ACLMCPNames = map[resreg.Action]string{
 	resreg.Action("add"):    "add_acl",
 	resreg.Action("remove"): "remove_acl",
@@ -100,7 +100,7 @@ func init() {
 		MCPArgs:       ACLMCPArgs,
 		MCPNames:      ACLMCPNames,
 		// No folder scope: acl.scope is a glob, not column-equal to a folder
-		// (spec 5/8 §"FK posture"), so apply rebuilds acl wholesale.
+		// (resreg/README.md), so apply rebuilds acl wholesale.
 		StampedFields: []string{"GrantedAt"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(row any) error {

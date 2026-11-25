@@ -524,7 +524,7 @@ func TestCmdGateFederated(t *testing.T) {
 }
 
 // TestCmdApproveReject: a caller holding no admin on the held call's folder
-// cannot resolve it (spec 5/19), and is told which folder refused. The command
+// cannot resolve it (template/web/pub/arizuko/reference/grants.html), and is told which folder refused. The command
 // is still CONSUMED, so a denial never leaks to the agent as a user message.
 func TestCmdApproveReject(t *testing.T) {
 	db, loop, _ := recLoop(t)

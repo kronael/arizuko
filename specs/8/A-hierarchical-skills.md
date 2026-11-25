@@ -1,6 +1,5 @@
 ---
 status: draft
-depends: [5/17-openapi-mcp]
 ---
 
 # specs/8/A — hierarchical skills + self-skill

@@ -132,8 +132,8 @@ func TestScanAll_RoundTrip(t *testing.T) {
 
 // TestRowFilter_ExcludesFromScanAndChecksum: a resource's RowFilter keeps
 // matching rows out of ScanAll and therefore out of the content-hash checksum
-// (Export and Checksum are built on ScanAll) — the same mechanism spec 5/8's
-// CRITICAL finding uses to keep acl_membership pairing edges and route_tokens
+// (Export and Checksum are built on ScanAll) — the same mechanism resreg/README.md
+// uses to keep acl_membership pairing edges and route_tokens
 // pairing tokens out of every manifest-visible read. What the same declaration
 // does to the two deletes is TestEntity_RowFilterNarrowsTheWipe and
 // TestEntity_RowFilterNarrowsTheWipeAndTheScopedDelete.
@@ -233,7 +233,7 @@ testrowz:
 }
 
 // TestParseYAML_StrictRejectsUnknownField: a bogus row field rejects, so
-// an operator's misspelled column can't silently drop (spec 5/8 step 1).
+// an operator's misspelled column can't silently drop (resreg/README.md).
 func TestParseYAML_StrictRejectsUnknownField(t *testing.T) {
 	freshEngine(t)
 	manifest := []byte(`
@@ -541,7 +541,7 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 	// the resource is untouched. A direct-SQL insert (bypassing Apply)
 	// changes the DB's content hash, so the CAS token must be recomputed
 	// fresh — exactly the class of drift a counter-based CAS would have
-	// missed (spec 5/8 §"Content-hash CAS": "it catches a manual sqlite3
+	// missed (resreg/README.md: "it catches a manual sqlite3
 	// edit").
 	insertRaw(t, be, TestRow{Kind: "a", Name: "x", Value: "1"})
 	c1, err := Checksum(be, testSubsystem)
@@ -596,7 +596,7 @@ func TestApply_Force(t *testing.T) {
 
 // TestApply_UnknownSubsystem: a manifestRows key naming a resource from a
 // DIFFERENT subsystem than the one Apply was called against rejects before
-// touching the DB — spec 5/8 §"Surface": a document meant for one owner DB
+// touching the DB — resreg/README.md: a document meant for one owner DB
 // must not carry another subsystem's rows.
 func TestApply_UnknownSubsystem(t *testing.T) {
 	be, _ := freshEngine(t)
@@ -625,7 +625,7 @@ func TestApply_UnknownSubsystem(t *testing.T) {
 // TestDiff_AddUpdateRemove exercises the non-mutating plan diff: a row
 // only in the manifest is an add, a row only in the DB is a remove, a
 // PK in both with a differing payload is an update, identical is
-// unchanged. Per spec 5/8 §"Surface".
+// unchanged. Per resreg/README.md.
 func TestDiff_AddUpdateRemove(t *testing.T) {
 	be, r := freshEngine(t)
 	insertRaw(t, be,
@@ -661,7 +661,7 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 
 // TestDiff_ScopedRemoveLeavesOutOfScope: for a scoped resource, a live
 // row outside the folders the manifest mentions is NOT reported for
-// Remove — apply leaves it alone, so plan must too (spec 5/8 §"Surface").
+// Remove — apply leaves it alone, so plan must too (resreg/README.md).
 // TestRow's scope is "kind"; a manifest touching only kind "a" leaves a
 // kind "b" row untouched.
 func TestDiff_ScopedRemoveLeavesOutOfScope(t *testing.T) {
@@ -712,7 +712,7 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 }
 
 // TestGetResource_RoundTrip: GetResource emits a fragment whose parsed
-// rows equal the live rows, so re-applying it is a no-op. Per spec 5/8
+// rows equal the live rows, so re-applying it is a no-op. Per resreg/README.md
 // §"Round-trip honesty".
 func TestGetResource_RoundTrip(t *testing.T) {
 	be, _ := freshEngine(t)

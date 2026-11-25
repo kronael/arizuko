@@ -101,7 +101,7 @@ func (l *Loop) paneHints(trigger []core.Message) string {
 }
 
 // linkContextBlock emits the issuer's per-link instructions a route token
-// snapshotted at ingest (spec 5/W § link context). Newest-wins: a batch on one
+// snapshotted at ingest (ROUTING.md context). Newest-wins: a batch on one
 // JID may span tokens with different contexts.
 func linkContextBlock(trigger []core.Message) string {
 	for _, t := range slices.Backward(trigger) {

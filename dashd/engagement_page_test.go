@@ -257,7 +257,7 @@ func TestRemainingTS_PastDeadlineIsExpired(t *testing.T) {
 	}
 }
 
-// ---- the disengage control (spec 5/G-engagement §"The operator surface") ----
+// ---- the disengage control (dashd/README.md) ----
 
 // postDisengage submits the form the table renders, as an operator.
 func postDisengage(t *testing.T, mux *http.ServeMux, form url.Values) *httptest.ResponseRecorder {

@@ -42,7 +42,7 @@ type Message struct {
 	Errored        bool   // set when a previous agent run failed on this message; re-fed tagged for retry
 	TurnID         string // for outbound: the inbound message id that triggered the run; for inbound: empty
 	ChatName       string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
-	LinkContext    string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
+	LinkContext    string // route-token context snapshotted at ingest (ROUTING.md); rendered as <link-context> in the prompt
 	Hops           int    // agent turns between this row and the last person or external input; 0 for a person, a channel or a scheduled task
 }
 
@@ -132,7 +132,7 @@ type Route struct {
 	ObserveWindowChars    int    `json:"observe_window_chars,omitempty"`
 }
 
-// TopicLineage is the per-topic state introduced by spec 5/F-topic-lineage. ParentTopic is *string
+// TopicLineage is the per-topic state introduced by ROUTING.md. ParentTopic is *string
 // so "fork from main" is distinguishable from "no parent". Empty ObservedCursor means
 // no cursor recorded yet. All timestamps are core.TSLayout UTC.
 type TopicLineage struct {
@@ -260,10 +260,10 @@ func NewSessionID() string {
 }
 
 // ErrTopicExists signals a fork attempted to overwrite an existing
-// (folder, topic) without force=true. Spec 5/F-topic-lineage.
+// (folder, topic) without force=true. ROUTING.md.
 var ErrTopicExists = fmt.Errorf("topic exists")
 
-// ACLRow is one grant in the unified ACL (spec 5/32-acl-unified). Effect is "allow"
+// ACLRow is one grant in the unified ACL (auth/README.md). Effect is "allow"
 // or "deny" (deny wins). Params/predicate are empty strings when absent.
 type ACLRow struct {
 	Principal string

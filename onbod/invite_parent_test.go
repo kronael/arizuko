@@ -231,7 +231,7 @@ func TestSubgroupRedemptionIsSingleUse(t *testing.T) {
 }
 
 // The two authorities must not compose. An approved admission under a
-// configured gate is spec 5/18 step 8 and entitles a TOP-LEVEL folder; a cookie
+// configured gate is onbod/README.md and entitles a TOP-LEVEL folder; a cookie
 // must not deepen it into someone else's subtree.
 func TestApprovedAdmissionPlusForgedCookieStaysTopLevel(t *testing.T) {
 	db := testDB(t)

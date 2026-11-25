@@ -23,7 +23,7 @@ import (
 )
 
 // OperatorGroup is the scope that makes a caller an operator. Operator is not a
-// role: it is emergent from holding everything (spec 5/32-acl-unified).
+// role: it is emergent from holding everything (auth/README.md).
 const OperatorGroup = "**"
 
 // CallerGroups parses the proxyd-stamped X-User-Groups header — the JSON array

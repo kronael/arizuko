@@ -705,7 +705,7 @@ func (r *chatReads) remember(topic, folder string) {
 }
 
 // directFolder returns the folder a JID directly addresses, or "". For a
-// web:/hook: JID the mint RECORDS the delivery folder (spec 5/W) and the record
+// web:/hook: JID the mint RECORDS the delivery folder (ROUTING.md) and the record
 // is read FIRST: the grammar cannot recover it once a suffix is added —
 // `web:t/sfx` reads as `t/sfx`, `hook:a/b/c` as `a/b` (BUGS L4, L1) — and
 // reading it only after a grammar miss delivers `hook:a/b/c` to an existing

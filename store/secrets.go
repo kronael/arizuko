@@ -34,7 +34,7 @@ import (
 
 // The attributes a secret item carries. The three coordinate fields are NOT
 // among them: storing the coordinate twice is two facts that can disagree. The
-// last four are the surrogate-OAuth half (spec 5/15), written only by
+// last four are the surrogate-OAuth half (store/README.md), written only by
 // secrets_oauth.go; a pasted PAT carries none of them.
 const (
 	attrSecValue      = "value"
@@ -234,7 +234,7 @@ const (
 	ScopeUser   SecretScope = "user"
 
 	// ScopeMissing is AUDIT-ONLY: it never names a stored row; it is the third
-	// `secret_use_log` scope_kind (spec 5/13 § Audit).
+	// `secret_use_log` scope_kind (SECURITY.md).
 	ScopeMissing SecretScope = "missing"
 
 	// rootFolder is the catch-all parent FolderSecretsResolved walks to last.
@@ -519,7 +519,7 @@ func (s *Store) EncryptPlaintextSecrets(ctx context.Context) (int, error) {
 }
 
 // ArchiveSecretRow is one row of the archive's routd.secrets.yaml document
-// (spec 5/8): SecretsRow's shape plus Value, which travels exactly as stored,
+// (cmd/arizuko/README.md): SecretsRow's shape plus Value, which travels exactly as stored,
 // never decrypted.
 type ArchiveSecretRow struct {
 	ScopeKind string `yaml:"scope_kind"`
@@ -530,7 +530,7 @@ type ArchiveSecretRow struct {
 }
 
 // ExportSecretRows reads every secrets row, blob included, for the archive. It
-// does NOT decrypt (spec 5/8: SECRETS_KEY never enters the archive). The
+// does NOT decrypt (cmd/arizuko/README.md: SECRETS_KEY never enters the archive). The
 // coordinate order IS `ORDER BY scope_kind, scope_id, key`.
 func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Secrets, Partition: OwnerRoutd})
@@ -627,7 +627,7 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 // FolderSecretsResolved: a user's own key WINS (the BYOA override). Empty
 // userSub returns the folder set unchanged. The second return names the scope
 // each key came from; it is the ONLY point where that provenance exists, so
-// secret_use_log takes it from here (spec 5/13 § Audit).
+// secret_use_log takes it from here (SECURITY.md).
 func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string]string, map[string]SecretScope, error) {
 	out, err := s.FolderSecretsResolved(folder)
 	if err != nil {

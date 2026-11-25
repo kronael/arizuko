@@ -14,7 +14,7 @@ import (
 // A package apply mutates many rows at once, so it needs a verdict of its own:
 // ONE audit row for the bundle, or N for the rules? It is ONE — install goes
 // through `arizuko apply`, whose contract is one row per apply (spec
-// 5/17-openapi-mcp §"Audit contract"), and a second per-row trail beside it
+// resreg/README.md), and a second per-row trail beside it
 // would be the parallel path BUGS L44 exists to delete.
 //
 // That only stays honest if the one row NAMES what it wrote: the row

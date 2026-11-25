@@ -34,7 +34,8 @@ proxy process.
 - `WriteTasksSnapshot`, `WriteGroupsSnapshot` — per-group snapshots
 - `CopySession(groupDir, srcUUID, dstUUID) (bool, error)` — fork a session:
   copy `<groupDir>/.claude/projects/-home-node/<src>.jsonl` to `<dst>.jsonl`
-  and restamp its `sessionId`. The slug `-home-node` is fixed because every
+  and restamp its `sessionId`. The copy ends at the last whole line, because
+  the parent topic can append a line during the copy. The slug `-home-node` is fixed because every
   guest mounts the group dir at `$HOME=/home/node`, so Claude Code slugs the
   same path for every folder; deriving it per folder would read identity off
   a path. The write goes to a temp file, then a rename. A missing parent file

@@ -205,8 +205,8 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 	}
 }
 
-// TestManagerAppliesRunTTLDeadline: spec 5/8 "wedge protection... uniform
-// across kinds" — Manager.spawn arms the RunTTL kill-deadline by wrapping
+// TestManagerAppliesRunTTLDeadline: runed/README.md § Admission is
+// claim or reject — Manager.spawn arms the RunTTL kill-deadline by wrapping
 // ctx with context.WithTimeout at the shared dispatch site, not inside any
 // one executor. This exercises a minimal Runtime double that does nothing
 // but honor ctx.Done(), proving the

@@ -1,7 +1,6 @@
 ---
 status: shipped
 shipped: 2026-06-14
-depends: [1-auth-standalone, 17-openapi-mcp]
 ---
 
 # runed — the execution plane
@@ -18,7 +17,7 @@ per-turn agent MCP socket **in-process** (`routd/mcp.go` `ServeTurnMCP`)
 and serves every agent tool from its own process; `runed` mounts the ipc
 dir into the container so the in-container agent reaches that socket.
 `runed` never appends a message and never signs. Companion spec
-[`E-routd.md`](E-routd.md); the two are written to **one** PINNED
+`routd/README.md`; the two are written to **one** PINNED
 `POST /v1/runs` + `/v1/turns/{turn_id}/*` contract, including the `busy`
 retryable-reject discriminator. `routd` decides _whether/where_ a batch
 runs, renders the prompt, hosts the socket; `runed` _runs_ the container.
@@ -91,7 +90,7 @@ without charging a deliberate kill to the breaker.
 
 **Session-id ownership.** The `sessions` table — per-`(folder, topic)`
 `session_id` plus topic lineage — lives in **`routd.db`, not `runed.db`**
-([`E-routd.md`](E-routd.md) § Topic lineage). `runed` _produces_ the id
+(`routd/README.md` § Topic lineage). `runed` _produces_ the id
 (the harness emits it), `routd` _persists_ it; `runed` reads the resume
 id off the request, never from its own DB. The `spawns.session_id` column
 is a runtime **echo** only.
@@ -137,7 +136,7 @@ never sees the conversation.
   `$HOME` (`/home/node`); `/opt/arizuko` (RO app src); `/run/ipc` (the
   socket dir routd serves into); the web slots `/var/lib/www` (RO public
   tree), `~/public_html` → `/pub/<folder>/`, `~/private_html` →
-  `/priv/<folder>/` ([`V-web-vhosts.md`](V-web-vhosts.md)); `/var/lib/share`
+  `/priv/<folder>/` (`proxyd/README.md`); `/var/lib/share`
   (grant-gated world share); `/var/lib/groups` (root only); layered
   `.codex` creds. Mount paths are configured-not-derived (CLAUDE.md
   § Identity is configured).
@@ -230,7 +229,7 @@ stronger than a token TTL would allow — `auth.Authorize` reads the ACL
 live, so a revoked grant stops the next tool call inside a live turn
 (`routd/revocation_live_test.go`).
 
-If a turn credential is ever wanted again, `5/32 § Caching` states the
+If a turn credential is ever wanted again, `auth/README.md` states the
 contract it must preserve: the token names the principal and never
 carries the permissions.
 
@@ -262,6 +261,6 @@ the runner. The published wire contract (`runed/api/v1/`) depends only on
 - `runed/migrations/` — the schema (0001 initial, 0002 circuit breaker,
   0003 drop mcp_tokens).
 - `routd/mcp.go` — `ServeTurnMCP`, the agent socket routd hosts.
-- [`1-auth-standalone.md`](1-auth-standalone.md) — `auth.ServiceToken`,
+- `authd/README.md` — `auth.ServiceToken`,
   `auth.VerifyHTTP`.
-- [`E-routd.md`](E-routd.md) — the PINNED wire contract (routd side).
+- `routd/README.md` — the PINNED wire contract (routd side).

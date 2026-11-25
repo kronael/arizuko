@@ -90,7 +90,7 @@ func TestRouteToken_List(t *testing.T) {
 	}
 }
 
-// TestRouteToken_ContextRoundTrip: the optional link context (spec 5/W § link
+// TestRouteToken_ContextRoundTrip: the optional link context (ROUTING.md
 // context) written by InsertRouteToken comes back verbatim from Lookup and
 // List; a context-less token stays empty (NULL at rest).
 func TestRouteToken_ContextRoundTrip(t *testing.T) {

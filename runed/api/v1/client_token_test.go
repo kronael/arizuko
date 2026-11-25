@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// The cutover wiring (spec 5/1 § Service bootstrap) lets routd pass a
+// The cutover wiring (authd/README.md bootstrap) lets routd pass a
 // refreshing TokenFn (auth.ServiceToken) instead of a static bearer. Either
 // way the live token must reach the POST /v1/runs Authorization header. A stub
 // runed records the bearer it received.

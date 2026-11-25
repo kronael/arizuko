@@ -46,7 +46,7 @@ var GroupsResponses = map[resreg.Action]reflect.Type{
 }
 
 // GroupsMCPNames maps each agent action to the flat tool name the live agent
-// calls (spec 5/16).
+// calls (resreg/README.md).
 var GroupsMCPNames = map[resreg.Action]string{
 	resreg.Action("register"): "register_group",
 	resreg.ActionList:         "refresh_groups",
@@ -87,7 +87,7 @@ func init() {
 		// has changed carries none, and stamping one moves a checksum the
 		// operator did not cause (BUGS F49).
 		AbsentStamps: []string{"UpdatedAt"},
-		// Agent-face metadata (spec 5/16); Apply/Export ignore it.
+		// Agent-face metadata (resreg/README.md); Apply/Export ignore it.
 		Endpoints: GroupsAgentEndpoints,
 		Responses: GroupsResponses,
 		MCPDoc:    GroupsMCPDoc,

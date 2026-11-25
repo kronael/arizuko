@@ -1,4 +1,4 @@
-// Package resreg implements the uniform Resource registry from spec 5/17: one
+// Package resreg implements the uniform Resource registry from resreg/README.md: one
 // Handler per (Resource, Action), wrapped by two auto-adapters (REST + MCP) so
 // any caller surface reaches the same code.
 //
@@ -8,7 +8,7 @@
 //     resolver, not a captured Caller, so a shared MCP server cannot collapse
 //     every call to one principal at registration time.
 //   - Canonical ACL gate. Resource.Authz returns (scope, params) and the adapter
-//     calls auth.Authorize per specs/5/32-acl-unified. No parallel scope machinery.
+//     calls auth.Authorize per auth/README.md. No parallel scope machinery.
 //   - Batched audit. A state-changing action HANDS ITS WRITES OVER rather than
 //     performing them: the handler buffers them on Execution.Writes and the
 //     adapter sends them in one objstore batch with the audit_log row, so the
@@ -53,7 +53,7 @@ const (
 	ActionDelete Action = "delete"
 )
 
-// Owner-subsystem keys for Resource.DB (spec 5/8: one subsystem = one owner
+// Owner-subsystem keys for Resource.DB (resreg/README.md: one subsystem = one owner
 // DB). They ARE store's owner names: an entity-backed resource's PARTITION is
 // its subsystem and the daemon's own storage layer writes at that coordinate,
 // so two spellings would put the writer's items in one partition and the
@@ -231,7 +231,7 @@ type Resource struct {
 	// plumbing, never the auth policy. Skipped for forwarders.
 	Gate func(x Execution, scope string, params map[string]string) error
 
-	// Schema half (spec 5/8), all optional. A resource with RowType+Table is
+	// Schema half (resreg/README.md), all optional. A resource with RowType+Table is
 	// engine-managed; one without RowType is a forwarder or custom shape.
 	RowType  reflect.Type // canonical row struct (zero-value)
 	Table    string       // the entity the rows live in
@@ -295,7 +295,7 @@ type Resource struct {
 	// StampedFields names the Go struct fields the STORAGE LAYER owns
 	// (created_at, granted_at, …). Diff ignores them when comparing payloads,
 	// so a hand-written manifest that omits them reads as `unchanged` (spec
-	// 5/8 §"Round-trip honesty"). A row that leaves one empty gets one
+	// resreg/README.md). A row that leaves one empty gets one
 	// invented.
 	StampedFields []string
 

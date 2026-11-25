@@ -351,7 +351,7 @@ func (s *Store) clearChatAttrs(ctx context.Context, key objstore.Key, attrs ...s
 }
 
 // DeriveAgentCursors moves each touched chat's cursor to its newest message, so
-// a restored history is not fed to the agent as if it were unread (spec 5/8
+// a restored history is not fed to the agent as if it were unread (cmd/arizuko/README.md
 // Finding 4). It answers how many cursors moved.
 //
 // NEVER BACKWARD: the guard is the condition on the write. Each chat's write is

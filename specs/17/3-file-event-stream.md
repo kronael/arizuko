@@ -26,7 +26,7 @@ emits file events over the channel the agent already uses.
 
 Not a motivation: file events are **not** a fence. The write already
 happened when the event fires. Prevention is
-[5/19-hitl-firewall](../5/19-hitl-firewall.md); this is a feed.
+`template/web/pub/arizuko/reference/grants.html`; this is a feed.
 
 ## Decisions
 
@@ -46,7 +46,7 @@ happened when the event fires. Prevention is
   cares about.
 - **Scope is the group's writable share only.** Agent self-state under
   `~/.claude/` is not observable. (Fix the exact mount against the current
-  model in [5/V-web-vhosts](../5/V-web-vhosts.md) before implementing —
+  model in `proxyd/README.md` before implementing —
   the container mount layout has changed since this was drafted.)
 - **Ignore patterns are hardcoded, not operator-tunable in v1** — `.git/`,
   `node_modules/`, build output, venvs, `*.log`/`*.tmp`/`*.swp`. An

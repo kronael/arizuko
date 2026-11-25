@@ -86,7 +86,7 @@ Shipped today (see `server.go`):
   and `POST /chat/{token}/mcp` (`route_token.go`, `mcp.go`, `turn.go`).
   The URL token IS the capability.
 - `POST /hook/{token}` — fire-and-forget webhook ingest (rate-limited).
-- `GET|POST /pair/{token}` — identity pairing (`pair.go`).
+- `GET|POST /pair/{token}` — identity pairing (`pair.go`). A missing, expired, consumed or malformed token gets one answer, 404 "This link is unavailable", so a redeemer cannot tell the four apart. The one distinct answer is 409 "Already linked", for an identity that has another non-role parent, because the user can act on it.
   `GET` renders the confirm page and writes nothing — chat platforms
   unfurl links and an unfurl bot must not spend a pairing. `POST` writes
   the `acl_membership` edge and consumes the token in one routd

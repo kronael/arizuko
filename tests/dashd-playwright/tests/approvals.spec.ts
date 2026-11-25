@@ -1,6 +1,6 @@
 import { test, expect, asUser, asOperator, stubURL } from './_helpers';
 
-// approvals.spec — /dash/approvals/, the HITL review queue (spec 5/19).
+// approvals.spec — /dash/approvals/, the HITL review queue (SCREENS.md).
 //
 // This page gates every tool call a hold rule suspended, and until now it was
 // the one dashd page with no browser coverage (BUGS L98) — which is how L97

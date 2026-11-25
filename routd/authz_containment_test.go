@@ -68,7 +68,7 @@ func TestRESTReadFolderBound(t *testing.T) {
 	}
 }
 
-// webRouteReq is the REST create/delete request body after the 5/16 REST-face
+// webRouteReq is the REST create/delete request body after the resreg/README.md REST-face
 // fold: the shared handler reads the flat MCP arg names (path/access/redirect_to)
 // plus the REST-only target `folder` (bound to the caller's subtree by the Gate).
 type webRouteReq struct {
@@ -117,7 +117,7 @@ func TestRESTCostRead(t *testing.T) {
 // The REST web_route PUT must enforce the SAME path-claim + redirect-self-slot
 // containment as its set_web_route MCP twin (2026-06-07 bug sweep): a scoped
 // caller cannot hijack another folder's web path or set a cross-folder redirect.
-// Post 5/16 fold both faces run the ONE shared handler, so the redirect-self-slot
+// Both faces run the ONE shared handler, so the redirect-self-slot
 // violation now surfaces the handler's 400 (was the old REST's 403).
 func TestRESTWebRoutePutContainment(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})

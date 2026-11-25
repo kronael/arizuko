@@ -1,6 +1,6 @@
 package main
 
-// Spec-conformance + security tests for specs/5/1: the typ claim per mint mode,
+// Spec-conformance + security tests for authd/README.md: the typ claim per mint mode,
 // the /v1/refresh response shape + cookie channel, the JWKS Cache-Control TTL,
 // and refresh-time grant re-snapshotting.
 
@@ -76,7 +76,7 @@ func TestMintModesStampTyp(t *testing.T) {
 
 // Issuer mint coerces the minted typ to "user" regardless of the caller-supplied
 // typ. A request asking for typ="service" is a privilege-escalation attempt;
-// spec 5/1 § POST /v1/tokens: "An invite mints user, never service. Delegation,
+// authd/README.md /v1/tokens: "An invite mints user, never service. Delegation,
 // never escalation." (Subsumes the former TestIssuerMintStampsRequestedTyp,
 // which asserted the now-closed escalation hole.)
 func TestIssuerMintForcesUserTyp(t *testing.T) {
@@ -100,7 +100,7 @@ func TestIssuerMintForcesUserTyp(t *testing.T) {
 	}
 }
 
-// Refresh rows store the BARE canonical sub (spec 5/1 "sub prefix rule": the
+// Refresh rows store the BARE canonical sub (authd/README.md: the
 // user:/service: prefix lives ONLY in the JWT sub claim); the minted access
 // token re-adds the prefix. A full OAuth login → refresh keeps the access sub
 // at "user:<bare>", and the stored refresh row carries the bare form.
@@ -150,7 +150,7 @@ func TestRefreshRowStoresBareSubMintAddsPrefix(t *testing.T) {
 
 // The HTTP grants fetcher, when GRANTS_URL is set, authenticates with authd's
 // self-minted service:authd token (scope grants:read) and pulls the bare sub's
-// scope + folder at login AND re-snapshots them at refresh (spec 5/1
+// scope + folder at login AND re-snapshots them at refresh (authd/README.md
 // § Login-time scope snapshot). With GRANTS_URL unset the fetcher is nil and
 // behavior is unchanged (empty-scope sessions).
 func TestHTTPGrantsFetcherWiredAndUnwired(t *testing.T) {
@@ -287,7 +287,7 @@ func TestKeysCacheControlMaxAge(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "max-age=3600") {
-		t.Fatalf("Cache-Control = %q want max-age=3600 (spec 5/1 JWKS TTL)", cc)
+		t.Fatalf("Cache-Control = %q want max-age=3600 (authd/README.md JWKS TTL)", cc)
 	}
 }
 
@@ -300,7 +300,7 @@ func (m *mutableGrants) FetchGrants(context.Context, string) (GrantsSnapshot, er
 
 // Refresh re-snapshots grants when a fetcher is wired on Authd: a grant change
 // takes effect at the next refresh, so a narrowed user does not retain stale
-// scope up to the refresh TTL (spec 5/1 § Login-time scope snapshot, refresh).
+// scope up to the refresh TTL (authd/README.md scope snapshot, refresh).
 func TestRefreshReSnapshotsGrants(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -344,7 +344,7 @@ func TestRefreshReusesStoredScopeWhenUnwired(t *testing.T) {
 }
 
 // A grants backend that is DOWN fails the refresh CLOSED — no token minted with
-// stale scope (spec 5/1-auth-standalone §"Login-time scope snapshot").
+// stale scope (authd/README.md).
 func TestRefreshFailsClosedWhenGrantsDown(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

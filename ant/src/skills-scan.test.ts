@@ -1,4 +1,4 @@
-// Load-time skill gate (spec 5/23): the SAME
+// Load-time skill gate (SECURITY.md): the SAME
 // skillguard table that refuses a write on claude excludes a skill from what
 // the codex/pi connectors load. One scanner, second hook point.
 

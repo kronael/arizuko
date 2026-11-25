@@ -41,7 +41,7 @@ const (
 )
 
 // RouteToken maps a bearer token to a single inbound JID + admin folder (spec
-// 5/W). JID kind is encoded in the prefix: `web:<folder>[/<suffix>]` for
+// ROUTING.md). JID kind is encoded in the prefix: `web:<folder>[/<suffix>]` for
 // anonymous web chat, `hook:<folder>/<source>[...]` for labeled webhook ingest.
 // owner_folder bounds revocation and may diverge from the folder embedded in
 // the JID.
@@ -50,7 +50,7 @@ type RouteToken struct {
 	OwnerFolder string
 	CreatedAt   time.Time
 	// Context is the optional issuer-authored per-link processing
-	// instructions (spec 5/W § link context).
+	// instructions (ROUTING.md context).
 	Context string
 	// TargetFolder is the folder the token DELIVERS to, recorded by the mint.
 	// Empty for a token minted before the mint recorded it; Folder falls back
@@ -59,7 +59,7 @@ type RouteToken struct {
 }
 
 // Folder returns the folder the token delivers to. The mint records the target
-// (spec 5/W); the JID grammar answers only for a token whose mint did not,
+// (ROUTING.md); the JID grammar answers only for a token whose mint did not,
 // because a suffixed JID is ambiguous: `web:t/sfx` reads as folder `t/sfx`,
 // and `hook:a/b/c` reads as folder `a/b`.
 func (t RouteToken) Folder() string {
@@ -81,7 +81,7 @@ const (
 	RouteTokenJIDKindHook = "hook"
 )
 
-// The stored `kind` attribute (spec 5/31-identity-pairing). Route delivery resolves only
+// The stored `kind` attribute (ROUTING.md). Route delivery resolves only
 // KindRoute rows and pairing redemption only KindPair rows, so neither
 // credential can be redeemed as the other.
 const (
@@ -198,7 +198,7 @@ func routeTokenPut(rawToken string, t RouteToken, kind string) (objstore.Write, 
 // InsertRouteToken persists a new token. The caller chooses the raw token (via
 // GenRouteToken) and returns it to the user; the store retains only
 // sha256(raw). Every mint MUST set TargetFolder: only the mint knows it, and a
-// token carrying none reads back through the ambiguous JID grammar (spec 5/W
+// token carrying none reads back through the ambiguous JID grammar (ROUTING.md
 // § Resolution).
 func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if rawToken == "" {
@@ -257,7 +257,7 @@ func routeTokenItem(ctx context.Context, s objstore.Store, rawToken, kind string
 
 // LookupRouteToken resolves a raw DELIVERY bearer token to its row. (zero,
 // false) when the token is unknown or is not a route-kind row: a pairing token
-// (spec 5/31-identity-pairing) never resolves here.
+// (ROUTING.md) never resolves here.
 func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	it, ok, err := routeTokenItem(context.Background(), s.Obj(), rawToken, RouteTokenKindRoute)
 	if err != nil || !ok {
@@ -268,7 +268,7 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 
 // ListRouteTokens returns the DELIVERY tokens owned by ownerFolder, newest
 // first. Pairing rows are excluded: enumerating ten-minute bearer attempts is
-// surface nobody needs (spec 5/31-identity-pairing § Unpair).
+// surface nobody needs (ROUTING.md).
 func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	items, err := routeTokensOfKind(context.Background(), s.Obj(), RouteTokenKindRoute)
 	if err != nil {
@@ -385,7 +385,7 @@ func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, 
 // ImportRouteTokens writes each row create-if-absent by token_hash: a route
 // token's content never legitimately changes once minted. Every imported row's
 // kind is forced to 'route'; this function never writes a pairing token. It
-// performs NO gating (spec 5/8 "Secret and token values" (2)): that is
+// performs NO gating (SECURITY.md (2)): that is
 // `apply` orchestration in cmd/arizuko. The rows already there are read
 // FIRST and left out of the batch: a batch is all-or-nothing, so one
 // create-if-absent whose item exists would refuse every other write.
@@ -432,7 +432,7 @@ func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenR
 }
 
 // CountRouteTokens counts EVERY item, kind='route' and kind='pair' alike: the
-// proven-empty-target gate (spec 5/8 "Secret and token values" (2)) wants a
+// proven-empty-target gate (SECURITY.md (2)) wants a
 // genuinely fresh table, not merely zero route-kind rows.
 func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: RouteTokens, Partition: OwnerRoutd})
@@ -448,7 +448,7 @@ func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 // would record the mint twice. The bearer is generated here and handed back
 // before anything is written. It is IssuePairingLink's delivery twin; both
 // render through routeTokenPut. target is the folder the token DELIVERS to:
-// the JID grammar cannot recover it once a suffix is present (spec 5/W), so
+// the JID grammar cannot recover it once a suffix is present (ROUTING.md), so
 // the mint is the only place it is known.
 func (s *Store) MintRouteTokenInto(ctx context.Context, ws *WriteSet, jid, ownerFolder,
 	targetFolder, linkContext string) (string, error) {

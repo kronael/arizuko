@@ -541,7 +541,7 @@ func TestPutOutbound_RefusesAnUnknownStatus(t *testing.T) {
 	}
 }
 
-// Spec 5/G-engagement — engagement primitives.
+// ROUTING.md — engagement primitives.
 func TestEngagement_SetAndCheck(t *testing.T) {
 	s := openMem(t)
 	defer s.Close()

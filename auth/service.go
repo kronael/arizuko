@@ -1,6 +1,6 @@
 package auth
 
-// Service-token bootstrap (spec 5/1 § Service bootstrap). A daemon exchanges
+// Service-token bootstrap (auth/README.md bootstrap). A daemon exchanges
 // its AUTHD_SERVICE_KEY for a short-lived `service:<name>` ES256 JWT at boot
 // and keeps it refreshed ~1 min before expiry, the way the JWKS RemoteKeySet
 // refreshes — no per-request hop. This replaces the static *_SERVICE_TOKEN env
@@ -71,7 +71,7 @@ func (ts *TokenSource) Token(ctx context.Context) (string, error) {
 }
 
 // exchange performs the POST /v1/service-token round-trip: secret in the
-// Authorization header, daemon name in the body (spec 5/1 §435).
+// Authorization header, daemon name in the body (auth/README.md).
 func (ts *TokenSource) exchange(ctx context.Context) (token string, expires time.Time, err error) {
 	body, _ := json.Marshal(map[string]string{"daemon": ts.daemon})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,

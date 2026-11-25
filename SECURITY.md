@@ -570,6 +570,19 @@ after it. Write each secret again, so that the new key seals it. Remove the old
 key only after every row is written again. A `v2:` value that no key opens is
 an error and never plaintext.
 
+A dump holds secret values sealed, and `SECRETS_KEY` never travels with it. A
+restore checks every secret row against the keyring of the target before it
+writes one, and refuses the whole secrets step on the first row that no key
+opens. The error names the scope and the key, never the value.
+
+### A restore does not revive a revoked link
+
+Revoking a route token or an invite deletes its row, and the link may still sit
+in a chat. A dump that holds the row would make the link valid again. So a
+restore skips `route_tokens`, `invites` and `onboarding` unless `--force` is
+set, and then writes them only into an empty target table. A secret has no
+such lifecycle, so its import is not gated.
+
 ## A tool call is a chokepoint and a raw socket is not
 
 Brokered tools keep credentials on the host because each call passes one
@@ -588,10 +601,9 @@ handler. Four properties hold for these calls:
    the same chokepoint and waits for approval. There is one point of
    interception and no bypass, because only one MCP server exists on the map of
    the agent. The agent socket mounts no interface of `pending_actions`,
-   because an agent that could approve would approve its own call. `CheckHold`
-   fails open on an unreadable `acl`. It holds nothing and logs an error. The
-   call then meets `Authorize`, which denies on the same unreadable table.
-   Whether an unreadable `acl` should hold the call is an open decision, see BUGS `L92`.
+   because an agent that could approve would approve its own call. When
+   `CheckHold` cannot read the `acl`, the gate blocks the call, logs an error
+   and tells the chat.
 4. **Every change writes its audit row in its own transaction.** The call is
    attributable to a folder, a tool and a triggering user.
 

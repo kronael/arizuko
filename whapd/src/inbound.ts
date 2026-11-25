@@ -57,7 +57,7 @@ export function extractContent(msg: WAMessage): ExtractedContent {
 
   // A press arrives as its own message kind carrying the id set on the button;
   // reading the id, never the display text, makes it the typed command it
-  // stands for (spec 5/19).
+  // stands for (EXTENDING.md).
   const press = pressedID(msg);
   if (press) return { content: press, isVoiceNote: false };
 

@@ -105,7 +105,7 @@ func TestConnectorTool_Held_ReachesUpstream(t *testing.T) {
 
 	// The upstream echoes the Authorization header it saw, so the reply proves the
 	// call landed there. The token itself comes back redacted: CallConnectorTool
-	// scrubs the resolved secret values out of the result (spec 5/13).
+	// scrubs the resolved secret values out of the result (EXTENDING.md).
 	if got := callConnectorTool(t, sock); !strings.Contains(got, "auth=Bearer «redacted»") {
 		t.Errorf("granted call did not return the upstream result: %s", got)
 	}

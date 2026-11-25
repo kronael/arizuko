@@ -30,7 +30,7 @@ type Entry struct {
 
 	// Origin pin: the first caller to claim Name becomes the owner, and a later
 	// Register for the same Name must present the same principal hash (the
-	// verified service:<adapter> sub — spec 5/1). That hash is the credential,
+	// verified service:<adapter> sub — authd/README.md). That hash is the credential,
 	// and it is what blocks a different service principal from taking an
 	// adapter's session token.
 	//
@@ -83,7 +83,7 @@ type Registry struct {
 	byPrincipal map[string]*Entry // keyed by service principal (service:<daemon>)
 
 	// bearer is the credential routd presents to adapters on egress: its
-	// service:routd ES256 token source (spec 5/1). nil → local dev (no
+	// service:routd ES256 token source (authd/README.md). nil → local dev (no
 	// AUTHD_URL); egress goes out with no Authorization header.
 	bearer func(context.Context) (string, error)
 }

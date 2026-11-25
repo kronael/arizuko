@@ -91,7 +91,7 @@ func TestMatchGroupsMalformedScopeDenies(t *testing.T) {
 }
 
 // MatchSlot: web-slot paths, where one folder's mount physically holds its
-// children's bytes (5/V-web-vhosts). Distinct question from MatchGroups, one helper.
+// children's bytes (runed/README.md). Distinct question from MatchGroups, one helper.
 func TestMatchSlot(t *testing.T) {
 	cases := []struct {
 		name    string

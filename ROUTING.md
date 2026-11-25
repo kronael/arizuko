@@ -20,7 +20,10 @@ globs over `/`.
 | emaid   | `email:`                                | `email:thread/<id>`                                                  |
 | webd    | `web:`                                  | `web:<folder>`, for example `web:atlas`; see the next section        |
 
-A Telegram DM JID includes the numeric bot id from `getMe`. The sender stays
+A Telegram DM JID includes the numeric bot id from `getMe`, because a private
+chat id is the user id for every bot, and the bot id keeps the chats of two
+accounts with one user apart. A group is one room whichever bot reads it, so
+its JID has no bot id, and `messages.source` selects the account. The sender stays
 `telegram:user/<user_id>` across bot accounts.
 A Telegram group has a negative chat id. The JID drops the minus sign, so group
 `-100123` becomes `telegram:group/100123`. A Discord guild channel always has
@@ -40,7 +43,9 @@ read `routes`. To split a chat surface into flows, such as intake threads or
 separate report channels, create sub-groups named `<parent>/<sub>`. Each
 sub-group gets its own JID `web:<parent>/<sub>`. `store.AddRoute` rejects a
 predicate that begins with `web:` when you insert the rule, so the mistake
-fails at once.
+fails at once. A web JID has no session segment: `groupfolder.JidFolder`
+reads the whole text after `web:` as the folder, because a folder name can
+contain `/`. The unit below a folder that a message can address is the topic.
 
 ### A scheduled task runs in its owner folder
 
@@ -88,7 +93,12 @@ gets any authority.
 Each lookup checks the kind. Delivery accepts only `route`, and redemption
 accepts only `pair`, so neither token works as the other. The agent mints a
 pairing link in the chat with `issue_pairing_link`, which exists only as an MCP
-tool. The JID must route to the folder of the agent. The link lives ten
+tool. The JID must route to the folder of the agent. The tool also takes an
+explicit `sender`, who must have an inbound message in that chat, and the
+token binds only that sender. A missing sender, or one with no inbound message
+in the chat, returns 400. `unpair` runs the same route and sender checks. The
+link has no operator face, because an operator does not pair a chat the
+operator is not in. The link lives ten
 minutes, works once and grants nothing by itself. `GET /pair/<token>` has no
 side effects, so an unfurl bot cannot spend the link. The `POST` is the consent
 step. [SECURITY.md](SECURITY.md#pairing-consent-is-the-boundary) explains the
@@ -219,8 +229,13 @@ The rendered topic applies to engagement, observation, batching and sessions.
 
 Every route write refuses unknown modes, multiple flags, flag values, unknown
 placeholders and malformed templates. Dispatch never first validates them.
-The single `expand.Expand` function serves route topics, `{sender}` paths and
-connector `{secret:KEY}` placeholders. URI parsing comes before expansion, so
+The single `expand.Expand` function renders every placeholder: route topics,
+`{sender}` paths, connector `{secret:KEY}` values, REST paths, hold text and
+probe variables. It replaces each `{name}` once with the value in its map. A
+name that is not in the map and malformed braces are errors, an empty value is
+valid, and a replacement value is never expanded again. The package imports
+no routing or credential code, so both sides use it without importing each
+other. URI parsing comes before expansion, so
 variable values cannot change the folder, query or fragment boundaries.
 
 One routd startup migration moves existing mode fragments to query flags:
@@ -292,7 +307,7 @@ restarts.
 
 The steps run in this order:
 
-1. **Topic inheritance.** A reply with no topic takes the topic of its parent.
+1. **Topic inheritance.** A reply or a reaction with no topic takes the topic of its parent.
    The thread check in step 3 must see the inherited topic. An empty topic is
    the main timeline and promotes nothing by itself.
 2. **Direct reply.** A message addresses the bot when the bot wrote it or it is
@@ -343,7 +358,9 @@ after the claim reach the group.
 
 With `ONBOARDING_ENABLED`, `routd` also hands a held chat to `onbod`, which
 greets it with a pairing link. A Discord guild channel starts onboarding only
-on an explicit `@mention`, so a busy server does not queue every poster.
+on an explicit `@mention`, so a busy server does not queue every poster. A
+chat id without a `platform:` prefix, such as `eval/child`, never starts
+onboarding, because it is a system chat and not a person.
 [`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one)
 draws the flow. When a new chat first asks to onboard, `routd` also queues one
 short notice to every `?issues` chat, with the sender and the chat. Later
@@ -553,8 +570,9 @@ route miss: held; onboarding if enabled      @ or #, slash command, prefix,
 3. **Engagement.** Engagement rescues a miss for a `message` or `mention`. The lookup uses the effective
    topic. It then falls back to the root topic `""`, unless someone disengaged
    that thread. A reply inside a thread therefore keeps the window that its
-   root started. `routd` claims engagement at dispatch and never at ingress,
-   because the folder is unknown until this step. Resolution runs before the
+   root started. `routd` never opens a window at ingress, because the folder is
+   unknown until this step. A window opens when an answer lands in the chat,
+   when a leading `@name` selects a group, or when the agent calls `engage`. Resolution runs before the
    miss handler, so an engaged chat never reaches onboarding. The grants of the
    engaged folder are not checked again on this path, because the folder held
    them when it engaged.
@@ -590,6 +608,10 @@ source="atlas"       target="atlas/content/x"  → denied (grandchild)
 source="atlas"       target="other/content"    → denied (different world)
 source="root"        target="atlas/content/x"  → allowed (root)
 ```
+
+A delegation to a folder that does not exist creates nothing. `routd` answers
+in the originating chat with the folder name and the `register_group` call that
+creates it.
 
 ## Topics isolate threads inside one group
 
@@ -692,7 +714,8 @@ own Claude session, reply chain and message history.
   other.
 - **Lineage.** Every topic except main carries `parent_topic`, `forked_at` and
   `observed_cursor` in `sessions`. The parent of a new topic is the topic of the
-  message it replies to, or main `""`. The first turn takes the observed cursor
+  message it replies to, when that topic has a session, and main `""`
+  otherwise. The first turn takes the observed cursor
   of the parent. An explicit `fork_topic` takes the current time. Both copy the
   session transcript of the parent to the id of the child
   , see `container.CopySession`. The child therefore resumes natively from the tail
@@ -702,9 +725,10 @@ own Claude session, reply chain and message history.
   for the other.
 - **Two ways to see another folder.** `observe_group` subscribes this folder to
   the inbound messages of a source folder through `group_watchers`. The feed is
-  one-way and read-only. `set_group_open` makes the already observed rows of a
-  folder visible to its siblings. The two tools answer two questions. The
-  single evaluator authorizes each tool on its target folder.
+  one-way and read-only. It delivers the rows that the source folder received
+  as triggers and needs no route change on the source. Rows that the source
+  only observed stay with the source. The single evaluator authorizes the tool
+  on its target folder.
 
 ### A sticky topic overrides the native topic
 
@@ -749,7 +773,10 @@ originating chat.
 3. The first registered adapter that owns the prefix of the JID.
 
 The middle step matters when two accounts on one platform share a prefix,
-because the prefix lookup returns whichever adapter it finds first.
+because the prefix lookup returns whichever adapter it finds first. An
+unregistered `channel` on `POST /v1/outbound` answers `400 unknown_channel`
+and never falls through to steps 2 and 3, because that would deliver through
+the adapter the caller pinned away from.
 
 ### A reply returns to the group that wrote the answer
 

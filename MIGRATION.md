@@ -172,7 +172,7 @@ Update skills/CLAUDE.md referencing `/workspace/group` → `/home/node`.
 `send_file` path translation strips `/home/node/`. Per-group writable
 web content goes in `~/public_html/` (served at `/pub/<folder>/...`)
 or `~/private_html/` (served at `/priv/<folder>/...`, JWT). Full
-spec: `specs/5/V-web-vhosts.md`.
+spec: proxyd/README.md.
 
 ## Skills / Templates
 
@@ -198,7 +198,7 @@ Prototype spawning is **not ported**. Groups are created explicitly with
 
 Previously listed as not-ported, now shipped: per-group web slots + derived
 per-world hosts (proxyd derives `<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`;
-`specs/5/V-web-vhosts.md`).
+proxyd/README.md).
 
 ## Data Directory
 

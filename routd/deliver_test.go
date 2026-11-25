@@ -250,7 +250,7 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	}
 }
 
-// F67 / spec 5/34-channel-protocol § "Outbound and adapter resolution" step 1: an explicit
+// F67 / ROUTING.md: an explicit
 // channel pin beats the latest inbound source AND the ForJID prefix scan. This
 // is the disambiguation a caller reaches for when one prefix is served by two
 // adapter accounts (primary `telegram` plus a second bot) — before this, the

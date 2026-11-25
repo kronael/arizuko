@@ -1,14 +1,7 @@
 ---
 status: queued
 depends:
-  [
-    55-identity-held-credentials,
-    ../5/15-surrogate-oauth,
-    ../5/14-credentials,
-    ../5/13-ext-mcp,
-    ../5/32-acl-unified,
-    ../5/33-paths-roles,
-  ]
+  [55-identity-held-credentials, ../5/14-credentials, ../5/33-paths-roles]
 ---
 
 # specs/6/56 — tools bound to an identity, and whose account they act as
@@ -25,11 +18,11 @@ The owner's words:
 
 So the ordinary case is already right and must not change: a tool call uses
 the INSTANCE's credential for that tool, resolved by the broker and scrubbed
-from the result (`../5/13-ext-mcp.md`). The agent never holds the value, and
+from the result (`EXTENDING.md`). The agent never holds the value, and
 nothing about a user's identity enters that path.
 
 Acting as a human is the EXCEPTION, it is a grant, and it already exists.
-`../5/15-surrogate-oauth.md` is `shipped`: a human consents at
+`SECURITY.md` is `shipped`: a human consents at
 `/dash/me/connections`, the provider's token is written under their identity,
 and the agent can then act as them rather than as a shared PAT.
 `auth/surrogate/providers/github.toml` writes the same `GITHUB_TOKEN` key the
@@ -55,7 +48,7 @@ Outcome 2 is the dangerous one, and it is what a naive join of
 connected GitHub so that THEY could be acted for in one folder would find
 their token spending authority in every folder that reaches the same tool.
 
-So the containment is the point of this spec, and `../5/32-acl-unified.md`
+So the containment is the point of this spec, and `auth/README.md`
 already owns the primitive: one `acl` row, three principals, and the row's
 scope glob IS the containment. `../5/33-paths-roles.md` adds the two axes —
 the turn's folder confers in full, the attested sender adds only inside that
@@ -64,8 +57,8 @@ folder's subtree.
 ## What must be settled before any code
 
 1. **Whether "this tool belongs to this identity" is an `acl` row or a new
-   table.** `5/32` says one primitive, three principals. A fourth store has to
-   justify itself against that sentence, and `../5/13-ext-mcp.md` already
+   table.** `auth/README.md` says one primitive, three principals. A fourth store has to
+   justify itself against that sentence, and `EXTENDING.md` already
    gates each remote tool as `mcp:<name>_<tool>`.
 2. **Which principal a surrogate call is authorized as.** The agent, the
    human, or a composite. `5/33`'s two axes constrain it; nothing names it.
@@ -80,7 +73,7 @@ folder's subtree.
 
 | #   | Claim                                                                               | How to settle it                                                                                          |
 | --- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 1   | An `acl` row can express "this tool belongs to this identity" with no schema change | Read `5/32`'s evaluator against a `github:` principal.                                                    |
+| 1   | An `acl` row can express "this tool belongs to this identity" with no schema change | Read `auth/README.md`'s evaluator against a `github:` principal.                                          |
 | 2   | `grantableAction` accepts an action naming a surrogate tool                         | A new `acl` action is unreachable until `grantableAction` accepts it; grep it before designing around it. |
 | 3   | The broker can resolve a per-identity secret, not only a per-folder one             | Read `store/secrets.go` `FolderSecretsResolved` and the broker's call site.                               |
 | 4   | An audit row today records which credential a connector call used                   | Read the connector's audit write.                                                                         |

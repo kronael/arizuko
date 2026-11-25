@@ -1,6 +1,6 @@
 package resources
 
-// names.go: every resource name, spelled once (spec 5/16). A resource's Name
+// names.go: every resource name, spelled once (resreg/README.md). A resource's Name
 // is its wire identity, the `/v1/<name>` REST path AND the MCP tool prefix,
 // and both the catalog registration and the owning daemon's mounted handler
 // read these constants. A string literal at either site is the drift vector

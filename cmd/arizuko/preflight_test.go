@@ -1,7 +1,7 @@
 package main
 
-// The CLI half of the missing-group rule (spec 5/8 §"The missing-group
-// rule"): preflightFolders runs across EVERY parsed document against the
+// The CLI half of the missing-group rule (resreg/README.md § An apply
+// replaces a subsystem under a claim): preflightFolders runs across EVERY parsed document against the
 // REAL routd.db/onbod.db pair, before cmdApply opens a transaction.
 //
 // cmdApply itself calls os.Exit on refusal, which is unsafe from inside a

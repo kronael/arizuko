@@ -5,7 +5,7 @@
 // convention is exactly the escape hatch for that.
 package resreg_test
 
-// Archive index tests — spec 5/8 "The full-instance archive". What is left in
+// Archive index tests — resreg/README.md. What is left in
 // this file is the part of the archive that is not any one table: the
 // subsystem snapshot and the checksum it stamps. Each table's own export and
 // import lane is a method on the owner of that table (store/route_tokens.go,

@@ -49,6 +49,6 @@ proxy) is the concrete component spec.
 ## Ties
 
 `specs/5/A` (positioning) · `5/9` (`anteval` — the agent conformance
-basis) · `5/34` (channel protocol) · `USELESS.md` (the honest gaps this
+basis) · `chanlib/README.md` (channel protocol) · `USELESS.md` (the honest gaps this
 closes) · the Agent Research Hub · self-learning (`ARCHITECTURE.md` § Decided, and why; the loop turned
 outward).

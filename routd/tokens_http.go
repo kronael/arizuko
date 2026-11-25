@@ -3,7 +3,7 @@ package routd
 // Route-token REST operations share routeTokensHandler with MCP and inject
 // REST-specific identity, scope, and folder containment. Token DELIVERY
 // (URL token -> jid) is not here and never was a live REST call: webd and
-// proxyd are FS-mounted on routd.db and resolve in-process (spec 5/W).
+// proxyd are FS-mounted on routd.db and resolve in-process (ROUTING.md).
 
 import (
 	"encoding/json"

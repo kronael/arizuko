@@ -1,6 +1,6 @@
 package main
 
-// Identity pairing, browser half (spec 5/31-identity-pairing). A pairing link binds a channel
+// Identity pairing, browser half (SECURITY.md). A pairing link binds a channel
 // identity (telegram:user/123) to the account of whoever redeems it, by writing
 // the acl_membership edge that makes the channel identity resolve to that human.
 //
@@ -33,7 +33,7 @@ const pairCSRFCookie = "arz_pair_csrf"
 
 // pairContinueURL is where the success page sends the user next. Pairing writes
 // the membership edge; it does NOT route the JID, so without this the page is a
-// dead end and the chat the user just linked stays silent — spec 5/18's opening
+// dead end and the chat the user just linked stays silent — the held-chat
 // problem (BUGS P1b, blocker 4).
 //
 // This is a destination, not onboarding logic: webd states no condition and

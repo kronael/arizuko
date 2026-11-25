@@ -46,8 +46,7 @@ for multiple directories); Kerberos/NTLM.
 These are provider subs (`(provider, provider_sub)` unique) like any other —
 there is no separate normalisation step to hook (`CanonicalSub`, the resolve
 function this line originally named, was deleted 2026-08-04, `54125cbd`; it
-had no non-test caller — see [`../5/1-auth-standalone.md`](../5/1-auth-standalone.md)
-§"Account linking + collision rules" for the live model). Existing `user_groups`
+had no non-test caller — see `authd/README.md` for the live model). Existing `user_groups`
 rows with matching subs continue to work — no migration.
 
 ## Config

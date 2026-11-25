@@ -148,7 +148,7 @@ func wait(ctx context.Context, delay time.Duration) error {
 
 // ensurePristineRoot guarantees the eval folder's ROOT topic holds no session
 // before a case is injected. Each case runs in its own fresh topic, and the first
-// turn of any non-main topic forks main's session (specs/5/F-topic-lineage) — so a root session
+// turn of any non-main topic forks main's session (ROUTING.md) — so a root session
 // means the case inherits every prior conversation in the chat (BUGS L54).
 //
 // The reset is `/new`: routd's steer consumes a bare /new before any turn, so the
@@ -183,7 +183,7 @@ func ensurePristineRoot(cfg Config) error {
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf(
-				"baseline: root session %s survived /new for %s — quiesce the eval chat; a case injected now would fork this session (specs/5/F) and score its history",
+				"baseline: root session %s survived /new for %s — quiesce the eval chat; a case injected now would fork this session and score its history",
 				sid, cfg.baselineWait)
 		}
 	}

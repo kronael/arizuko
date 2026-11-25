@@ -17,7 +17,7 @@ import (
 
 // TestSenderSchemeGuard pins the ingress sender-ownership guard added in
 // 3cb63410. A registered adapter may not assert another platform's identity,
-// but "anon:" is exempt — route tokens (5/W) mint anon:<hash> for public web
+// but "anon:" is exempt — route tokens (SECURITY.md) mint anon:<hash> for public web
 // chat and webd holds a registry entry for "web:", so constraining it took the
 // whole web-chat surface down on krons the first time the guard reached a
 // deployed instance (2026-08-05, "adapter may not assert sender anon:f883d5fa").

@@ -10,7 +10,7 @@ import (
 )
 
 // A pairing token is not a delivery credential: routd's own resolve/list/revoke
-// surfaces are scoped to kind='route' (spec 5/31-identity-pairing).
+// surfaces are scoped to kind='route' (ROUTING.md).
 func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -58,7 +58,7 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 // TestRouteTokenTargetConflict: a JID names ONE chat, so a second mint may not
 // bind it to a second folder. Without this guard RouteTokenTarget would read
 // back two answers for one JID and deliver the payload to whichever row it saw
-// first. A second mint at the SAME folder stays legal — spec 5/W permits several
+// first. A second mint at the SAME folder stays legal — ROUTING.md permits several
 // active tokens per JID.
 func TestRouteTokenTargetConflict(t *testing.T) {
 	db, err := OpenMem()

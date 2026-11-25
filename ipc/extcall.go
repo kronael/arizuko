@@ -46,7 +46,7 @@ type ExtTool struct {
 // body as text. Secret values are scrubbed from the response before return.
 //
 // refresh, when non-nil, force-refreshes the tool's credentials and returns the
-// re-resolved set. It is called AT MOST ONCE and ONLY on a 401: spec 5/15
+// re-resolved set. It is called AT MOST ONCE and ONLY on a 401: SECURITY.md
 // specifies a reactive retry for surrogate-OAuth providers whose `expires_in`
 // is optimistic, where the proactive near-expiry refresh cannot fire because
 // the stored expires_at still looks healthy. An expired access token is the

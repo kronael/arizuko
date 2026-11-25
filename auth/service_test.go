@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// fakeAuthd is a stub /v1/service-token endpoint matching the spec 5/1 §435
+// fakeAuthd is a stub /v1/service-token endpoint matching the auth/README.md
 // contract: secret in the Authorization header, daemon in the body. It signs a
 // real ES256 token so the helper can read the exp claim for refresh scheduling.
 func fakeAuthd(t *testing.T, key *SigningKey, ttl time.Duration, calls *int32) *httptest.Server {

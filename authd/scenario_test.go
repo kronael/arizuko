@@ -1,7 +1,7 @@
 package main
 
 // Daemon-level + HTTP-integration security scenarios for authd, the system's
-// token authority (specs/5/1). These spin a real httptest server on the authd
+// token authority (authd/README.md). These spin a real httptest server on the authd
 // mux and verify through the go-oidc RemoteKeySet network path (auth.FetchKeys)
 // — the same code every backend runs — so a regression in key serving,
 // rotation windows, refresh rotation, or cross-deployment isolation fails here.
@@ -71,7 +71,7 @@ func postJSON(t *testing.T, url string, body any) (*http.Response, map[string]an
 	return resp, out
 }
 
-// postServiceToken exchanges via the spec 5/1 §435 shape: secret in the
+// postServiceToken exchanges via the authd/README.md shape: secret in the
 // Authorization header, daemon name in the body.
 func postServiceToken(t *testing.T, url, daemon, secret string) (*http.Response, map[string]any) {
 	t.Helper()
@@ -94,8 +94,8 @@ func postServiceToken(t *testing.T, url, daemon, secret string) (*http.Response,
 }
 
 // HTTP-integration: a freshly minted token verifies end-to-end through
-// FetchKeys (RemoteKeySet hits /v1/keys over the wire). specs/5/1 "offline
-// verification ... pure function over (token, JWKs)".
+// FetchKeys (RemoteKeySet hits /v1/keys over the wire). Verification is offline
+// (ARCHITECTURE.md § Decided, and why).
 func TestHTTPFetchKeysVerifiesMintedToken(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -113,7 +113,7 @@ func TestHTTPFetchKeysVerifiesMintedToken(t *testing.T) {
 // HTTP-integration: a token minted by server A must be REJECTED by a verifier
 // pointed at server B (a different deployment with different keys). Guards the
 // blast-radius boundary — one mint authority does not authorize against
-// another. specs/5/1 single-issuer model.
+// another. authd/README.md single-issuer model.
 func TestHTTPTokenRejectedByWrongServersKeys(t *testing.T) {
 	dbA := testDB(t)
 	aA := newTestAuthd(t, dbA)
@@ -140,8 +140,8 @@ func TestHTTPTokenRejectedByWrongServersKeys(t *testing.T) {
 
 // Key lifecycle (network path): rotate, then a token signed by the now-retired
 // key still verifies while that key remains in /v1/keys (within the serving
-// window). specs/5/1 "Overlap window ... old-kid tokens verify until they'd
-// have expired anyway".
+// window). A retired kid verifies until
+// its tokens would have expired anyway (authd/README.md).
 func TestHTTPRetiredKeyVerifiesWithinWindow(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db) // maxAccessTTL = 1h, so a just-retired key stays serving
@@ -160,7 +160,7 @@ func TestHTTPRetiredKeyVerifiesWithinWindow(t *testing.T) {
 // Key lifecycle (network path): once the retired key falls out of its serving
 // window it is no longer published, so a cold verifier rejects an old-key
 // token. Models the "≤ JWKS cache TTL" purge after which old-kid tokens fail
-// (specs/5/1 "Overlap window").
+// (authd/README.md).
 func TestHTTPRetiredKeyFallsOutOfWindow(t *testing.T) {
 	db := testDB(t)
 	// maxAccessTTL tiny: the key retired by Rotate is instantly past its window.
@@ -183,8 +183,8 @@ func TestHTTPRetiredKeyFallsOutOfWindow(t *testing.T) {
 // Refresh (HTTP end-to-end): a successful /v1/refresh returns a rotated refresh
 // token AND a fresh, verifiable access token; replaying the SPENT refresh
 // token over HTTP triggers family revocation, and the live successor is killed
-// too. specs/5/1 "Refresh-token rotation (one-time-use) ... reuse signal ...
-// invalidates the entire family".
+// too. Refresh reuse revokes the
+// whole family (authd/README.md § Entities owned).
 func TestHTTPRefreshReuseKillsLiveSuccessor(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -222,8 +222,8 @@ func TestHTTPRefreshReuseKillsLiveSuccessor(t *testing.T) {
 }
 
 // Refresh (HTTP): an unknown / never-issued refresh token is rejected with 401,
-// never minting an access token. specs/5/1 "A missing/expired refresh token
-// returns 401".
+// never minting an access token. A missing or expired refresh
+// token returns 401 (authd/README.md).
 func TestHTTPRefreshUnknownTokenRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -239,7 +239,7 @@ func TestHTTPRefreshUnknownTokenRejected(t *testing.T) {
 }
 
 // Refresh (HTTP): an EXPIRED refresh token is rejected — an expired session
-// cannot silently mint new access. specs/5/1 TTL table "Refresh token 30 days".
+// cannot silently mint new access. authd/README.md TTL table "Refresh token 30 days".
 func TestHTTPRefreshExpiredRejected(t *testing.T) {
 	db := testDB(t)
 	// refreshTTL negative → the issued refresh token is already expired.
@@ -260,7 +260,7 @@ func TestHTTPRefreshExpiredRejected(t *testing.T) {
 // but the user's grants have since been revoked down. On refresh authd
 // re-snapshots grants, so the new access token carries the NARROWED current
 // grants — a revoked grant must NOT survive via the stored refresh-row scope
-// (spec 5/1-auth-standalone §"Login-time scope snapshot"). The standalone fakeGrants tests
+// (authd/README.md). The standalone fakeGrants tests
 // cover the fetcher; this drives the full Refresh narrowing path.
 func TestRefreshNarrowsOnShrunkGrants(t *testing.T) {
 	db := testDB(t)
@@ -294,7 +294,7 @@ func TestRefreshNarrowsOnShrunkGrants(t *testing.T) {
 // Service-token (HTTP, scope bounding): the minted service token carries
 // EXACTLY the principal's declared serviceGrants — not the full vocabulary, not
 // the union of all daemons. A leaked boot secret buys only that one daemon's
-// scope. specs/5/1 "the daemon's declared service capability set".
+// scope. authd/README.md.
 func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -325,8 +325,8 @@ func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 
 // Scope bounding (issuer mint): MintForSubject is bounded by the TARGET's
 // grants, not the request — asking for more than the target is granted silently
-// drops the extra (delegation, never escalation). specs/5/1 "POST /v1/tokens"
-// issuer mint: "requested scope ⊆ that snapshot".
+// drops the extra (delegation, never escalation). Issuer mint is bounded by the
+// target's grants (authd/README.md, POST /v1/tokens).
 func TestMintForSubjectDropsScopeBeyondGrants(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

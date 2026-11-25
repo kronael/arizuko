@@ -7,7 +7,7 @@ import (
 )
 
 // PendingActionsRow mirrors routd's pending_actions: one tool call suspended
-// until a human approves it (spec 5/19). The hold RULE is an `acl` row; this is
+// until a human approves it (template/web/pub/arizuko/reference/grants.html). The hold RULE is an `acl` row; this is
 // the suspended CALL.
 type PendingActionsRow struct {
 	ID           string `db:"id"            yaml:"id"                      json:"id"`

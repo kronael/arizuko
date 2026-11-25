@@ -12,14 +12,14 @@ import (
 )
 
 // nearExpiryWindow is the lead time before an OAuth access token's expiry at
-// which the broker refreshes it (spec 5/15: refresh when expires_at−now < 60s).
+// which the broker refreshes it (SECURITY.md: refresh when expires_at−now < 60s).
 const nearExpiryWindow = 60 * time.Second
 
 // refreshOAuth refreshes user-scoped surrogate-OAuth rows among `required`,
 // writing the fresh token into `out` and the DB. A "reconnect" error names the
 // keys whose refresh_token the provider rejected (row nulled, key dropped); a
 // transient failure keeps the stale token. force=false is the PROACTIVE half
-// (spec 5/15): only a row within nearExpiryWindow of expiry. force=true is the
+// (SECURITY.md): only a row within nearExpiryWindow of expiry. force=true is the
 // REACTIVE half behind a 401: every OAuth row regardless of expires_at, because
 // an optimistic expires_in leaves the stored expiry looking healthy while the
 // token is already dead.

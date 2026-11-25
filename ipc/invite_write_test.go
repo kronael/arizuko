@@ -6,7 +6,7 @@ import (
 )
 
 // invite_create/invite_list/invite_revoke are the MCP twins of REST
-// POST/GET/DELETE /v1/invites (spec 5/16-mcp-rest-unification). A tier-0 (operator) caller drives all
+// POST/GET/DELETE /v1/invites (resreg/README.md). A tier-0 (operator) caller drives all
 // three; the closures funnel to onbod (faked here as the RoutdFns funcs).
 func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	dir := t.TempDir()

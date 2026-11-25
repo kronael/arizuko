@@ -33,7 +33,9 @@ unless `CHANNEL_REGISTER_ALLOW_PUBLIC=1` (`validateAdapterURL`).
 ## Inbound identity is checked against the registration
 
 routd's `POST /v1/messages` checks two fields against the caller's entry
-(`routd/server.go`):
+(`routd/server.go`). The entry comes from the inbound `source` when that entry
+has the caller's principal, and from the caller's principal otherwise, because
+two accounts of one adapter share a principal and own different prefixes:
 
 - `chat_jid` must start with one of the entry's prefixes (`Owns`). A
   `web:`, `hook:` or bare-folder JID is internal and skips the check.

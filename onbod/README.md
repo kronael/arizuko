@@ -125,7 +125,9 @@ folder ancestry. A `worlds` table would be a second path beside each of those.
 An agent cannot create a world: a top-level `register_group` from the agent
 socket answers "worlds are CLI-only" (`routd/groups_resource.go`). The CLI
 creates one, and onbod creates one for a person admitted through an enabled
-gate or holding an invite to `/`.
+gate or holding an invite to `/`. A world has no grant root of its own:
+`role:operator` holds every action on `**`, and a per-world root is a scoped
+`acl` row.
 
 ### Invites
 
@@ -169,6 +171,8 @@ redemption spent without a world.
   enabled gate exists.** With no gate, `admitJID` approves every paired
   identity, so the gate is what keeps world creation invite-only by default;
   configuring one is the operator's opt-in to self-serve signup.
+  `handleCreateWorld` checks `mayCreateFirstWorld` before it writes, so the
+  dashboard form is a convenience and never the authorization.
 
 **onbod writes role edges for each world.** Browser pairing writes identity
 edges with `added_by='pairing'` in routd's transaction. `unpair` can remove

@@ -1,4 +1,4 @@
-# Buildkite MCP connector (spec 5/13 shape 2). Operator copy: drop this block
+# Buildkite MCP connector (EXTENDING.md shape 2). Operator copy: drop this block
 # into <data_dir>/connectors.toml (multi-block file) and restart routd.
 #
 # This is Buildkite's HOSTED MCP server — nothing is installed. The connector is

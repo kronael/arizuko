@@ -30,7 +30,7 @@ func authSrv(t *testing.T, v Verifier) (*DB, http.Handler) {
 	return db, srv.Handler()
 }
 
-// TestRouteWriteRequiresScope: the /v1/routes REST fold (spec 5/16) — POST add now
+// TestRouteWriteRequiresScope: the /v1/routes REST fold (resreg/README.md) — POST add now
 // wraps the route arg the shared handler reads (`{"route": ...}`). CRUD demands
 // routes:write (the REST gate's scope check → 403), and a write-scoped token bound
 // to a folder cannot target a route outside its subtree (the gate's ownsFolder — the

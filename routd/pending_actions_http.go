@@ -1,6 +1,6 @@
 package routd
 
-// pending_actions_http.go mounts the REST half of spec 5/19's resolution
+// pending_actions_http.go mounts the REST half of the hold resolution (reference/grants.html)
 // contract — GET /v1/pending_actions plus POST /v1/pending_actions/{id}/
 // approve|reject. Both verdicts funnel through resolveHoldInto, the same core
 // the chat /approve command runs, inside the tx resreg opens. Nothing is

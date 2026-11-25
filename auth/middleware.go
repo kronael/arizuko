@@ -5,7 +5,7 @@ import (
 )
 
 // ProxydTransitSub is the JWT subject of the service token proxyd attaches to
-// every request it forwards (spec 5/1). proxyd is the sole web ingress: it
+// every request it forwards (auth/README.md). proxyd is the sole web ingress: it
 // strips client-supplied identity headers, authenticates the user, then
 // re-stamps X-User-* and proves the channel with this token. A backend trusts
 // those stamped headers ONLY on this proof.

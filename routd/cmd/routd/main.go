@@ -1,7 +1,7 @@
 // Command routd runs the routd daemon: the conversation state machine —
 // routing rules + the message/event store + the orchestration loop +
 // channel ingress/egress. routd is the SOLE appender of messages and a
-// token VERIFIER, not a signer (spec 5/E-routd). It owns routd.db and calls
+// token VERIFIER, not a signer (routd/README.md). It owns routd.db and calls
 // runed (POST /v1/runs) to execute turns.
 package main
 
@@ -95,7 +95,7 @@ func main() {
 	}
 	db.SetSecretKeys(kr...)
 
-	// Surrogate OAuth (spec 5/15): the broker refreshes near-expiry capability
+	// Surrogate OAuth (SECURITY.md): the broker refreshes near-expiry capability
 	// credentials at call time. Always wired — refresh only fires for user rows
 	// carrying provider metadata, so an unconfigured instance is inert.
 	if eng, err := surrogate.NewEngine(dataDir); err != nil {
@@ -110,7 +110,7 @@ func main() {
 	go audit.PruneLoop(ctx, db.Obj())
 
 	// Verifier: offline-verify bearer tokens against authd's JWKs. routd
-	// holds no signing key (spec 5/E-routd § Auth). Unset AUTHD_URL → no
+	// holds no signing key (routd/README.md). Unset AUTHD_URL → no
 	// verifier (single-tenant / local-dev); the Server treats nil as open.
 	var verify routd.Verifier
 	// dashKeys arms the /dash/routd/ operator gate from the SAME keyset the /v1
@@ -139,18 +139,18 @@ func main() {
 	runedWait := runTimeout + 2*time.Minute
 	var runedClient *runedv1.Client
 	// identity resolves a sender sub → canonical identity at authd's
-	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/1-auth-standalone), reusing the same
+	// GET /v1/identities/{sub} (authd OWNS identity — authd/README.md), reusing the same
 	// service:routd token source as the runed client. nil when authd/the service
 	// key is unwired → inspect_identity answers unclaimed (auth-only deployment).
 	var identity routd.IdentityResolver
 	// onbod federates the /invite + /gate slash commands (onbod OWNS invites +
-	// onboarding_gates — spec 5/16-mcp-rest-unification), reusing the same service:routd token source.
+	// onboarding_gates — resreg/README.md), reusing the same service:routd token source.
 	// nil when ONBOD_URL or the service key is unwired → the commands report the
 	// federation gap, exactly as the pre-federation stubs did.
 	var onbod routd.OnbodClient
 	// svcSrc is the service:routd token source, reused for the adapter-egress
 	// Bearer (chanreg) too: routd→adapter calls (/send, /files, /v1/pane, …)
-	// present this ES256 token (spec 5/1; no CHANNEL_SECRET remains). nil → local
+	// present this ES256 token (authd/README.md; no CHANNEL_SECRET remains). nil → local
 	// dev (no AUTHD_URL); egress goes out unauthenticated.
 	var svcSrc func(context.Context) (string, error)
 	svcKey := os.Getenv("AUTHD_SERVICE_KEY")
@@ -247,7 +247,7 @@ func main() {
 	loop.BindServer(srv)
 	srv.SetDirs(filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "web"))
 	// Mirror proxyd's vhost config so get_web_presence can report a folder's
-	// derived (<folder>.<HOSTING_DOMAIN>) / aliased canonical host (spec 5/V-web-vhosts).
+	// derived (<folder>.<HOSTING_DOMAIN>) / aliased canonical host (proxyd/README.md).
 	srv.SetVhosts(
 		strings.ToLower(strings.TrimSuffix(os.Getenv("HOSTING_DOMAIN"), ".")),
 		groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
@@ -271,7 +271,7 @@ func main() {
 	// audit-system.jl in DATA_DIR — observability only, never the routd.db
 	// audit_log table (audit.Init above owns that). AUDIT_ENABLED unset → noop.
 	srv.SetAudit(audit.New(audit.LoadConfig(dataDir, os.Getenv("ARIZUKO_INSTANCE"))))
-	// MCP connectors (spec 5/13 § connectors.toml): load <DATA_DIR>/connectors.toml
+	// MCP connectors (EXTENDING.md.toml): load <DATA_DIR>/connectors.toml
 	// (or $CONNECTORS_TOML) and hand the specs to every per-turn MCP socket, which
 	// discovers each catalog with the folder's broker-resolved credential. Nothing
 	// is dialled here: boot has no folder, so it has no token. Missing file is

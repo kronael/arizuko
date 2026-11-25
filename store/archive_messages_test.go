@@ -1,6 +1,6 @@
 package store_test
 
-// Message-history archive tests — spec 5/8 "Message history" + Finding 4.
+// Message-history archive tests — cmd/arizuko/README.md + Finding 4.
 //
 // The fixture is routd's OWN tables, opened from the EXTERNAL test package:
 // routd imports store, so an internal store test file could not import it back.
@@ -513,7 +513,7 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 // sorts before "slack:Z": a sweep that stopped at the empty chat would leave
 // every alphabetically later chat with NO cursor at all, and the poll loop reads
 // a restored history with no cursor as entirely unread — the state this
-// operation exists to prevent (spec 5/8 Finding 4).
+// operation exists to prevent (cmd/arizuko/README.md Finding 4).
 func TestDeriveAgentCursorsDerivesEveryChatItCanAndSkipsTheRest(t *testing.T) {
 	dbSt := routdMessages(t)
 	doc := archiveOf(t, []store.ArchiveMessageRow{

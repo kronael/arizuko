@@ -162,7 +162,7 @@ async function act(res: http.ServerResponse, fn: () => Promise<string | void>) {
 // routd's sweep retries a 502 and would get the same refusal every time until
 // the budget ran out, whereas the message may already be on WhatsApp. 409 says
 // "this is not retryable and not settled" — routd dead-letters it and an
-// operator decides (spec 5/34, BUGS D5). Everything else stays 502.
+// operator decides (whapd/README.md, BUGS D5). Everything else stays 502.
 function sendFailure(res: http.ServerResponse, e: unknown) {
   if (e instanceof DeliveryUnresolvedError) {
     log('error', 'outbound delivery unresolved; refusing to guess', {

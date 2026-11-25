@@ -77,7 +77,7 @@ func adapterErr(resp *http.Response, tool, platform string) error {
 type HTTPChannel struct {
 	entry *Entry
 	// bearer yields the credential presented to the adapter on every call: routd's
-	// service:routd ES256 JWT (spec 5/1), or nothing in local dev (no AUTHD_URL).
+	// service:routd ES256 JWT (authd/README.md), or nothing in local dev (no AUTHD_URL).
 	// Never nil — NewHTTPChannel installs a getter.
 	bearer func(context.Context) (string, error)
 	client *http.Client
@@ -108,7 +108,7 @@ func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-// SendOptionsCtx is Send carrying pickable answers (spec 5/19). It is the ONE
+// SendOptionsCtx is Send carrying pickable answers (EXTENDING.md). It is the ONE
 // fold: an adapter without `buttons` never receives options, it receives the
 // answers written into the text as what the reader types.
 func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, options []chanlib.Option,

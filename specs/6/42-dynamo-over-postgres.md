@@ -1,6 +1,6 @@
 ---
 status: partial
-depends: [41-qemu-substrate, ../5/16-mcp-rest-unification, ../5/33-paths-roles]
+depends: [41-qemu-substrate, ../5/33-paths-roles]
 ---
 
 # specs/6/42 — DynamoDB over PostgreSQL: one server, one driver, no database layer
@@ -878,6 +878,6 @@ All remaining items are LIVE:
 `INSTALL.md` § "The store server holds every table of the instance" (one server for every deployment) · `objstore/README.md` (the object model, the surface,
 the protocols, the audited write) · `6/41` (the two-lever rule) ·
 `routd/README.md` § "The model gateway" (the PostgreSQL service already in the deployment,
-`template/services/litellm.yml`) · `5/16` (ownership, and the federation debt
+`template/services/litellm.yml`) · `resreg/README.md` (ownership, and the federation debt
 the policies do not close) · `5/33` (the path is the coordinate) · BUGS `L97`,
 `L122`, `L251`, `L256`, `L267`, `L276`, `L277`.

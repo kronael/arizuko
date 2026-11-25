@@ -1,7 +1,6 @@
 ---
 status: reference
-depends: [34-resident-prompt, ../5/9-agent-capability-eval, ../5/G-engagement]
-relates-to: [5/24-live-tasklist-status]
+depends: [34-resident-prompt, ../5/9-agent-capability-eval]
 ---
 
 # specs/6/44 — one delivery door, and the nudge that teaches it
@@ -193,7 +192,7 @@ The proposal was regexes over the turn's inbound and outbound. Honest reading:
 
 **Over inbound: no.** Whether this turn was addressed is a fact routd already
 holds — the route decision, the trigger kind (`verb=mention`, `<observed>`,
-`timed-*`), the engagement window of `5/G`. A regex over the message body would
+`timed-*`), the engagement window of `ROUTING.md`. A regex over the message body would
 be a second classifier beside the router's own, deciding the same question from
 worse evidence. That is the parallel path the project bans: the router's answer
 is the one every other surface reads, so a second one can only agree or lie.

@@ -38,7 +38,7 @@ func processChats(t *testing.T, l *Loop) {
 	}
 }
 
-// TestAtomicAppendRouteTurn checks the spec 5/E-routd invariant: append inbound →
+// TestAtomicAppendRouteTurn checks the routd/README.md invariant: append inbound →
 // resolve route → start turn is one ordered view; the agent_cursor advances
 // only after the turn closes, the turn_context is bound at dispatch, and a
 // duplicate submit_turn dedups on (folder, turn_id).
@@ -82,7 +82,7 @@ func TestAtomicAppendRouteTurn(t *testing.T) {
 }
 
 // TestRouteMissDrops checks an unroutable chat advances the cursor and fires
-// no turn (route miss → drop, spec 5/E-routd § pollOnce).
+// no turn (route miss → drop, routd/README.md).
 func TestRouteMissDrops(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
 	// no group, no route → miss.
@@ -259,7 +259,7 @@ func TestRouteMissBareFolderJIDNotOnboarded(t *testing.T) {
 }
 
 // TestHookJIDDispatchesToOwnerFolder pins the BUGS L1 fix: the mint writes the
-// target folder into a hook: JID (spec 5/W), so route resolution dispatches the
+// target folder into a hook: JID (ROUTING.md), so route resolution dispatches the
 // payload to that folder. Before the fix the JID missed resolution, onbod
 // queued it as a new unknown chat, and the payload never reached the agent —
 // with onboarding enabled and onbod wired, exactly the live shape. The test

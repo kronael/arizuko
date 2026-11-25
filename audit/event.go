@@ -13,7 +13,7 @@ const (
 	OutcomeDenied = "denied"
 )
 
-// Surface enum strings. Closed set; see specs/5/I-tool-call-logging and PLAN.md.
+// Surface enum strings. Closed set; see audit/README.md and PLAN.md.
 const (
 	SurfaceMCP           = "mcp"
 	SurfaceREST          = "rest"
@@ -69,7 +69,7 @@ type Event struct {
 	SourceIP      string
 }
 
-// redactRE matches keys that hold sensitive values (specs/5/I-tool-call-logging Open question 1,
+// redactRE matches keys that hold sensitive values (audit/README.md,
 // OWASP ASVS V8.3). `key` is SINGULAR and end-anchored so `serving_keys` (a
 // count in authd's daemon.start row) stays readable; `dsn` because that row
 // put its db path there in the clear; `api_?key` covers the separator-less

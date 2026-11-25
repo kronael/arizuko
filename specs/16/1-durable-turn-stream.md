@@ -1,6 +1,5 @@
 ---
 status: draft
-depends: [5/E-routd]
 ---
 
 # Durable turn stream
@@ -29,7 +28,7 @@ arizuko doesn't want. Only the _reconnectable stream over a durable log_.
 ## arizuko-shaped design
 
 routd is the sole message appender and owns the orchestration loop
-(`5/E`). It already writes `messages` rows and `turn_results`. Add a
+(`routd/README.md`). It already writes `messages` rows and `turn_results`. Add a
 monotonic per-turn event sequence and let the existing sinks replay
 from it.
 

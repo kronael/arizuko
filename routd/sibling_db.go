@@ -91,7 +91,7 @@ func (d *DB) ProfileNames(ctx context.Context) (map[string]string, error) {
 
 // EnvProfileSecrets resolves the caller's OWN user-scoped model credentials
 // (BYOA) for the container env: those keys are spent by the SDK subprocess, not
-// a tool call, so they have no broker path (spec 5/13 §Trust model). The
+// a tool call, so they have no broker path (SECURITY.md model). The
 // narrowing lives HERE, not at the dispatch call site: an exported bulk reader
 // is what a later one-liner re-opens the hole with, and this reader never asks
 // for a folder at all.
@@ -160,7 +160,7 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 
 // ConnectorSecrets narrows the resolved secrets to the `required` names a
 // connector declares; callerSub overlays the user's own secrets on the folder
-// defaults (BYOA). A user-scoped surrogate-OAuth row (spec 5/15) is refreshed
+// defaults (BYOA). A user-scoped surrogate-OAuth row (SECURITY.md) is refreshed
 // in place near expiry: a DEFINITIVE rejection nulls the row, drops the key and
 // returns a "reconnect" error; a transient failure keeps the stale token. The
 // scopes are taken AFTER the refresh, so a dropped key reads as missing, not
@@ -170,7 +170,7 @@ func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[
 }
 
 // RefreshConnectorSecrets FORCES the surrogate refresh: the reactive half of
-// spec 5/15, called once behind a 401, because an optimistic `expires_in`
+// SECURITY.md, called once behind a 401, because an optimistic `expires_in`
 // leaves expires_at looking healthy. No secret_use_log row: a retry of the
 // SAME call, already audited by the ConnectorSecrets that opened it.
 func (d *DB) RefreshConnectorSecrets(folder, callerSub string, required []string) (map[string]string, error) {
@@ -235,7 +235,7 @@ func (d *DB) AuthorizeTurn(senderSub, turnFolder, scope, action string, params m
 	return auth.Authorize(d.store(), caller, action, scope, params)
 }
 
-// CheckHold asks whether this folder's call must wait for a human (spec 5/19).
+// CheckHold asks whether this folder's call must wait for a human (template/web/pub/arizuko/reference/grants.html).
 // Deliberately NOT routed through Authorize — see auth.CheckHold for why the
 // operator's (*, **) row would otherwise hold every tool.
 func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) (bool, error) {

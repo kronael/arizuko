@@ -1,7 +1,7 @@
 package routd
 
 // pending_actions.go — a tool call suspended until a human approves it (spec
-// 5/19); the hold RULE lives in `acl` (auth.CheckHold), this file is only the
+// template/web/pub/arizuko/reference/grants.html); the hold RULE lives in `acl` (auth.CheckHold), this file is only the
 // suspended CALL's state. A held call BLOCKS the agent's turn, and the waiter
 // that suspended it runs it on approval, inline, as the ORIGINAL agent, so the
 // agent reports the real result: returning "held" and letting the agent carry

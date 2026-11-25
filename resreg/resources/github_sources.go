@@ -41,12 +41,12 @@ var GitHubSourcesMCPDoc = map[resreg.Action]string{
 		"and route its events to target_folder. Returns {source, url, secret} once: paste " +
 		"url + secret into GitHub's webhook settings (content type JSON). Events land on " +
 		"github:<owner>/<repo>[/pr/<n>|/issue/<n>] JIDs; comments and new PRs/issues trigger " +
-		"a turn, everything else is observed. Edit the seeded `routes` rows to change that. gitd/README.md.",
+		"a turn, everything else is observed. Edit the seeded `routes` rows to change that.",
 	resreg.ActionList: "List the GitHub webhook sources owned by your folder. Returns " +
-		"{source, owner_folder, created_at}; secrets are never returned. gitd/README.md.",
+		"{source, owner_folder, created_at}; secrets are never returned.",
 	resreg.Action("revoke"): "Revoke a GitHub webhook source by its key (repo/<owner>/<repo>, " +
 		"org/<owner>, app/<slug>). Deliveries to its URL 404 immediately and the seeded route " +
-		"rows are removed. Caller must own the source. gitd/README.md.",
+		"rows are removed. Caller must own the source.",
 }
 
 var GitHubSourcesMCPArgs = map[resreg.Action][]resreg.MCPArg{

@@ -296,7 +296,7 @@ func TestProxydRoutesAssembled(t *testing.T) {
 		// anonymously with the transit proof (proxyd/README.md).
 		"/chat/": {Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 		"/dash/": {Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
-		// Pairing (spec 5/31-identity-pairing): auth `user` so an anonymous visitor is bounced
+		// Pairing (SECURITY.md): auth `user` so an anonymous visitor is bounced
 		// through OAuth before the confirm page renders.
 		"/pair/": {Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
 	}
@@ -318,7 +318,7 @@ func TestProxydRoutesAssembled(t *testing.T) {
 	}
 }
 
-// The /me user portal (webd/me.go, 13 handlers) shipped unreachable: spec 5/V-web-vhosts
+// The /me user portal (webd/me.go, 13 handlers) shipped unreachable: proxyd/README.md
 // lists /me among the globally-served reserved prefixes, but coreProxydRoutes
 // never declared it, so proxyd's MatchRoute missed and the final catch-all
 // turned every /me/* request into a /pub/me/* redirect. Assert the exact
@@ -525,7 +525,7 @@ func TestModelCredentialsScopedToRuned(t *testing.T) {
 	}
 }
 
-// Surrogate OAuth creds (spec 5/15) reach BOTH consumers: dashd runs the
+// Surrogate OAuth creds (EXTENDING.md) reach BOTH consumers: dashd runs the
 // Connect-GitHub dance, routd's broker refreshes near-expiry tokens.
 func TestSurrogateKeysScopedToDashdAndRoutd(t *testing.T) {
 	dir := seed(t, "SURROGATE_GITHUB_CLIENT_ID=cid\nSURROGATE_GITHUB_CLIENT_SECRET=csec\n")
@@ -540,7 +540,7 @@ func TestSurrogateKeysScopedToDashdAndRoutd(t *testing.T) {
 	}
 }
 
-// A present channel adapter is wired as a service principal (spec 5/1); a
+// A present channel adapter is wired as a service principal (authd/README.md); a
 // non-adapter package is not.
 func TestServiceKeyWiring(t *testing.T) {
 	dir := seed(t, "AUTH_SECRET=s\nONBOARDING_ENABLED=true\n")
@@ -791,7 +791,7 @@ func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
 // The per-daemon data mount table. A daemon gets the subpaths it actually
 // opens and nothing else — mount topology, not convention, is what keeps one
 // daemon out of another's DB and out of the live agent sockets under ipc/
-// (spec 5/16, BUGS A1). Each entry is justified at its emitter in compose.go;
+// (compose/README.md, BUGS A1). Each entry is justified at its emitter in compose.go;
 // widening one here means the daemon really did grow a new path, so state why
 // in the emitter comment too.
 //
@@ -802,7 +802,7 @@ func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
 // (BUGS F51) — the operator console needs three owner DBs, groups/ and
 // surrogate/, not .env and the live agent sockets.
 //
-// store/ is per-owner (spec 5/16 step 7): a daemon is bound to store/<owner>
+// store/ is per-owner (compose/README.md): a daemon is bound to store/<owner>
 // for each database it opens, never to store/ itself.
 var wantDataMounts = map[string][]string{
 	"proxyd": {"/web:/srv/app/home/web:ro"},
@@ -883,7 +883,7 @@ func TestRoutdKeepsTheWholeTreeForItsRootPathReaders(t *testing.T) {
 // daemon HAS says nothing about the ones it must NOT have. Ownership is only a
 // boundary if the binds a daemon is missing are pinned too — before the
 // store/<owner>/ split every one of these daemons could open every other
-// owner's SQLite file through a shared store/ bind (spec 5/16 step 7).
+// owner's SQLite file through a shared store/ bind (compose/README.md).
 func TestScopedDaemonsGetNoOtherOwnersDB(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	out := gen(t, dir)

@@ -48,7 +48,7 @@ interface Delivered {
 }
 
 // statusSpy stands in for submit_status, the interim-⏳ half of the turn
-// contract (spec 5/24).
+// contract (routd/README.md).
 function statusSpy() {
   const sent: string[] = [];
   return { sent, send: async (p: SubmitStatusPayload) => { if (p.text) sent.push(p.text); return { remind: false }; } };

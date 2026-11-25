@@ -1,9 +1,9 @@
 package routd
 
-// engagement_http.go is routd's REST face for the spec 5/G-engagement engagement window —
+// engagement_http.go is routd's REST face for the routd/README.md engagement window —
 // the operator twin of the agent's engage/disengage MCP tools. Engagement is
 // HOT-TIER conversational state, so it deliberately does NOT become a resreg
-// resource (spec 5/17): promoting the table would put a second path into the
+// resource (resreg/README.md): promoting the table would put a second path into the
 // same seam. GET with a jid reads one pair; GET with none LISTS the live
 // windows the caller may see. POST engages; ttl_seconds<=0 disengages.
 

@@ -1,6 +1,6 @@
 package auth
 
-// ES256 token primitives. authd is the sole signer (see specs/5/1); this file
+// ES256 token primitives. authd is the sole signer (see auth/README.md); this file
 // holds the building blocks it uses. Backends never link the signing path —
 // they only call VerifyToken (jwks.go) against cached public JWKs.
 //
@@ -125,7 +125,7 @@ func (c *TokenClaims) UnmarshalJSON(b []byte) error {
 // Subject is the verified result of a token: what VerifyToken returns.
 type Subject struct {
 	Sub       string
-	Typ       string // "user" | "service" | "downscoped" — drives verifier policy (spec 5/1)
+	Typ       string // "user" | "service" | "downscoped" — drives verifier policy (auth/README.md)
 	Scope     []string
 	Aud       string
 	Iss       string

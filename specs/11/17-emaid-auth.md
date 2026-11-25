@@ -111,10 +111,10 @@ emaid sets `InboundMsg.Verb`:
 - `auth_state == "trusted"` → `verb = "message"` (today's default)
 - `auth_state == "untrusted"` → `verb = "untrusted"` (new value)
 
-**Collision with spec 5/L reply-to-bot promotion**: a stranger
+**Collision with `ROUTING.md` reply-to-bot promotion**: a stranger
 replying to a bot message would otherwise be promoted to `verb=mention`
 by routd, whose promotion check runs on the inbound handler AFTER the
-adapter ships. Resolution: the `5/L` check is amended — if
+adapter ships. Resolution: the `ROUTING.md` check is amended — if
 `verb=="untrusted"`, do NOT promote to `mention`. The untrusted signal
 wins; an attacker reply-to-bot from an unverified address must not
 escalate to trigger.
@@ -208,7 +208,7 @@ Mox + maddy.
 | `emaid/dkim.go` (new)                   | optional independent DKIM verify                                        | ~40  |
 | `emaid/main.go`                         | wire env vars; call `classify(msg)` before deliver                      | ~15  |
 | `emaid/auth_test.go` (new)              | 12 cases (see below)                                                    | ~220 |
-| `routd/server.go`                       | spec 5/L collision: skip mention promotion when verb=="untrusted"       | ~3   |
+| `routd/server.go`                       | `ROUTING.md` collision: skip mention promotion when verb=="untrusted"   | ~3   |
 | `chanlib/chanlib.go`                    | NO change — Verb is already a string                                    |
 | `go.mod` / `go.sum`                     | add `github.com/emersion/go-msgauth` (MIT, NEW dep, small)              | 1    |
 
@@ -239,7 +239,7 @@ dmarc=pass` with no pinned-authserv match → `verb=untrusted`**
 12. From: with IDN domain (Punycode `xn--example-...`) matched against
     UTF-8 allowlist entry → normalize before compare
 13. Multi-mailbox From: → `from_trusted=false` always
-14. Reply-to-bot collision: `verb=untrusted` arriving at routd 5/L
+14. Reply-to-bot collision: `verb=untrusted` arriving at routd `ROUTING.md`
     promotion path → stays `untrusted`, NOT promoted to `mention`
     (test in api/api_test.go)
 15. `EMAIL_UNVERIFIED_SUBJECT_PREFIX=false` (default) → subject
@@ -261,7 +261,7 @@ dmarc=pass` with no pinned-authserv match → `verb=untrusted`**
 - NOT a sender reputation system. Just structured pass/fail per the
   email standards.
 - NOT cross-instance: each emaid runs against ONE mailbox (`emaid/README.md`).
-  Multi-mailbox = multiple emaid containers per spec 5/R-multi-account.
+  Multi-mailbox = multiple emaid containers per `compose/README.md`.
 
 ## Operator config recipe
 

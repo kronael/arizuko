@@ -31,7 +31,7 @@ var WebRoutesEndpoints = []resreg.Endpoint{
 }
 
 // WebRoutesMCPNames maps each action to the flat tool name the live agent
-// calls (spec 5/16).
+// calls (resreg/README.md).
 var WebRoutesMCPNames = map[resreg.Action]string{
 	resreg.ActionCreate: "set_web_route",
 	resreg.ActionDelete: "del_web_route",

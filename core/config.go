@@ -314,7 +314,7 @@ func (c *Config) EffectiveAppSrcDir() string {
 
 // env helpers: core owns these so it does not depend on the channel-adapter
 // library (chanlib) for trivial parsing — that edge created an auth→core→chanlib
-// cycle once chanlib started exchanging service tokens via auth (spec 5/1).
+// cycle once chanlib started exchanging service tokens via auth (authd/README.md).
 // An unset OR unparseable value lands on the fallback, never on the zero
 // value: a poll interval of 0 is a busy loop. DurOr reads a Go duration
 // ("20m").

@@ -868,7 +868,7 @@ h1: Tokens — {folder}
 #### Data shown
 
 - All route_tokens for folder: jid, kind (chat or hook), created_at UTC,
-  context (spec 5/W link context)
+  context (ROUTING.md link context)
 - JID displayed as `<code>`. The token VALUE is never shown — `route_tokens`
   stores only its hash.
 
@@ -1188,7 +1188,7 @@ The pages below are dashd's own.
 
 #### Purpose
 
-Spec 5/19's review queue: every tool call a `hold:mcp:<tool>` rule has
+The review queue (`reference/grants.html`): every tool call a `hold:mcp:<tool>` rule has
 suspended, with approve/reject verdicts. The chat notice is the nudge; this
 page is the queue an operator comes back to.
 
@@ -1298,7 +1298,7 @@ h1: audit
 Federated, not read from a database: `audit_log` is per-daemon, so
 `auditSources` fans out to `GET /v1/audit` on routd, runed and authd (plus
 onbod when its profile is on) and `handleAudit` merges the answers newest
-first (`dashd/audit_page.go`, spec 5/I).
+first (`dashd/audit_page.go`, dashd/README.md).
 
 - Fields: id, created_at, category, action, actor, folder, outcome, resource,
   surface, params_summary, error_msg, plus the source daemon

@@ -18,7 +18,7 @@ type NetworkRulesRow struct {
 
 // NetworkRulesEndpoints is the single owner of the network_rules endpoint set.
 // All three are MCPOnly: network_rules is reached ONLY through the agent's
-// tools, and no daemon mounts or advertises a REST face (spec 5/17).
+// tools, and no daemon mounts or advertises a REST face (resreg/README.md).
 var NetworkRulesEndpoints = []resreg.Endpoint{
 	{Action: resreg.Action("allow"), MCPOnly: true},
 	{Action: resreg.Action("deny"), MCPOnly: true},
@@ -26,7 +26,7 @@ var NetworkRulesEndpoints = []resreg.Endpoint{
 }
 
 // NetworkRulesMCPNames maps each action to the flat tool name the live agent
-// calls (spec 5/16).
+// calls (resreg/README.md).
 var NetworkRulesMCPNames = map[resreg.Action]string{
 	resreg.Action("allow"): "network_allow",
 	resreg.Action("deny"):  "network_deny",

@@ -2,7 +2,7 @@ package auth
 
 import "strings"
 
-// BareSub strips the JWT subject prefix. Spec 5/1's "sub prefix rule": the
+// BareSub strips the JWT subject prefix (auth/README.md § Files). The
 // "user:"/"service:" prefix exists ONLY in the JWT sub claim; every stored
 // principal — acl.principal, acl_membership.parent — is bare. A prefixed
 // subject compared against stored rows matches nothing and silently grants

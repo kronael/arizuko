@@ -73,7 +73,7 @@ type InboundMsg struct {
 	// one service:<daemon> JWT, so auth alone cannot disambiguate them.
 	Source string `json:"source,omitempty"`
 	// LinkContext is the route token's context snapshotted at ingest by webd
-	// (spec 5/W § link context); prompt-build renders it as <link-context>.
+	// (ROUTING.md context); prompt-build renders it as <link-context>.
 	LinkContext string `json:"link_context,omitempty"`
 }
 
@@ -113,7 +113,7 @@ func NewRouterClient(url string) *RouterClient {
 	return &RouterClient{url: url, client: &http.Client{Timeout: routerTimeout}}
 }
 
-// SetServiceToken installs the adapter's service-token source (spec 5/1);
+// SetServiceToken installs the adapter's service-token source (authd/README.md);
 // nil is the local-dev path.
 func (r *RouterClient) SetServiceToken(src func(context.Context) (string, error)) {
 	r.regMu.Lock()
@@ -260,7 +260,7 @@ func (r *RouterClient) Deregister() error {
 }
 
 // SendMessage delivers an inbound or retains its failure for the sweep (spec
-// 5/34-channel-protocol, BUGS L25). The error still returns: an adapter that
+// chanlib/README.md, BUGS L25). The error still returns: an adapter that
 // gates a platform cursor on delivery must keep seeing the failure.
 // ErrInboundUnavailable means custody is unknown; ErrInboundLost means retention failed.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {

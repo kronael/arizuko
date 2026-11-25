@@ -20,12 +20,12 @@ since resolved elsewhere, and what remains is the data model itself.
 ## Where the other two actions went
 
 **MCP+REST unification** was pulled forward into active phase 5 —
-[`5/17-openapi-mcp.md`](../5/17-openapi-mcp.md) is the mechanism,
-[`5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md) the
+`resreg/README.md` is the mechanism,
+`resreg/README.md` the
 rollout. It is shipped, not pending.
 
 **Git as truth is rejected, not deferred.**
-[`5/8-yaml-manifests.md`](../5/8-yaml-manifests.md) decided the opposite:
+`resreg/README.md` decided the opposite:
 the SQLite DB is authoritative and YAML manifests are a transport
 dump/import — `pg_dump`/`pg_restore` for the cold tier — with no DB→YAML
 sync, no startup-apply, no SIGHUP reload. Committing a `dump` to git

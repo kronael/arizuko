@@ -23,7 +23,7 @@ func (s *Server) SetChannelRegistry(reg *chanreg.Registry) {
 }
 
 // mountChannels adds the channel-registration routes. Register/list are gated
-// on the adapter's ES256 service:<adapter> token (spec 5/1); deregister
+// on the adapter's ES256 service:<adapter> token (authd/README.md); deregister
 // carries the adapter's own session token.
 func (s *Server) mountChannels(mux *http.ServeMux) {
 	if s.reg == nil {

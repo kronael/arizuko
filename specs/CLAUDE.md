@@ -72,8 +72,7 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
 
 ## Quote the section you cite
 
-`spec 5/8-yaml-manifests §"Round-trip honesty"`, not `spec 5/8 § round-trip
-honesty`. The quotes are not style: they are the only delimiter a checker has.
+`spec 6/42-dynamo-over-postgres §"Ties"`, not `spec 6/42 § ties`. The quotes are not style: they are the only delimiter a checker has.
 
 `tests/specrefs` `TestEverySectionCitationResolves` reads the quoted form and
 fails when the text is nowhere in the spec. The unquoted form has no end — the
@@ -83,7 +82,7 @@ can tell the pointer from the prose after it.
 
 MEASURED 2026-09-22: 83 quoted citations, all resolving and all guarded,
 against 146 unquoted ones that nothing can check. Five of the unquoted named a
-section that did not exist, including two in `5/1` about refresh behaviour and
+section that did not exist, including two in a retired auth spec about refresh behaviour and
 one in `5/P` about steering a live container.
 
 The same rule as the filename form above, one level down: prefer the shape that
@@ -115,22 +114,22 @@ never leave code that adds an unspecced structure.
 
 ## Citing a spec
 
-**Cite by FILENAME wherever a link is possible** — `specs/5/16-mcp-rest-unification.md`,
-or `5/16-mcp-rest-unification` in prose. The bare `N/M` form is reserved for a
+**Cite by FILENAME wherever a link is possible** — `specs/5/33-paths-roles.md`,
+or `5/33-paths-roles` in prose. The bare `N/M` form is reserved for a
 sentence that also describes the spec it names, so a reader can tell from the
 sentence alone whether the pointer still fits.
 
 The filename form is **self-checking** and the bare number is not. A filename
 stops resolving the moment the file moves, and `tests/specrefs` says so. A bare
-`5/5` keeps resolving after a renumber and silently names a different spec —
-`5/5` was `uniform-mcp-rest` and is `worlds-agents-sessions` today. Neither
+number keeps resolving after a renumber and silently names a different
+spec. Neither
 `tests/specrefs` nor `tests/webdocs` can flag that, by construction: both ask
 whether the number resolves, never whether it names the same document
 (BUGS `L237`).
 
 This is not hypothetical arithmetic. **MEASURED 2026-09-20: 56 spec numbers are
-live today and named a different file before** — among them `5/5`, `5/9`,
-`5/33`, `5/34`, `6/41`, `6/42` and every number in phases 16 and 17.
+live today and named a different file before** — among them `5/9`,
+`5/33`, `6/41`, `6/42` and every number in phases 16 and 17.
 
 Two corollaries, both of which have cost real work:
 

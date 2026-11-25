@@ -26,7 +26,7 @@ import (
 
 // fakeMCP starts a real streamable-HTTP MCP server whose one tool echoes the
 // Authorization header the request carried — the sink the broker now renders
-// the folder's secret into (spec 5/13, BUGS L132).
+// the folder's secret into (SECURITY.md, BUGS L132).
 func fakeMCP(t *testing.T) string {
 	t.Helper()
 	var mu sync.Mutex
@@ -60,7 +60,7 @@ func fakeMCP(t *testing.T) string {
 
 // seedSecretsStore wraps routd's OWN routd.db handle as a keyring-matched
 // *store.Store for seeding encrypted secret rows the way the operator would —
-// routd OWNS the secrets table now (spec 5/16-mcp-rest-unification), so reads come from there, NOT a
+// routd OWNS the secrets table now (resreg/README.md), so reads come from there, NOT a
 // sibling messages.db. Sets routd's decrypt keyring too so db.FolderSecrets
 // resolves them.
 func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {
@@ -177,7 +177,7 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 
 // TestEnvProfileSecrets_OnlyUserModelCredentials pins what dispatchRun ships as
 // RunRequest.Secrets — i.e. what lands in the agent's container env (BUGS X1,
-// spec 5/13 §Trust model). Only the caller's OWN model credentials qualify. A
+// SECURITY.md model). Only the caller's OWN model credentials qualify. A
 // folder capability credential must not appear, nor a user's own capability
 // credential, nor a folder row for a model key restored past validateScope by
 // ValidateAndImportSecrets (seeded here as the item itself, because no writer
@@ -223,7 +223,7 @@ func TestEnvProfileSecrets_OnlyUserModelCredentials(t *testing.T) {
 	}
 
 	// The same folder credential the container never sees IS still reachable by a
-	// connector that declares it — the broker is the one path (spec 5/13).
+	// connector that declares it — the broker is the one path (SECURITY.md).
 	brokered, _, err := db.ConnectorSecrets("atlas", "telegram:user/9", []string{"GITHUB_TOKEN"})
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +396,7 @@ func TestConnectorSecrets_UserBYOAWins(t *testing.T) {
 	}
 }
 
-// F68 / spec 5/13 § Audit: every secret_use_log row must name the scope the key
+// F68 / SECURITY.md: every secret_use_log row must name the scope the key
 // ACTUALLY resolved from ({user, folder, missing}) and the tool that asked. The
 // writer hardcoded "folder" for anything it found and never set tool, so the one
 // question the table exists to answer — "who used which credential, from where"

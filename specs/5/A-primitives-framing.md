@@ -1,15 +1,6 @@
 ---
 status: shipped
-depends:
-  [
-    17-openapi-mcp,
-    Q-unified-routing,
-    E-routd,
-    P-runed,
-    32-acl-unified,
-    33-paths-roles,
-    ../17/9-positioning,
-  ]
+depends: [P-runed, 33-paths-roles, ../17/9-positioning]
 ---
 
 # specs/5/A — primitive framing (how to explain arizuko)
@@ -56,7 +47,7 @@ spec each primitive links to — this file must not restate it.
    with **no channel adapter at all**, and it is a complete system. What
    crosses the boundary crosses it as REST or MCP: that pair is the
    agent-to-agent and app-to-agent transport, and it is the same two
-   faces every resource already carries (`5/17`). A channel adapter is
+   faces every resource already carries (`resreg/README.md`). A channel adapter is
    ONE way to reach the seam; posting a message straight to `/v1` is
    another; neither is privileged and neither is the system. So a
    capability is finished when it works at the seam — platform-native
@@ -95,7 +86,7 @@ and coexistence safe:
 - **Agents message each other through grants and routing.** `send` accepts
   a group folder as `chatJid` and checks `mcp:send` on that folder
   (`ipc/ipc.go`). `observe_group` reads another folder's messages without
-  posting there (`5/F`).
+  posting there (`ROUTING.md`).
 - **Users move between agents.** A standalone exact `@<folder>` pins the
   whole chat to that agent; bare `@` restores default routing
   (`routd/steer.go`).
@@ -106,15 +97,15 @@ the docs **name primitives, not daemons**.
 
 ## The primitives
 
-| #   | Primitive         | Owns                        | Anchor                                                    | Recomposed as (not new primitives)                                          |
-| --- | ----------------- | --------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 1   | **Event**         | the one inbox               | `core.Message` (`core/types.go:16`), `store.PutMessage`   | channel adapters, `emaid`, `/hook/<token>`, `timed` ticks, `davd`           |
-| 2   | **Routing**       | event → folder              | `router.ResolveRoute` (`router/router.go:356`), `5/Q`     | direct-address, engagement, sticky, observe, delegate, escalate             |
-| 3   | **Agent**         | who reacts, with what       | folder-as-data (`README.md:28`), `groupfolder`, `store`   | personas, skills, memory, sub-teams, **products**                           |
-| 4   | **Authorization** | may this principal, here    | `auth.Authorize` (`auth/authorize.go:25`), `5/32`, `5/33` | grants UI, scope vocabulary, delegation limits                              |
-| 5   | **Turn**          | the bounded reaction        | `runed` container (`runed/docker.go`), `5/P`              | tasks, autocalls, interjections                                             |
-| 6   | **State**         | what survives the container | `store.Store` + the folder on disk, `5/E`/`5/P`           | secrets, egress allowlists, sessions                                        |
-|     | _Identity_        | the coordinate system       | `auth/identity.go`, `types/identity.go`, `authd/store.go` | subs, JIDs, paths, roles, scopes — referenced by all six, sequenced by none |
+| #   | Primitive         | Owns                        | Anchor                                                              | Recomposed as (not new primitives)                                          |
+| --- | ----------------- | --------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | **Event**         | the one inbox               | `core.Message` (`core/types.go:16`), `store.PutMessage`             | channel adapters, `emaid`, `/hook/<token>`, `timed` ticks, `davd`           |
+| 2   | **Routing**       | event → folder              | `router.ResolveRoute` (`router/router.go:356`), `ROUTING.md`        | direct-address, engagement, sticky, observe, delegate, escalate             |
+| 3   | **Agent**         | who reacts, with what       | folder-as-data (`README.md:28`), `groupfolder`, `store`             | personas, skills, memory, sub-teams, **products**                           |
+| 4   | **Authorization** | may this principal, here    | `auth.Authorize` (`auth/authorize.go:25`), `auth/README.md`, `5/33` | grants UI, scope vocabulary, delegation limits                              |
+| 5   | **Turn**          | the bounded reaction        | `runed` container (`runed/docker.go`), `5/P`                        | tasks, autocalls, interjections                                             |
+| 6   | **State**         | what survives the container | `store.Store` + the folder on disk, `routd/README.md`/`5/P`         | secrets, egress allowlists, sessions                                        |
+|     | _Identity_        | the coordinate system       | `auth/identity.go`, `types/identity.go`, `authd/store.go`           | subs, JIDs, paths, roles, scopes — referenced by all six, sequenced by none |
 
 Two honest notes the docs must carry:
 
@@ -136,21 +127,21 @@ Two honest notes the docs must carry:
 The proof the surface is small — every "feature" is a row here, and none
 introduces machinery absent from the six primitives.
 
-| Apparent feature                             | Is really…                                              | Primitive            |
-| -------------------------------------------- | ------------------------------------------------------- | -------------------- |
-| Channel adapters / webhooks / email / WebDAV | event sources writing `messages` rows                   | Event                |
-| Scheduled tasks                              | Events on a `timed` tick → a Turn                       | Event + Turn         |
-| Autocalls / interjection                     | Turns triggered by a non-chat Event                     | Turn                 |
-| Topics                                       | a scoping field on the Event + a Routing layer (sticky) | Event + Routing      |
-| Engagement                                   | a Routing override keyed on `(jid, topic)`              | Routing              |
-| Observe                                      | a Routing mode: silent ingest, no Turn                  | Routing              |
-| Delegation / escalation                      | Routing to a child/parent folder                        | Routing + Agent      |
-| Personas / skills / memory                   | folder contents                                         | Agent (folder-data)  |
-| Workflows                                    | an enforced opening at the session boundary             | Turn + State         |
-| Grants / roles / scopes                      | views over the one `Authorize` question                 | Authorization        |
-| Secrets / egress allowlist                   | per-folder State the host resolves, not container env   | State + Turn         |
-| A product                                    | a folder with persona + skills + routes                 | Agent (recomposed)   |
-| Dashboard / CLI                              | a second face over the same handlers (`5/17`)           | (surface, not prim.) |
+| Apparent feature                             | Is really…                                                | Primitive            |
+| -------------------------------------------- | --------------------------------------------------------- | -------------------- |
+| Channel adapters / webhooks / email / WebDAV | event sources writing `messages` rows                     | Event                |
+| Scheduled tasks                              | Events on a `timed` tick → a Turn                         | Event + Turn         |
+| Autocalls / interjection                     | Turns triggered by a non-chat Event                       | Turn                 |
+| Topics                                       | a scoping field on the Event + a Routing layer (sticky)   | Event + Routing      |
+| Engagement                                   | a Routing override keyed on `(jid, topic)`                | Routing              |
+| Observe                                      | a Routing mode: silent ingest, no Turn                    | Routing              |
+| Delegation / escalation                      | Routing to a child/parent folder                          | Routing + Agent      |
+| Personas / skills / memory                   | folder contents                                           | Agent (folder-data)  |
+| Workflows                                    | an enforced opening at the session boundary               | Turn + State         |
+| Grants / roles / scopes                      | views over the one `Authorize` question                   | Authorization        |
+| Secrets / egress allowlist                   | per-folder State the host resolves, not container env     | State + Turn         |
+| A product                                    | a folder with persona + skills + routes                   | Agent (recomposed)   |
+| Dashboard / CLI                              | a second face over the same handlers (`resreg/README.md`) | (surface, not prim.) |
 
 ## The four layers
 
@@ -233,7 +224,7 @@ Claims the docs must NOT reintroduce:
   depth (`5/33`). Any doc saying "tier 0/1/2/3" is stale.
 - **"One rule gates agent MCP and operator REST" is the target**, rolling
   out resource by resource — say "converging on one MCP+REST surface"
-  (`5/17`, rollout `5/16`).
+  (`resreg/README.md`, rollout `resreg/README.md`).
 - **Workflow is operating discipline, not a shipped engine** (decision 5).
 - **Owner is a convention, not an enforced boundary** — every core daemon
   mounts the whole data dir rw as UID 1000 (`compose/compose.go`), so

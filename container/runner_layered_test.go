@@ -20,7 +20,7 @@ import (
 
 // TestSetupGroup_CreatesPerGroupWebSlots verifies SetupGroup pre-creates
 // the host-side web/pub/<folder>/ and web/priv/<folder>/ dirs that
-// runner.go bind-mounts into the agent home. Spec 5/V-web-vhosts.
+// runner.go bind-mounts into the agent home. runed/README.md.
 func TestSetupGroup_CreatesPerGroupWebSlots(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &core.Config{

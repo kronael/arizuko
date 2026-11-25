@@ -18,7 +18,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// route-token surface — spec 5/W. One handler set serves both /chat/<token>/
+// route-token surface — webd/README.md. One handler set serves both /chat/<token>/
 // (human chat widget + SSE) and /hook/<token> (webhook ingest). Both URLs accept
 // any valid token regardless of kind; kind is metadata for the agent, not a URL
 // access gate. All errors are 404 to avoid leaking which tokens exist.
@@ -294,7 +294,7 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 
 // hookSender returns the source label of a hook: token, which becomes the
 // inbound message's sender. The label is the first JID segment after the
-// delivery folder (hook:<folder>/<source>[/<suffix>], spec 5/W), and the mint
+// delivery folder (hook:<folder>/<source>[/<suffix>], webd/README.md), and the mint
 // records that folder, so the label is read, not guessed.
 //
 // A token minted before the mint recorded the folder has nothing to strip. For
@@ -348,7 +348,7 @@ func parseChatBody(r *http.Request) (content, topic string, err error) {
 // `send` tool on BOTH doors (the hook-token surface inlines its own simpler path:
 // no topic, no SSE). routd is the sole message appender — no local PutMessage.
 // rc.SendMessage delivers to routd which persists + dispatches. linkContext is the
-// token row's context snapshotted here at ingest (spec 5/W § link context);
+// token row's context snapshotted here at ingest (webd/README.md context);
 // "" for tokenless callers (panel, /me, /mcp) or a context-less token.
 func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderName, token, linkContext string) (core.Message, map[string]any, error) {
 	m := core.Message{
@@ -399,7 +399,7 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 }
 
 // GET /chat/stream?token=<t>&topic=<t>
-// The token IS the credential (spec 5/W). The token ROW decides the chat JID and
+// The token IS the credential (webd/README.md). The token ROW decides the chat JID and
 // folder — a client param must never pick the subscription key (BUGS L30: a
 // `group=` param chose the key, so a suffixed chat was unreachable and the caller
 // could aim the subscription).
@@ -501,7 +501,7 @@ func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bo
 }
 
 // chatCORS sets permissive CORS for /chat/* and /hook/* responses; the
-// route token is the public credential (spec 5/W). Short-circuits OPTIONS.
+// route token is the public credential (webd/README.md). Short-circuits OPTIONS.
 func chatCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()

@@ -13,7 +13,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// Spec 5/18 step 8. A chat-onboarded stranger who administers no world may
+// onbod/README.md A chat-onboarded stranger who administers no world may
 // create a top-level one, on TWO conditions that must hold together: the
 // admission queue approved them, AND an operator configured at least one
 // enabled gate.

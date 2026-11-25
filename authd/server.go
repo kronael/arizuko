@@ -32,7 +32,7 @@ type Authd struct {
 	maxAccessTTL time.Duration // longest access TTL ever minted; bounds a retired key's serving window
 
 	// grants, when wired, re-snapshots the bare sub's scope ceiling on every
-	// refresh (spec 5/1); nil reuses the stored refresh-row scope.
+	// refresh (authd/README.md); nil reuses the stored refresh-row scope.
 	grants GrantsFetcher
 }
 
@@ -162,7 +162,7 @@ type minted struct {
 }
 
 // folderExtra builds the optional arz/folder private claim. Empty folder = no
-// claim (root/operator tokens omit it — spec 5/1 § JWT claim set).
+// claim (root/operator tokens omit it — authd/README.md claim set).
 func folderExtra(folder string) map[string]string {
 	if folder == "" {
 		return nil
@@ -197,7 +197,7 @@ func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration)
 
 // Downscope mints a "downscoped" token for the SAME sub as the parent:
 // requested scope ⊆ parent scope, folder ⊆ parent folder, ttl ≤ parent
-// remaining. parent_jti links it to the parent (spec 5/1 § POST /v1/tokens).
+// remaining. parent_jti links it to the parent (authd/README.md /v1/tokens).
 func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string, ttl time.Duration) (minted, error) {
 	for _, want := range requested {
 		if !auth.HasScopeCoveredBy(parent.Scope, want) {
@@ -227,7 +227,7 @@ func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string
 
 // IssuerMint mints a fresh user/service token for a (possibly different) sub,
 // scope bounded by the TARGET sub's grants snapshot, NOT the caller's scope
-// (spec 5/1 § POST /v1/tokens).
+// (authd/README.md /v1/tokens).
 func (a *Authd) IssuerMint(sub, typ string, requested, targetGrants []string, folder, aud string, ttl time.Duration) (minted, error) {
 	for _, want := range requested {
 		if !auth.HasScopeCoveredBy(targetGrants, want) {
@@ -317,7 +317,7 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 		}
 		return "", "", errReuse
 	}
-	// r.Sub is the BARE canonical sub (spec 5/1 "sub prefix rule"); the user:
+	// r.Sub is the BARE canonical sub (authd/README.md); the user:
 	// prefix is added ONLY here at mint, so the access claim stays "user:<sub>".
 	access, err = a.MintForSubject("user:"+r.Sub, "user", scope, scope, r.Aud)
 	if err != nil {

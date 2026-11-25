@@ -1,11 +1,11 @@
 package auth
 
 // Scope matching. A scope is "resource:verb". Authorization is scope-match;
-// there is no tier (specs/5/1, U-genericization "Capability-vs-tier").
+// there is no tier (auth/README.md).
 //
 // Wildcards: namespace-only. "tasks:*" grants any task verb. There is no
 // global "*:*" — operators carry the enumerated resource list
-// (specs/5/17-openapi-mcp § scopes).
+// (auth/README.md).
 
 import "strings"
 

@@ -567,9 +567,9 @@ func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bo
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	return ipc.StoreFns{
 		// An elevated /root turn is the operator acting directly — holding their
-		// own call for their own approval is a deadlock (spec 5/19).
+		// own call for their own approval is a deadlock (template/web/pub/arizuko/reference/grants.html).
 		CheckHold: s.holdGate(t),
-		// The task write tools live on the scheduled_tasks resreg seam (spec 5/16).
+		// The task write tools live on the scheduled_tasks resreg seam (resreg/README.md).
 		ListTasks: s.db.Tasks,
 		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
@@ -641,7 +641,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			required = userConnectorSecrets(required)
 			callerSub := turnCallerSub(t.trigger)
 			res, scopes, err := s.db.ConnectorSecrets(folder, callerSub, required)
-			// secret_use_log (spec 5/13 §Audit): one row per resolved key — THAT a
+			// secret_use_log (SECURITY.md): one row per resolved key — THAT a
 			// broker secret was read, never the value. A log failure must not fail
 			// the tool call.
 			status := "ok"
@@ -669,7 +669,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return res, err
 		},
-		// The reactive half of spec 5/15: called at most once, only on a 401.
+		// The reactive half of SECURITY.md: called at most once, only on a 401.
 		// No secret_use_log row — see RefreshConnectorSecrets.
 		RefreshConnectorSecrets: func(folder, _ string, required []string) (map[string]string, error) {
 			derived, err := s.derivedConnectorSecrets(t, required)
@@ -693,7 +693,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Visible is the tools/list view: a tool shows iff the turn holds it
 		// (turnVisible).
 		Visible: s.turnVisible(t),
-		// Spec 5/I-tool-call-logging layer A: every hand-authored mutation and authz denial lands
+		// audit/README.md: every hand-authored mutation and authz denial lands
 		// one audit_log row in routd.db; left nil, the agent MCP surface was the
 		// one path /dash/audit/ could not see (BUGS F70).
 		LogIPCAudit: s.db.store().LogIPCAudit,
@@ -770,7 +770,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// turnAuthorize (route + attested sender).
 	callerSub := turnPrincipal(t.folder)
 	visible := s.turnVisible(t)
-	// spec 5/16: one postBuild seam per resreg-mounted resource; ServeMCP
+	// resreg/README.md: one postBuild seam per resreg-mounted resource; ServeMCP
 	// applies them all.
 	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, authorize, visible)
 	networkRules := s.networkRulesPostBuild(t.folder, callerSub, authorize, visible)

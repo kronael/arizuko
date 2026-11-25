@@ -10,7 +10,7 @@ import (
 // SigningKeysRow is signing_keys MINUS every private column: `priv_pem` and
 // `pub_pem` are named nowhere in this file and nowhere in the read that fills
 // it, so no caller, scope or argument can reach them. It publishes the
-// lifecycle metadata the JWK Set at `GET /v1/keys` does not carry (spec 5/1
+// lifecycle metadata the JWK Set at `GET /v1/keys` does not carry (authd/README.md
 // § JWK rotation mechanics). ServesUntil is derived: a key verifies while
 // active OR while now < retired_at + maxAccessTTL. The `db:` tags mark the
 // four fields that ARE columns, so even an engine-driven read could only

@@ -74,7 +74,7 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	}
 }
 
-// TestBuildAgentPrompt_LinkContext drives the full carry (spec 5/W § link
+// TestBuildAgentPrompt_LinkContext drives the full carry (ROUTING.md
 // context): a POST /v1/messages whose wire body carries link_context (webd's
 // ingest snapshot of the route token's context) persists it, and the built
 // prompt renders one <link-context> tag. A message without it → no tag.

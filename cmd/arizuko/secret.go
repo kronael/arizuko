@@ -14,7 +14,7 @@ import (
 )
 
 // openStoreWithKey opens routd.db (which OWNS the secrets table in the split
-// topology — spec 5/16-mcp-rest-unification) wrapped as a *store.Store, with the SECRETS_KEY keyring
+// topology — resreg/README.md) wrapped as a *store.Store, with the SECRETS_KEY keyring
 // set so CLI-written secrets seal under the SAME key routd decrypts with at read
 // time. The host-admin CLI writes here directly (filesystem access), no token
 // plumbing — same discipline it used for messages.db before the split. AsCLI
@@ -37,7 +37,7 @@ func openStoreWithKey(dataDir string) (*store.Store, error) {
 }
 
 // cmdSecret manages folder-scoped secrets (operator-only). User secrets
-// live behind `arizuko user-secret`. Spec 5/13.
+// live behind `arizuko user-secret`. EXTENDING.md.
 func cmdSecret(args []string) {
 	cmdScopedSecret(args, "secret", "folder", store.ScopeFolder)
 }

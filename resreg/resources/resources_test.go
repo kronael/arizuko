@@ -67,7 +67,7 @@ func openMem(t *testing.T) *dynstore.Store {
 
 // routdChecksum is a small helper so every Apply call in this file computes
 // its CAS token fresh from the live DB, exactly as an operator's `arizuko
-// apply` would (spec 5/8 §"Content-hash CAS": recomputed at read time, no
+// apply` would (resreg/README.md: recomputed at read time, no
 // stored counter).
 func routdChecksum(t *testing.T, db *dynstore.Store) string {
 	t.Helper()
@@ -344,9 +344,9 @@ func TestMembership_CycleRejected(t *testing.T) {
 }
 
 // TestMembership_PairingRowsExcludedFromChecksumAndRebuild: added_by='pairing'
-// edges (spec 5/31-identity-pairing's consented pairing links, added outside the manifest
+// edges (consented pairing links, added outside the manifest
 // apply path) never enter acl_membership's content-hash checksum, its
-// DELETE+INSERT rebuild, or a later Export — spec 5/8 CRITICAL finding
+// DELETE+INSERT rebuild, or a later Export — resreg/README.md CRITICAL finding
 // ("Cross-subsystem apply"): a pre-image rollback built from Export must
 // never be able to resurrect a pairing edge a caller revoked.
 func TestMembership_PairingRowsExcludedFromChecksumAndRebuild(t *testing.T) {
@@ -402,7 +402,7 @@ func TestMembership_PairingRowsExcludedFromChecksumAndRebuild(t *testing.T) {
 
 // TestApply_ScopedLeavesOutOfScopeRow: a partial manifest mentioning only
 // folder "atlas" must NOT delete a live network_rules row for folder
-// "ops" — scoped DELETE+INSERT (spec 5/8 §"Surface"). Before the
+// "ops" — scoped DELETE+INSERT (resreg/README.md). Before the
 // scoped-apply fix this was a wholesale DeleteAll that wiped "ops".
 func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 	db := openMem(t)
@@ -452,7 +452,7 @@ func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 
 // TestDiff_IgnoresStampedTimestamp: a hand-written network_rules manifest
 // that omits created_at reads as `unchanged` against a live row whose
-// created_at was server-stamped — no phantom update (spec 5/8 step 3).
+// created_at was server-stamped — no phantom update (resreg/README.md).
 func TestDiff_IgnoresStampedTimestamp(t *testing.T) {
 	db := openMem(t)
 	c0 := routdChecksum(t, db)
@@ -481,7 +481,7 @@ func TestDiff_IgnoresStampedTimestamp(t *testing.T) {
 // TestPlanApplyAgree_Secrets: plan must not render a SkipApplyRebuild
 // resource (secrets) as an actionable delta, because apply skips it.
 // Plan and apply agree: the live secret row survives the apply, and the
-// plan reports no change for secrets (spec 5/8 §"Secret safety").
+// plan reports no change for secrets (resreg/README.md).
 func TestPlanApplyAgree_Secrets(t *testing.T) {
 	db := openMem(t)
 	seedSecret(t, db, "atlas", "openai")
@@ -512,7 +512,7 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 // TestSecretsOpenAPIWriteOnly: the secrets resource declares explicit write-only
 // Endpoints, so OpenAPI emits exactly POST /v1/secrets + DELETE /v1/secrets/{key}
 // — NO read op (get/list) on either path. A sealed value must never surface in a
-// read (spec 5/8 §"Secret safety"); this proves the doc can't drift into one.
+// read (resreg/README.md); this proves the doc can't drift into one.
 func TestSecretsOpenAPIWriteOnly(t *testing.T) {
 	out, err := resreg.OpenAPI("routd", "/", resregtest.Mounted("secrets"))
 	if err != nil {
@@ -547,7 +547,7 @@ func TestSecretsOpenAPIWriteOnly(t *testing.T) {
 
 // TestApply_WritesOneAuditRow: an apply with ApplyOpts writes exactly one
 // audit_log summary row (actor + manifest digest + final checksum), not one
-// per resource (spec 5/17-openapi-mcp §"Audit contract").
+// per resource (resreg/README.md).
 func TestApply_WritesOneAuditRow(t *testing.T) {
 	db := openMem(t)
 	c0 := routdChecksum(t, db)
@@ -750,7 +750,7 @@ func TestOpenAPI_OnboardingGatesTruthful(t *testing.T) {
 // TestFacadeMCP_RegistrySingleSource: each cold-tier facade resource the registry
 // walk feeds ipc.ListTools (dashd's tool browser) carries the SAME exported
 // MCPDoc/MCPArgs/MCPNames maps routd's *_resource.go feeds the agent socket, so the
-// browser and the live agent read one owner and can't drift (spec 5/16, task #40).
+// browser and the live agent read one owner and can't drift (resreg/README.md, task #40).
 func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -863,7 +863,7 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 
 // TestExport_OmitsInviteToken: `arizuko dump` dumps every registered resource
 // in a subsystem, so the manifest must not carry the invite bearer — holding
-// the token IS the grant, and a dump lands in git/backups/paste (spec 5/8
+// the token IS the grant, and a dump lands in git/backups/paste (resreg/README.md
 // §"Secret safety", the same exclusion route_tokens/secrets get by omitting
 // their hash/blob columns).
 func TestExport_OmitsInviteToken(t *testing.T) {
@@ -889,8 +889,8 @@ func TestExport_OmitsInviteToken(t *testing.T) {
 
 // TestRouteTokens_PairingExcludedFromExport: route_tokens' RowFilter
 // (kind='route') keeps kind='pair' pairing links out of every
-// manifest-visible read of this resource — spec 5/8 §"Secret and token
-// values" (1): pairing tokens are 10-minute single-use credentials with no
+// manifest-visible read of this resource — resreg/README.md: pairing
+// tokens are 10-minute single-use credentials with no
 // archival value, and must never appear in a YAML document at all.
 func TestRouteTokens_PairingExcludedFromExport(t *testing.T) {
 	db := openMem(t)

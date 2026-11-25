@@ -52,7 +52,7 @@ func secretItem(t *testing.T, s *Store, scope SecretScope, scopeID, key string) 
 }
 
 // TestValidateAndImportSecrets_ValidatesAllBeforeWritingAny is Finding 5
-// (spec 5/8 "Secret and token values"): a batch where one row's blob fails
+// (cmd/arizuko/README.md): a batch where one row's blob fails
 // to decrypt under the configured keyring must write NOTHING — not even the
 // rows before it in the batch — and must name the failing row without
 // echoing its value.
@@ -118,7 +118,7 @@ func TestValidateAndImportSecrets_DifferentRetiredKeys(t *testing.T) {
 }
 
 // TestValidateAndImportSecrets_UpsertNotRebuild is the archive UPSERT
-// discipline (spec 5/8 "Secret and token values"): importing must update an
+// discipline (cmd/arizuko/README.md): importing must update an
 // existing row by (scope_kind, scope_id, key), not require the table be
 // empty, and must never touch a row the batch doesn't mention.
 func TestValidateAndImportSecrets_UpsertNotRebuild(t *testing.T) {
@@ -151,7 +151,7 @@ func TestValidateAndImportSecrets_UpsertNotRebuild(t *testing.T) {
 }
 
 // TestExportSecretRows_TravelsAsIs confirms ExportSecretRows never decrypts —
-// the stored ciphertext form travels verbatim (spec 5/8: "encrypted secret
+// the stored ciphertext form travels verbatim (cmd/arizuko/README.md: "encrypted secret
 // blobs travel as-is").
 func TestExportSecretRows_TravelsAsIs(t *testing.T) {
 	s := openMemSealed(t)

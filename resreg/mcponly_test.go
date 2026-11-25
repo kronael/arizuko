@@ -2,7 +2,7 @@ package resreg
 
 // An MCPOnly endpoint declares an action that has no human caller: the agent
 // tool is still DERIVED from the one endpoint list, but RegisterREST does not
-// mount it and /openapi.json does not advertise it (spec 5/31-identity-pairing's
+// mount it and /openapi.json does not advertise it (resreg/README.md, for example
 // issue_pairing_link).
 
 import (

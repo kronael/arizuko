@@ -166,7 +166,7 @@ func TestTokensRejectsGlobalWildcard(t *testing.T) {
 
 // Issuer mint with NO grants fetcher wired fails closed (503 grants_unavailable),
 // NOT a silent caller-scope fallback. authd cannot evaluate the target's ceiling
-// without the grants snapshot (spec 5/1 issuer mint is bounded by the target,
+// without the grants snapshot (authd/README.md issuer mint is bounded by the target,
 // not the caller).
 func TestTokensIssuerMintFailsClosedWithoutGrants(t *testing.T) {
 	db := testDB(t)
@@ -220,7 +220,7 @@ func TestTokensIssuerMintWithinTargetGrants(t *testing.T) {
 }
 
 // Issuer mint requesting MORE than the target's grants is a violation →
-// 403 scope_exceeds_minter (spec 5/1: requested ⊆ target snapshot).
+// 403 scope_exceeds_minter (authd/README.md: requested ⊆ target snapshot).
 func TestTokensIssuerMintBeyondTargetGrantsRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -260,8 +260,8 @@ func TestTokensIssuerMintNoGrantsRejected(t *testing.T) {
 // A downscope (typ=downscoped) NEVER mints a token bearing another sub, even
 // when the body requests one. The minted sub is forced to the caller's — a
 // service principal cannot impersonate a user through the downscope path (the
-// requested sub is ignored). Spec 5/1: "the sub field is forced to the
-// caller's".
+// requested sub is ignored). A downscope keeps the caller's
+// sub (authd/README.md, POST /v1/tokens).
 func TestTokensDownscopeForcesCallerSubNoImpersonation(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

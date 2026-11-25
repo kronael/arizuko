@@ -18,7 +18,7 @@ package resources
 // anywhere in the tree may spell its Name as a string literal. Every one must
 // reference a constant, and names.go is where those constants live — one
 // spelling per resource, for both the catalog registration and the mounted
-// handler. Spec 5/16 §"One owner + federation".
+// handler. resreg/README.md.
 
 import (
 	"go/ast"

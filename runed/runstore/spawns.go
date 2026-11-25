@@ -53,7 +53,7 @@ const KindAgent = "agent"
 func init() { objstore.OrderedAttr(Spawns, attrCreatedAt, tsWidth) }
 
 // Spawn is one container spawn. Kind selects the Manager.Run post-claim
-// executor (spec 5/8). SessionLogID is a string because the session log's
+// executor (runed/README.md). SessionLogID is a string because the session log's
 // identity is its sort key (objstore/README.md).
 type Spawn struct {
 	RunID         string
@@ -296,7 +296,7 @@ func (s *Store) LiveSpawnCount(ctx context.Context) (int, error) {
 }
 
 // LiveAgentSpawnCount answers how many AGENT spawns hold a slot, the global
-// concurrency cap's budget (spec 5/8): a containerless kind must not compete
+// concurrency cap's budget (runed/README.md): a containerless kind must not compete
 // with agent turns for the cap.
 func (s *Store) LiveAgentSpawnCount(ctx context.Context) (int, error) {
 	return s.countLive(ctx, true)

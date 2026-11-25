@@ -1,7 +1,7 @@
 package routd
 
 // scheduled_tasks_resource.go folds the agent's task tools onto ONE
-// resreg.Resource (spec 5/16). PER-TASK-ID containment: pause/resume/cancel
+// resreg.Resource (resreg/README.md). PER-TASK-ID containment: pause/resume/cancel
 // resolve the task's OWNER folder and the HANDLER runs the contain seam on
 // it, not the Gate — the owner resolution is a read the handler already
 // performs. Both faces read ONE resources.ScheduledTasksEndpoints, mounted

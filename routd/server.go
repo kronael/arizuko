@@ -38,7 +38,7 @@ type Deliverer interface {
 	// the text for a channel without buttons.
 	SendOptions(jid, text string, options []chanlib.Option, threadID, idempotencyKey string) (platformID string, err error)
 	// SendVia is Send pinned to a named adapter — step 1 of the outbound
-	// resolution order (spec 5/34-channel-protocol). Only POST /v1/outbound carries a pin: a JID
+	// resolution order (ROUTING.md). Only POST /v1/outbound carries a pin: a JID
 	// prefix can be owned by two adapter accounts, and ForJID's iteration order
 	// is non-deterministic. Empty channel is exactly Send with no threading.
 	SendVia(channel, jid, text string) (platformID string, err error)
@@ -92,7 +92,7 @@ type Server struct {
 	webHost     string
 
 	// Mirror proxyd's vhost config so get_web_presence reports a folder's
-	// canonical host (spec 5/V-web-vhosts).
+	// canonical host (proxyd/README.md).
 	hostingDomain string
 	vhostAliases  map[string]string
 
@@ -129,7 +129,7 @@ type Server struct {
 	reg *chanreg.Registry
 }
 
-// DefaultEngagementTTL is the stay-in-conversation window (spec 5/G-engagement) when
+// DefaultEngagementTTL is the stay-in-conversation window (ROUTING.md) when
 // ENGAGEMENT_TTL is unset. The caller resolves that default before NewServer;
 // an explicit zero disables automatic engagement.
 const DefaultEngagementTTL = 30 * time.Minute
@@ -234,7 +234,7 @@ func (s *Server) Handler() http.Handler {
 	s.mountModelPauses(mux)
 	s.mountTurnUsage(mux)
 	s.mountChats(mux)
-	// Verdicts funnel to the same core the chat /approve command runs (spec 5/19).
+	// Verdicts funnel to the same core the chat /approve command runs (template/web/pub/arizuko/reference/grants.html).
 	s.mountPendingActions(mux)
 	// The REST twin of routd's in-process MCP StoreFns.
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)
@@ -247,7 +247,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/engagement", s.handleEngagementGet)
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
 	// topic_sessions, NOT sessions: `sessions` is authd's wire identity
-	// (BUGS F46, spec 5/5-worlds-agents-sessions § Tier 3).
+	// (BUGS F46, resreg/README.md).
 	mux.HandleFunc("GET /v1/topic_sessions", s.handleSessionGet)
 	// Operator-cockpit aggregates (dashd/README.md, BUGS L142). REST-only on purpose: as
 	// resreg resources these would become agent MCP tools.
@@ -257,7 +257,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/principals", s.handlePrincipals)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
-	// The account side of unpair (spec 5/31-identity-pairing): the caller's verified sub must
+	// The account side of unpair (ROUTING.md): the caller's verified sub must
 	// BE the edge's parent.
 	s.mountMembership(mux)
 	// /v1/secrets is a forwarder (no resreg tx/audit) so the plaintext never
@@ -569,7 +569,7 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "no_channel", "no deliverer configured")
 		return
 	}
-	// Step 1 of the outbound resolution order (spec 5/34-channel-protocol): an explicit channel
+	// Step 1 of the outbound resolution order (ROUTING.md): an explicit channel
 	// wins. "if registered" is checked HERE and refused loudly — Registry.Resolve
 	// falls back to ForJID for an unknown name and would silently deliver
 	// through the adapter the caller pinned away from.

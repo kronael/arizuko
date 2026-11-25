@@ -2,7 +2,7 @@
 // for /v1/*. It imports only types/ — no arizuko-internal domain packages — so
 // routd can call runed without dragging in core (ARCHITECTURE.md § Daemon
 // conventions). The POST /v1/runs shapes are PINNED to the peer rendering in
-// specs/5/E-routd and specs/5/P-runed; any drift between this package and routd's call
+// routd/README.md and specs/5/P-runed; any drift between this package and routd's call
 // site is a contract break.
 package v1
 
@@ -35,7 +35,7 @@ type RunRequest struct {
 	ContainerConfig map[string]any  `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
 	Isolated        bool            `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
 	// Kind selects the post-claim executor ('agent' | 'hold' | ..., spec
-	// 5/8 "Filesystem restore claims the folder's run slot"). Empty = 'agent'
+	// runed/README.md). Empty = 'agent'
 	// (the column default), so every existing caller is unaffected. A
 	// non-agent kind carries no MessageBatch.
 	Kind string `json:"kind,omitempty"`
@@ -54,7 +54,7 @@ type RunRequest struct {
 	// allowlist, and mounts the web surfaces — each only when its grant holds.
 	// EgressAllowlist is the resolved egress allowlist (network_rules ancestry);
 	// the renderer puts it on Turn.Egress, which the substrate hands its proxy.
-	// routd is the authz plane; runed has no store (spec 5/E-routd).
+	// routd is the authz plane; runed has no store (routd/README.md).
 	ShareReadOnly bool `json:"share_read_only,omitempty"`
 	Egress        bool `json:"egress,omitempty"`
 	WebPublish    bool `json:"web_publish,omitempty"`
@@ -67,7 +67,7 @@ type RunRequest struct {
 	// resolved + DECRYPTED by routd (it holds SECRETS_KEY; runed has no store).
 	// runed injects them as container env at spawn so the agent's own LLM calls use
 	// the user's key. A capability credential rides along ONLY when an explicit
-	// `shell:env:<KEY>` grant names it (spec 5/13 §Trust model), because a CLI the
+	// `shell:env:<KEY>` grant names it (SECURITY.md model), because a CLI the
 	// agent drives itself has no tool call to broker; every other one is brokered
 	// per tool call and never enters the container. Empty =
 	// inject nothing. Plaintext on this hop: routd→runed is the trusted compose
@@ -124,7 +124,7 @@ type RunStatus struct {
 }
 
 // HoldRequest is the body of POST /v1/holds: claim Folder's run slot for an
-// external, folder-exclusive job (spec 5/8). While the hold stands no agent turn
+// external, folder-exclusive job (runed/README.md). While the hold stands no agent turn
 // can start in that folder; routd's dispatch gets Busy and re-feeds. Reason is
 // recorded on the spawn row so an operator sees WHY the folder is held — a hold is
 // a spawns row like any other run.

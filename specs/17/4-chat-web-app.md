@@ -31,7 +31,7 @@ past a handful of groups.
   per-group agent status) are client state. Two stores for one fact drift.
 - **New authenticated SSE endpoint**, not a reworked token stream. The
   existing `/chat/<token>` route-token surface stays as the external,
-  share-by-link path ([5/W-webhook-routes](../5/W-webhook-routes.md)); the
+  share-by-link path (`ROUTING.md`); the
   app gets a JWT-gated per-group stream. Different auth boundary, different
   endpoint.
 - **Not the operator dashboard.** Routing rules, grants, and admission

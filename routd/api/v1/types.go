@@ -1,6 +1,6 @@
 // Package v1 is routd's published contract: the wire types of the ingress
 // /v1/messages endpoint, the daemon-facing /v1/outbound, the route/token CRUD
-// and the turn result submit_turn carries. Imports only types/ (spec 5/E-routd §
+// and the turn result submit_turn carries. Imports only types/ (routd/README.md §
 // api/v1 surface) so a caller never drags in core.
 package v1
 
@@ -17,7 +17,7 @@ type Message struct {
 	ReplyTo       string `json:"reply_to"`
 	ReplyToText   string `json:"reply_to_text"`
 	ReplyToSender string `json:"reply_to_sender"`
-	ForwardedFrom string `json:"forwarded_from"` // delegation return-address (spec 5/E-routd § delegation)
+	ForwardedFrom string `json:"forwarded_from"` // delegation return-address (routd/README.md)
 	Topic         string `json:"topic"`
 	Verb          string `json:"verb"`     // default message; like|dislike|edit|delete|...
 	Reaction      string `json:"reaction"` // emoji for verb=like
@@ -31,7 +31,7 @@ type Message struct {
 	IsGroup        *bool        `json:"is_group,omitempty"`
 	ChatName       string       `json:"chat_name"`
 	Source         string       `json:"source"`       // adapter channel name (CHANNEL_NAME); persisted for multi-account reply routing
-	LinkContext    string       `json:"link_context"` // route-token context snapshotted at ingest by webd (spec 5/W)
+	LinkContext    string       `json:"link_context"` // route-token context snapshotted at ingest by webd (ROUTING.md)
 	Attachments    []Attachment `json:"attachments"`
 	Attachment     string       `json:"attachment"` // whapd flat-attachment compatibility
 	AttachmentMime string       `json:"attachment_mime"`
@@ -116,13 +116,13 @@ type Route struct {
 // RouteTokenRequest is POST /v1/route_tokens/{chat,hook}. The response and list
 // shapes are NOT typed here: both faces share routeTokensHandler, which emits the
 // unified {token,jid,url} / {tokens:[…]} shapes (route_tokens_resource.go, spec
-// 5/16). This struct is the request contract.
+// resreg/README.md). This struct is the request contract.
 type RouteTokenRequest struct {
 	OwnerFolder  string `json:"owner_folder"`
 	TargetFolder string `json:"target_folder"`
 	SourceLabel  string `json:"source_label"` // hook only
 	JIDSuffix    string `json:"jid_suffix"`
-	Context      string `json:"context"` // optional per-link processing instructions (spec 5/W)
+	Context      string `json:"context"` // optional per-link processing instructions (ROUTING.md)
 }
 
 // MessageRow is one full message row of the agent read surface

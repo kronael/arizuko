@@ -7,8 +7,7 @@ import (
 )
 
 // validAuth is the set of accepted `auth` values for a Route. `operator`
-// today resolves to `user` plus a daemon-side grant check; capability
-// tokens (specs/5/1-auth-standalone.md) will distinguish later. `optional`
+// today resolves to `user` plus a daemon-side grant check. `optional`
 // identifies the caller when they offer a credential and forwards anonymously
 // otherwise — the route-token surface, where the token is the credential and a
 // stamped sub only decides attribution (proxyd/README.md).

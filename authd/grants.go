@@ -1,6 +1,6 @@
 package main
 
-// HTTP GrantsFetcher: authd is not the grants authority (routd is; spec 5/1
+// HTTP GrantsFetcher: authd is not the grants authority (routd is; authd/README.md
 // § Login-time scope snapshot). At session issuance, issuer-mint and refresh,
 // authd fetches the target's scope ceiling:
 //

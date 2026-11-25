@@ -48,7 +48,7 @@ var ScheduledTasksEndpoints = []resreg.Endpoint{
 }
 
 // ScheduledTasksMCPNames maps each action to the flat tool name the live agent
-// calls (spec 5/16).
+// calls (resreg/README.md).
 var ScheduledTasksMCPNames = map[resreg.Action]string{
 	resreg.Action("schedule"): "schedule_task",
 	resreg.Action("pause"):    "pause_task",
@@ -101,7 +101,7 @@ func init() {
 		MCPArgs:       ScheduledTasksMCPArgs,
 		MCPNames:      ScheduledTasksMCPNames,
 		// No folder scope: chat_jid is polymorphic (folder OR typed JID, spec
-		// 5/8 §"FK posture"), so Apply rebuilds wholesale.
+		// resreg/README.md), so Apply rebuilds wholesale.
 		StampedFields: []string{"Created"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(row any) error {

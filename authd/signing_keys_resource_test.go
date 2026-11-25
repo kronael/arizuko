@@ -170,7 +170,7 @@ func TestSigningKeysRefuseFolderClaim(t *testing.T) {
 // /v1/keys drops and the reason this resource exists. After a rotation the old
 // key is `retiring` (still verifying tokens it signed), and once the serving
 // window has passed it is `retired`. Both are computed from retired_at +
-// maxAccessTTL, the rule spec 5/1 § JWK rotation mechanics states.
+// maxAccessTTL, the rule authd/README.md rotation mechanics states.
 func TestSigningKeysStatusTracksTheServingWindow(t *testing.T) {
 	_, a := auditTestAuthd(t)
 	if err := a.Rotate(); err != nil {

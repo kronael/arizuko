@@ -217,7 +217,7 @@ func inviteUsed(t *testing.T, db *store.Store, ref string) int {
 }
 
 // The greeting's credential is a PAIRING token in route_tokens, not a second
-// onboarding token of onbod's own (spec 5/31-identity-pairing § the three token mechanisms).
+// onboarding token of onbod's own (onbod/README.md three token mechanisms).
 // owner_folder is NULL: the greeting goes out before any human — and therefore
 // any folder — is known, which is the constraint blocker 2 relaxed.
 func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
@@ -246,7 +246,7 @@ func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 }
 
 // The minted token is the one the chat receives, and it redeems as a pairing.
-// A greeting whose link does not resolve is the silence spec 5/18 opens with.
+// A greeting whose link does not resolve is the silence onbod/README.md opens with.
 func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
@@ -364,7 +364,7 @@ func formInputs(page string) url.Values {
 }
 
 // twoWorldUser: alice administers two worlds and has just paired a JID that no
-// route names — spec 5/18's step 6, where the choice is hers to make.
+// route names — onbod/README.md, where the choice is hers to make.
 func twoWorldUser(t *testing.T) *store.Store {
 	t.Helper()
 	db := testDB(t)
@@ -590,8 +590,8 @@ func TestUsernameValidation(t *testing.T) {
 	}
 }
 
-// admitJID writes NO membership edge — that is the whole point of the fold
-// (spec 5/31-identity-pairing): RedeemPairing owns the edge, in routd's transaction, stamped
+// admitJID writes NO membership edge — that is the whole point
+// (onbod/README.md): RedeemPairing owns the edge, in routd's transaction, stamped
 // 'pairing' so unpair can reach it. A second writer here is what P1b existed to
 // remove, so the absence is asserted, not just the admission verdict.
 func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
@@ -726,7 +726,7 @@ func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
 	}
 }
 
-// An agent-minted pairing (spec 5/31-identity-pairing's shipped path) has no onboarding row, so
+// An agent-minted pairing (onbod/README.md) has no onboarding row, so
 // the observer never sees it. The scan is over `onboarding`, not over edges.
 func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 	db := testDB(t)
@@ -740,7 +740,7 @@ func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 	}
 }
 
-// Spec 5/18 step 7 inverts what this used to assert. Creating a world routed
+// onbod/README.md inverts what this used to assert. Creating a world routed
 // EVERY JID the sub had paired at it — two chats moved when the user asked for
 // a world. create_world now writes no route; the /onboard landing it redirects
 // to routes the ONE unrouted JID, and the next landing the next.
@@ -828,7 +828,7 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 // present and deliberately inert: F50 removed the `pending_target` cookie that
 // used to be the only thing making this pass, and an operator's grant was never
 // the authority /onboard read. Operators create worlds through dashd or the CLI.
-// The world is the assertion; routes are not written here at all (5/18 step 7).
+// The world is the assertion; routes are not written here at all (onbod/README.md).
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
 	if err := db.CreateUserProfile("github:op", "op", "Op"); err != nil {
@@ -1160,7 +1160,7 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("want user_groups folder=alice, got %q", folder)
 	}
 
-	// Redemption is a grant and nothing else (5/18 step 7). It used to route
+	// Redemption is a grant and nothing else (onbod/README.md). It used to route
 	// every paired JID at the target; the /onboard it redirects to routes the
 	// one unrouted chat, attributed.
 	n := countRoutes(t, db)
@@ -1984,7 +1984,7 @@ func TestLoadConfigBadPollInterval(t *testing.T) {
 }
 
 // isOperator: operator emerges only from a `**` grant; nil/empty/other
-// grants are not operator (no nil-sentinel — see specs/5/32-acl-unified.md).
+// grants are not operator (no nil-sentinel — see auth/README.md).
 func TestIsOperator(t *testing.T) {
 	if !isOperator([]string{"alice", "**"}) {
 		t.Error("** grant must be operator")
@@ -2035,7 +2035,7 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 
 // promptUnprompted still claims strictly on `prompted_at IS NULL`. The cooldown
 // that clears prompted_at lives in InsertOnboarding, where the inbound MISS that
-// justifies a second greeting is (spec 5/31-identity-pairing § Deleting "greet once, ever"); a
+// justifies a second greeting is (onbod/README.md); a
 // plain time predicate here would re-greet every stale row every tick.
 func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 	db := testDB(t)

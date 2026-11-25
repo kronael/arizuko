@@ -70,6 +70,12 @@ cares about message order on a socket.
 - **Capabilities are declared, never probed from platform errors.** routd
   forwards a verb only when the adapter registered its capability
   (`chanreg/README.md` § Capabilities).
+- **An adapter authenticates as its daemon, not its channel.** `chanlib.Run`
+  exchanges `AUTHD_SERVICE_KEY` for a `service:<daemon>` token under
+  `AUTHD_SERVICE_NAME`, such as `teled`, and never under `CHANNEL_NAME`, so
+  several accounts of one adapter share one principal. The adapter presents
+  the token on registration, on `/v1/messages` and on `/v1/pane`. The
+  session token that registration returns serves only `Deregister`.
 
 Retaining an inbound message writes its due pointer and increments the backlog
 count atomically. Acceptance deletes the payload and decrements the count.
@@ -84,6 +90,10 @@ returns its stored failure; only the sweep can replay it. An unreadable retained
 state returns `ErrInboundUnavailable` without a delivery attempt.
 
 ### Failure facts and claims
+
+The adapter classifies its own platform failures, because the code that reads
+the platform response holds the proof. A 5xx or a transport error can have
+posted the message, so an error that proves nothing keeps the claim held.
 
 `writeBotResult` maps transient and timeout facts to 503 and permanent or
 unknown facts to 400. It preserves Retry-After and structured unsupported
@@ -119,6 +129,10 @@ adapter's credential, so the route and the hub tile exist exactly when the
 adapter runs.
 
 ### Inbound media is appended to the transcript and kept
+
+An adapter that already holds the bytes, such as whapd, puts them in
+`attachments[].data` as base64. routd decodes `data` only when `url` is
+empty, and writes the file like any download.
 
 routd's enricher downloads each attachment from the URL the adapter gave:
 the adapter's own `/files/<id>` when the platform's URL expires or needs the

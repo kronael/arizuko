@@ -13,7 +13,7 @@ import (
 )
 
 // brokered resolves `key` the way a connector tool call does. This is the ONLY
-// path a folder capability credential may take (spec 5/13 §Trust model): it runs
+// path a folder capability credential may take (SECURITY.md model): it runs
 // on the host, per call, narrowed to the keys the connector declares. Every
 // resolution rule below is asserted through it because it is the only consumer
 // left — the spawn path takes EnvProfileSecrets and sees none of this.
@@ -172,7 +172,7 @@ func TestFeature_Secrets(t *testing.T) {
 		}
 	})
 
-	// BUGS X1 / spec 5/13 §Trust model: the container env carries the trigger
+	// BUGS X1 / SECURITY.md model: the container env carries the trigger
 	// user's OWN model credentials and NOTHING else from `secrets`. Asserted on
 	// the real dispatch — an adapter ingest drives routd's poll loop into a
 	// POST /v1/runs, and RunRequest.Secrets is verbatim what runed hands the

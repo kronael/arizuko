@@ -1,6 +1,6 @@
 package resreg
 
-// Schema-driven CRUD engine (spec 5/8). One reflection pass at Register()
+// Schema-driven CRUD engine (resreg/README.md). One reflection pass at Register()
 // turns a Go struct's `db:` tags into cached metadata; three transports (REST,
 // MCP, YAML) decode into the same RowType, so drift is a compile error. The
 // engine handles shape, Hooks handle semantics.
@@ -367,7 +367,7 @@ func decodeStrict(node *yaml.Node, out any) error {
 }
 
 // EmitRows marshals a `[]RowType` to a YAML node, sorted by PK string
-// for deterministic output (spec 5/8 §"Round-trip honesty").
+// for deterministic output (resreg/README.md).
 func (r *Resource) EmitRows(rows any) (*yaml.Node, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
@@ -424,7 +424,7 @@ func (r *Resource) sortByPK(rv reflect.Value) reflect.Value {
 // not match the live content hash and force is false.
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
-// --- the missing-group rule (spec 5/8 §"The missing-group rule") ---------
+// --- the missing-group rule (resreg/README.md) ---------
 
 // ErrMissingGroup is returned by ValidateFolderRefs when a manifest row
 // references a folder that is neither a groups row in the manifest set nor
@@ -489,8 +489,8 @@ func ValidateFolderRefs(subsystem string, manifest map[string]any, known map[str
 }
 
 // ApplyOpts carries the optional audit context for an apply. When non-nil,
-// Apply writes exactly ONE audit_log row (spec 5/17-openapi-mcp §"Audit
-// contract"); nil writes none.
+// Apply writes exactly ONE audit_log row (resreg/README.md § A mutation and
+// its audit row land together); nil writes none.
 type ApplyOpts struct {
 	Actor          string // who ran the apply (CLI sub, "system", …)
 	ManifestDigest string // sha256 of the manifest bytes, for forensic correlation
@@ -641,7 +641,7 @@ func applyCounts(rd Backend, subsystem string, manifestRows map[string]any) (map
 	return counts, nil
 }
 
-// applyEvent builds the single per-apply summary row (spec 5/17-openapi-mcp
+// applyEvent builds the single per-apply summary row (resreg/README.md
 // §"Audit contract"). It commits as the last fenced write of the replace,
 // which makes the row and the projection one act.
 func applyEvent(opts *ApplyOpts, counts map[string]any, newChecksum string) audit.Event {
@@ -715,7 +715,7 @@ type ResourceDelta struct {
 
 // Changed reports whether the delta would mutate any row. SkipApplyRebuild
 // resources never mutate via apply, so they never report a change; plan and
-// apply must agree (spec 5/8 §"Secret safety").
+// apply must agree (resreg/README.md).
 func (d ResourceDelta) Changed() bool {
 	if d.SkipApplyRebuild {
 		return false
@@ -800,7 +800,7 @@ func (r *Resource) rowScope(v reflect.Value) string {
 
 // payloadEqual compares two rows for Diff, treating server-stamped fields as
 // equal regardless of value, so a hand-written manifest that leaves them
-// empty does not diff as a phantom update (spec 5/8 §"Round-trip honesty").
+// empty does not diff as a phantom update (resreg/README.md).
 func (r *Resource) payloadEqual(a, b reflect.Value) bool {
 	if len(r.meta.stampedIdx) == 0 {
 		return equalIgnoringEmpty(a, b)
@@ -1253,7 +1253,7 @@ func Lookup(name string) *Resource {
 
 // Mount returns the registered SHAPE of a resource for a daemon to fill in
 // with BEHAVIOR (Authz, Gate, Handler, Store) and mount. It is the only way to
-// build a mountable Resource, which makes "one owner" structural (spec 5/16).
+// build a mountable Resource, which makes "one owner" structural (resreg/README.md).
 // Panics on an unregistered name: a resource no catalog knows is
 // served-but-invisible to /openapi.json.
 func Mount(name string) Resource {

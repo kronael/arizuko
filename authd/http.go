@@ -18,11 +18,11 @@ import (
 )
 
 // maxBodyBytes caps request bodies on the token endpoints; both carry only a
-// short secret, so a larger body is malformed or hostile (specs/5/1).
+// short secret, so a larger body is malformed or hostile (authd/README.md).
 const maxBodyBytes = 4 << 10
 
 // serviceGrants maps a service principal to the scopes it may obtain at boot
-// (specs/5/1 "Service identity"). Declared here, mechanical: no
+// (authd/README.md). Declared here, mechanical: no
 // per-deployment DB state.
 var serviceGrants = map[string][]string{
 	// authd self-mints service:authd for the grants backend; it needs
@@ -68,7 +68,7 @@ var serviceGrants = map[string][]string{
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
-// not the grants authority (routd is; spec 5/1); nil means issuer-mint fails
+// not the grants authority (routd is; authd/README.md); nil means issuer-mint fails
 // closed (503 grants_unavailable).
 type GrantsFetcher interface {
 	// FetchGrants returns the BARE sub's scope ceiling + folder subtree.
@@ -134,7 +134,7 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	// The operator dashboard (dashd/README.md).
 	m.HandleFunc("GET /dash/authd/", s.handleDash)
 	m.HandleFunc("POST /dash/authd/revoke", s.handleDashRevoke)
-	// OAuth /auth/* (spec 5/1), mounted only when provider config is present.
+	// OAuth /auth/* (authd/README.md), mounted only when provider config is present.
 	if cfg != nil {
 		s.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
 		s.registerOAuth(m, cfg)
@@ -231,7 +231,7 @@ func (s *server) matchServiceSecret(daemon, secret string) (string, bool) {
 }
 
 // handleTokens is POST /v1/tokens: issuer-mint OR downscope, picked by the
-// requested typ + whether the verified caller holds tokens:mint (spec 5/1
+// requested typ + whether the verified caller holds tokens:mint (authd/README.md
 // § POST /v1/tokens).
 func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 	caller, err := s.a.verifyHTTP(r)
@@ -304,10 +304,10 @@ var errGrantsUnavailable = errors.New("grants backend unavailable")
 
 // issuerMint fetches the target's grants snapshot and mints against it. With no
 // grants fetcher wired it fails closed: issuer mint is bounded by the target's
-// grants, never the caller's scope (spec 5/1).
+// grants, never the caller's scope (authd/README.md).
 func (s *server) issuerMint(ctx context.Context, sub string, requested []string, aud string, ttl time.Duration) (minted, error) {
-	// Invites mint USER tokens only, never service (spec 5/1: "Delegation,
-	// never escalation"); typ is forced, ignoring the caller's body.
+	// Invites mint USER tokens only, never service (authd/README.md: delegation,
+	// never escalation); typ is forced, ignoring the caller's body.
 	const typ = "user"
 	if s.grants == nil {
 		return minted{}, errGrantsUnavailable
@@ -322,7 +322,7 @@ func (s *server) issuerMint(ctx context.Context, sub string, requested []string,
 	return s.a.IssuerMint(sub, typ, requested, snap.Scope, snap.Folder, aud, ttl)
 }
 
-// bareSub strips the "user:"/"service:" prefix for the grants lookup (spec 5/1
+// bareSub strips the "user:"/"service:" prefix for the grants lookup (authd/README.md
 // "sub prefix rule" — bare sub everywhere except the JWT sub claim).
 func bareSub(sub string) string {
 	if _, after, ok := strings.Cut(sub, ":"); ok {
@@ -340,7 +340,7 @@ func bearer(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(hdr, "Bearer "))
 }
 
-// writeErr emits the spec 5/1 JSON error shape with the matching HTTP status.
+// writeErr emits the authd/README.md JSON error shape with the matching HTTP status.
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -348,7 +348,7 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 }
 
 // handleRefresh rotates a refresh token, returning a new access JWT plus the
-// successor refresh token by the SAME channel it was presented on (spec 5/1
+// successor refresh token by the SAME channel it was presented on (authd/README.md
 // § POST /v1/refresh): cookie in → successor in Set-Cookie, omitted from the
 // JSON body (stays HttpOnly); body in → successor in the JSON body, no cookie.
 // A request with both a cookie and a body token uses the cookie (browser wins).
@@ -387,7 +387,7 @@ func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // refreshOutcome maps a Refresh error to a bounded metric outcome label
-// (spec 5/O-observability arizuko_token_refreshes_total).
+// (obs/README.md arizuko_token_refreshes_total).
 func refreshOutcome(err error) string {
 	switch {
 	case err == nil:

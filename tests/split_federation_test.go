@@ -61,7 +61,7 @@ func installCoreFixture(t *testing.T, db *routd.DB, dataDir string) {
 }
 
 // In the split, an adapter authenticates inbound on routd's /v1/messages with a
-// service:<adapter> JWT exchanged from its AUTHD_SERVICE_KEY (spec 5/1) — NOT a
+// service:<adapter> JWT exchanged from its AUTHD_SERVICE_KEY (authd/README.md) — NOT a
 // shared CHANNEL_SECRET. fakeAuthd.mintAdapter mints that token exactly as authd
 // does (service typ, the adapter's declared messages:write grant), so this test
 // exercises the REAL A1 path: it would catch adapters 401ing on routd ingress.
@@ -115,7 +115,7 @@ func (a *fakeAuthd) mintService(t *testing.T, sub string, scope ...string) strin
 }
 
 // mintAdapter signs a service:<adapter> token carrying messages:write — the
-// token a channel adapter exchanges its AUTHD_SERVICE_KEY for (spec 5/1) and
+// token a channel adapter exchanges its AUTHD_SERVICE_KEY for (authd/README.md) and
 // presents on routd's /v1/messages ingress. Same shape as mintService; named
 // for the inbound role so the test reads as the real adapter path.
 func (a *fakeAuthd) mintAdapter(t *testing.T, adapter string) string {
@@ -509,7 +509,7 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 
 	// Adapter ingests an inbound over HTTP with its service:slakd messages:write
 	// JWT — the REAL split path (the adapter exchanges its AUTHD_SERVICE_KEY for
-	// this token, spec 5/1). routd's authz gate accepts it as a service caller.
+	// this token, authd/README.md). routd's authz gate accepts it as a service caller.
 	in := routdv1.Message{ID: "wamid.1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hello federation", Verb: "message"}
 	rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in)
 	if rec.StatusCode != 200 {

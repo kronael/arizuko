@@ -1,6 +1,6 @@
 package main
 
-// Spec 5/18 step 7: the route write is an act, not a side effect. Two halves,
+// onbod/README.md: the route write is an act, not a side effect. Two halves,
 // proved separately here.
 //
 //   - ATTRIBUTION. Every routes row onbod writes names who exercised routing

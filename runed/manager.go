@@ -28,7 +28,7 @@ const defaultMaxConcurrent = 5
 // gets a retryable busy outcome and routd re-feeds it.
 type Manager struct {
 	db *DB
-	// executors dispatches the post-claim step by spawns.kind (spec 5/8):
+	// executors dispatches the post-claim step by spawns.kind (runed/README.md):
 	// KindAgent is wired by NewManager, other kinds register via
 	// RegisterExecutor. Executor IS the Runtime interface.
 	executors map[string]Runtime
@@ -73,7 +73,7 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 	}
 }
 
-// RegisterExecutor wires an additional kind's post-claim executor (spec 5/8).
+// RegisterExecutor wires an additional kind's post-claim executor (runed/README.md).
 // KindAgent is reserved for the Runtime NewManager wired.
 func (m *Manager) RegisterExecutor(kind string, exec Runtime) {
 	if kind == "" || kind == KindAgent || exec == nil {
@@ -185,7 +185,7 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 		return claim{}, runedv1.RunOutcome{Busy: true}, false, nil
 	}
 
-	// The global cap is scoped to KindAgent (spec 5/8): MaxAgents bounds
+	// The global cap is scoped to KindAgent (runed/README.md): MaxAgents bounds
 	// container resources, which a containerless kind does not consume; its
 	// serialization is the per-folder exclusivity above.
 	if kind == KindAgent {
@@ -346,7 +346,7 @@ func (m *Manager) execute(
 }
 
 // Kill stops a run (DELETE /v1/runs/{id}) and frees its slot; the spawn's
-// recorded kind selects which executor's Kill runs (spec 5/8). Idempotent:
+// recorded kind selects which executor's Kill runs (runed/README.md). Idempotent:
 // killing an already-exited run is a no-op 200. A deliberate kill records
 // state=killed WITHOUT outcome=error.
 func (m *Manager) Kill(ctx context.Context, runID string) error {

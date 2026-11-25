@@ -20,7 +20,7 @@ import (
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// TestRouteToken_ResolvedInProcess pins the daemon boundary spec 5/W now
+// TestRouteToken_ResolvedInProcess pins the daemon boundary webd/README.md now
 // describes: webd is FS-mounted on routd.db and resolves a URL token by DB
 // lookup, never over HTTP. The router client here points at a closed port, so
 // ANY HTTP hop to routd fails — the token surface must still serve. The spec
@@ -124,8 +124,8 @@ func TestRouteTokenStream_BoundToRecord(t *testing.T) {
 	//
 	// This half used to assert 403 for a caller whose grants covered only the
 	// claimed group. That gate consulted grants because proxyd resolved the
-	// token and webd compared its stamp; with resolution here (webd/README.md step
-	// 1) grants no longer enter the decision, so the containment is asserted
+	// token and webd compared its stamp; with resolution here (webd/README.md)
+	// grants no longer enter the decision, so the containment is asserted
 	// directly on the frames instead of on a status code.
 	resp2, cancel2 := get("victim", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:mallory",
@@ -178,7 +178,7 @@ func TestChatTokenPost_WaitSuffixedToken(t *testing.T) {
 }
 
 // Same agreement for a HOOK token used on the /chat surface (kind is
-// metadata, spec 5/W): chat JID "hook:main/github" has no "web:" prefix, so
+// metadata, webd/README.md): chat JID "hook:main/github" has no "web:" prefix, so
 // every prefix-stripping derivation is a no-op on one end and a mangle on the
 // other (BUGS L30). Verbatim-JID keying makes both ends meet.
 func TestChatTokenPost_WaitHookToken(t *testing.T) {
@@ -281,7 +281,7 @@ func TestJIDFolder(t *testing.T) {
 }
 
 // hookSender — the source label is the JID segment after the RECORDED delivery
-// folder (spec 5/W), so a suffixed JID reads exactly instead of by heuristic:
+// folder (webd/README.md), so a suffixed JID reads exactly instead of by heuristic:
 // hook:atlas/linear/comments at folder atlas is source "linear", not "comments"
 // (BUGS L4). A token minted before the column records no folder; those keep the
 // last-segment answer they were minted under.
@@ -585,7 +585,7 @@ func TestE2EHookTokenPost(t *testing.T) {
 	}
 }
 
-// Link context (spec 5/W § link context): a chat POST via a context-bearing
+// Link context (webd/README.md context): a chat POST via a context-bearing
 // token snapshots the token's context onto the inbound wire message; a
 // context-less token on the same JID carries none (no regression).
 func TestHandleChatTokenPost_LinkContext(t *testing.T) {

@@ -33,7 +33,7 @@ var SessionsResponses = map[resreg.Action]reflect.Type{
 }
 
 // SessionsEndpoints is the operator session surface: list the families, and
-// kill one (the incident-response verb of spec 5/1, BUGS F15). DELETE, not
+// kill one (the incident-response verb of authd/README.md, BUGS F15). DELETE, not
 // POST /revoke: the standard action gets the audit row written by
 // resreg.invoke. The row is not deleted; `revoked_at` is set, because the
 // tombstone IS the reuse-detection evidence. No MCP face: a session is keyed

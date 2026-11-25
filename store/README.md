@@ -93,7 +93,9 @@ race cannot become a lost decrement.
 unreachable. A failure part-way leaves rows nothing can find, and the next run
 collects them. `folder_scope.go` lists every scope that confers on a folder or
 routes into it once, a completeness test walks the schema, and nothing relies
-on a cascade.
+on a cascade. A purge keeps history: `messages`, `audit_log`, `secret_use_log`,
+`session_log`, `task_run_logs` and `turn_archive` keep the old folder name for
+forensics, and `folderScopeKeep` names the reason for each.
 
 **Membership is a graph, not a tree.** `acl_membership` edges form a DAG; a
 parent need not be a path prefix of its child.

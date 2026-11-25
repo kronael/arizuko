@@ -242,7 +242,7 @@ func TestChatTokenMCP_SendAddressesRecordedJID(t *testing.T) {
 	}
 }
 
-// The per-link context (spec 5/W) keeps its meaning on the collapsed surface — it
+// The per-link context (webd/README.md) keeps its meaning on the collapsed surface — it
 // rides `send` exactly as it rides POST /chat/<token>.
 func TestChatTokenMCP_SendCarriesLinkContext(t *testing.T) {
 	_, mr, srv, st := newChatTokenMCPServer(t)

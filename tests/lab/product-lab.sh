@@ -190,7 +190,7 @@ say "the OTHER half: a package (instance-wide), not a product (one group)"
 # A product seeds one group's files. A package installs instance-wide assets and
 # its record keys on folder '' to say so. It ships exactly two files, split by
 # who owns the format: helpbot.yml is docker's compose fragment, helpbot.yaml is
-# arizuko's 5/8 manifest — the same document `arizuko apply` takes, so a package
+# arizuko's cmd/arizuko/README.md manifest — the same document `arizuko apply` takes, so a package
 # can declare anything the manifest carries (BUGS L44).
 PKG="$WORK/pkgs/helpbot"; mkdir -p "$PKG"
 cat > "$PKG/helpbot.yml" <<'YML'

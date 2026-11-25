@@ -199,7 +199,7 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended, runDi
 			}
 
 			if k == "mcpServers" {
-				return fmt.Errorf("%s %s: mcpServers reaches nothing — a product's MCP server must register as an arizuko connector in connectors.toml (spec 5/13); remove the key", mix[i].Name, settingsRel)
+				return fmt.Errorf("%s %s: mcpServers reaches nothing — a product's MCP server must register as an arizuko connector in connectors.toml (EXTENDING.md); remove the key", mix[i].Name, settingsRel)
 			}
 			if prev, dup := owner[k]; dup {
 				return fmt.Errorf("settings.json %q: both %s and %s set it — a key collision refuses the mix", k, prev, mix[i].Name)

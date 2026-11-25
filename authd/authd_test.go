@@ -198,7 +198,7 @@ func TestKeyPersistsAcrossReopen(t *testing.T) {
 func TestRefreshRotation(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	// The refresh row stores the BARE sub (spec 5/1 "sub prefix rule"); the
+	// The refresh row stores the BARE sub (authd/README.md); the
 	// user: prefix is added only when the access JWT is minted.
 	r0, err := a.IssueRefresh("1", []string{"tasks:read"}, "")
 	if err != nil {
@@ -293,7 +293,7 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	}
 }
 
-// New /v1/service-token shape (spec 5/1 §435): secret in the Authorization
+// New /v1/service-token shape (authd/README.md): secret in the Authorization
 // header, daemon name in the body. The body carries NO secret.
 func TestServiceTokenEndpoint(t *testing.T) {
 	db := testDB(t)
@@ -445,7 +445,7 @@ func TestRefreshEndpointRotates(t *testing.T) {
 		t.Fatal("refresh endpoint must return a rotated token")
 	}
 	if out.ExpiresAt == "" {
-		t.Fatal("refresh response must carry expires_at (spec 5/1 shape)")
+		t.Fatal("refresh response must carry expires_at (authd/README.md shape)")
 	}
 	ks := auth.NewKeySet(publicKeys(t, a))
 	if _, err := auth.VerifyToken(out.Token, ks); err != nil {

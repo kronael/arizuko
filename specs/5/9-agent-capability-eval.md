@@ -135,7 +135,7 @@ it". Do not restate the case schema anywhere else — it drifts.
 **and that is the eval doing its job**: it caught a real krons bug, not an
 agent-capability gap. The `/hook/` proxyd route was never seeded on the
 instance (seeded-once drift) and live proxyd doesn't hot-reload the route
-table, so `5/W` webhooks were dead there. A green health check missed it;
+table, so `ROUTING.md` webhooks were dead there. A green health check missed it;
 the capability prober did not. That single result is the spec's
 justification.
 
@@ -190,7 +190,7 @@ the context of cases 2–8 on the 2026-08-08 live run.
 
 Per-case topics alone stopped being isolation the day topic forking was
 repaired (BUGS L54): the first turn of any non-main topic forks the
-folder's MAIN session (`5/F`), so a root session — prior runs, operator
+folder's MAIN session (`ROUTING.md`), so a root session — prior runs, operator
 chat — sits in front of every case. The driver therefore establishes a
 pristine baseline itself, before EVERY case (`--folder` names the root):
 
@@ -207,11 +207,11 @@ pristine baseline itself, before EVERY case (`--folder` names the root):
 Per-case (not per-run) because a group-context scheduled follow-up fires
 topic-less on the ROOT topic and re-persists a session there mid-run.
 With main sessionless, a case topic's fork copies nothing and clears its
-observed cursor (`5/F` unchanged); the case's ambient window holds only
+observed cursor (`ROUTING.md` unchanged); the case's ambient window holds only
 `is_observed=1` rows, which injected case prompts never are — so cases
 cannot leak into each other through the observed window either.
 
-`5/F`'s fork rule itself does not change for anteval — the eval measures
+`ROUTING.md`'s fork rule itself does not change for anteval — the eval measures
 the platform as shipped; the harness owns its baseline.
 
 ## Component shape
@@ -227,7 +227,7 @@ needed.
 
 ## Neighbors
 
-The parity case directly checks the uniform MCP+REST invariant (`5/17`);
-webhook/chat-link cases lean on `5/W`; privilege cases on `5/32`.
+The parity case directly checks the uniform MCP+REST invariant (`resreg/README.md`);
+webhook/chat-link cases lean on `ROUTING.md`; privilege cases on `auth/README.md`.
 Distinct from the `eval` skill (operational health), `create-eval`
 (generates a project eval skill), and `make test-e2e` (one in-tree round).

@@ -75,12 +75,12 @@ contracts differ from the filing in these places:
   A future identity consumer reads the join below;
   it must not create another principal map.
 
-[Surrogate OAuth](../5/15-surrogate-oauth.md) supplies OAuth storage and the
+`SECURITY.md` supplies OAuth storage and the
 exchange engine. [Credentials](../5/14-credentials.md) owns credential tiers.
-[Pairing](../5/31-identity-pairing.md) owns consent and its edges.
-[Unified ACL](../5/32-acl-unified.md) and
+`SECURITY.md` owns consent and its edges.
+`auth/README.md` and
 [paths and roles](../5/33-paths-roles.md) own authorization.
-[External MCP](../5/13-ext-mcp.md) owns tool credential delivery.
+`EXTENDING.md` owns tool credential delivery.
 Their frontmatter does not prove the missing model path exists.
 
 ## One join feeds the existing credential transport

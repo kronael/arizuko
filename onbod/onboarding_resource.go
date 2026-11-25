@@ -1,7 +1,7 @@
 package main
 
 // onboarding_resource.go folds onbod's /v1/onboarding REST face onto the shared
-// resreg handler (spec 5/16, 5/17), retiring the five hand-rolled handlers
+// resreg handler (resreg/README.md), retiring the five hand-rolled handlers
 // (handleOnboarding{Insert,List,Approve,Deny,Reprompt}). resreg owns the
 // plumbing (handler dispatch + one batch carrying the mutation AND its audit_log
 // row); onbod owns the auth POLICY via the injected REST Caller + Gate — the
@@ -11,7 +11,7 @@ package main
 // — the single source the /openapi.json doc also reads, so served routes and doc
 // cannot drift. No credential appears in any projection here: OnboardingRow
 // omitted token_ref outright (Z3), and onbod 0006 dropped the column with its
-// expiry twin once the 5/31-identity-pairing fold left nothing writing them (BUGS F40).
+// expiry twin once pairing left nothing writing them (BUGS F40).
 
 import (
 	"context"

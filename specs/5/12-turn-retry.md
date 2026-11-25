@@ -129,8 +129,8 @@ saved return address delivers the eventual answer where they asked.
 
 ## Related
 
-- [`E-routd.md`](E-routd.md) § Turn lifecycle — the terminal-signal
+- `routd/README.md` § Turn lifecycle — the terminal-signal
   reconciliation this hooks into, and why stale `running` rows sweep to
   `'expired'` rather than `'done'`.
 - [`P-runed.md`](P-runed.md) — container lifecycle, run TTL.
-- [`G-engagement.md`](G-engagement.md) — `ENGAGEMENT_TTL`.
+- `ROUTING.md` — `ENGAGEMENT_TTL`.

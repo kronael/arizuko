@@ -1,6 +1,6 @@
 package routd
 
-// Spec 5/18 step 7 stamps (added_by, added_via) on every routes row onbod writes.
+// onbod/README.md stamps (added_by, added_via) on every routes row onbod writes.
 // routd's writers stamp the same pair so ONE query over `routes` answers "who
 // created this, and by which act" for every attributed writer — a reader must not
 // have to know which daemon wrote a row to learn who wrote it, nor fall back to

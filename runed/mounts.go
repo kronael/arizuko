@@ -194,7 +194,7 @@ func buildMounts(
 		}
 	}
 
-	// specs/5/V-web-vhosts.md: a folder with the `web:publish` grant (resolved by
+	// runed/README.md: a folder with the `web:publish` grant (resolved by
 	// routd, 5/33-paths-roles) gets RO access to the whole public web tree at /var/lib/www, plus
 	// per-group bind-mount slots for the writable web surfaces (~/public_html and
 	// ~/private_html). No grant → no writable web surface.

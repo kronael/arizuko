@@ -33,7 +33,7 @@ func TestCheckHold_OtherToolUnaffected(t *testing.T) {
 	}
 }
 
-// TestCheckHold_OperatorStarDoesNotHoldEverything is spec 5/19 Hazard 2. An
+// TestCheckHold_OperatorStarDoesNotHoldEverything is auth/README.md. An
 // operator's (*, **) row covers every action under Authorize's lattice, so
 // routing the hold question through Authorize would suspend every tool call the
 // operator makes. CheckHold matches the action exactly instead.

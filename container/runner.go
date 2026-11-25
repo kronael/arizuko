@@ -68,7 +68,7 @@ func setupGroup(cfg *core.Config, folder string,
 	// walks cfg.GroupsDir/<folder>, and these live under cfg.WebDir — a different
 	// tree no chown ever reached. A slot the container uid cannot write is
 	// read-only to the agent, which reports it as a broken mount (BUGS F62/F63).
-	// Spec 5/V-web-vhosts.
+	// runed/README.md.
 	if cfg.WebDir != "" {
 		for _, slot := range []string{
 			filepath.Join(cfg.WebDir, "pub", folder),
@@ -205,7 +205,7 @@ func WriteGatewayCaps(groupDir string, cfg *core.Config) {
 // timestamp, takes the dst uuid in the name and in the header line, which is
 // where pi resolves `--session <id>`.
 // A missing source returns false with WARN, or INFO for a Codex rollout.
-// Codex parent context is not copied. Used by spec 5/F-topic-lineage fork path.
+// Codex parent context is not copied. Used by ROUTING.md fork path.
 func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
 	src := filepath.Join(projDir, srcUUID+".jsonl")

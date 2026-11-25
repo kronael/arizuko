@@ -11,7 +11,7 @@ import (
 )
 
 // addACL seeds an operator acl row into routd's OWN routd.db — routd owns the acl
-// tables (spec 5/16-mcp-rest-unification), so the evaluator (auth.Authorize / auth.EffectiveActions /
+// tables (resreg/README.md), so the evaluator (auth.Authorize / auth.EffectiveActions /
 // db.UserScopes) reads them from there, not the sibling messages.db.
 // store.PutACLRow is the audit-free writer, so this does not depend on audit_log.
 func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {

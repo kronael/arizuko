@@ -1,6 +1,6 @@
 package resreg
 
-// The archive INDEX (spec 5/8 "The full-instance archive"): archive.yaml's
+// The archive INDEX (resreg/README.md): archive.yaml's
 // shape, the consistency level it declares, and the consistent subsystem
 // snapshot the checksum is stamped from. It reuses Export/EmitYAML/Checksum
 // verbatim. The per-table halves are NOT here: each value an archive carries
@@ -19,12 +19,12 @@ import (
 )
 
 // ArchiveFormatVersion is archive.yaml's own format version, bumped only when
-// the document's shape changes (spec 5/8 "Cross-instance portability").
+// the document's shape changes (resreg/README.md).
 // `apply` refuses an archive whose stamped format_version exceeds it.
 const ArchiveFormatVersion = 1
 
-// Consistency levels an archive.yaml declares (spec 5/8 "Consistency
-// levels"). live: per-subsystem snapshots, the archive as a whole a smear
+// Consistency levels an archive.yaml declares (cmd/arizuko/README.md § Rows files
+// and the dump). live: per-subsystem snapshots, the archive as a whole a smear
 // across wall-clock time. quiesced: the operator stopped the instance first;
 // the flag only stamps the metadata.
 const (
@@ -49,7 +49,7 @@ type ArchiveSnapshot struct {
 }
 
 // ExportSnapshot exports one subsystem's manifest-visible projection as ONE
-// consistent read (spec 5/8 "Consistency levels"), and answers the manifest,
+// consistent read (resreg/README.md), and answers the manifest,
 // its checksum and the snapshot's start timestamp.
 func ExportSnapshot(ctx context.Context, be Backend, subsystem string) (manifest map[string]any, checksum string, snapshotAt string, err error) {
 	if err := requireEntities(subsystem); err != nil {

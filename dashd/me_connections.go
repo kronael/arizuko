@@ -17,7 +17,7 @@ import (
 )
 
 // me_connections.go serves the surrogate-OAuth "Connect <provider>" dance
-// (spec 5/15): arizuko authenticates AS the signed-in user to a provider API and
+// (dashd/README.md): arizuko authenticates AS the signed-in user to a provider API and
 // writes the access+refresh token into the SAME user-scoped secrets row a pasted
 // PAT lands in — only the writer differs. Reuses auth's PKCE + CSRF-state
 // primitives; the engine (d.surrogate) drives the exchange/refresh.

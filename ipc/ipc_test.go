@@ -502,7 +502,7 @@ func TestServeMCP_PeerCredRejectsWrongUID(t *testing.T) {
 	}
 }
 
-// Spec 5/G-engagement — engage/disengage roundtrip with authz. Caller folder
+// ROUTING.md — engage/disengage roundtrip with authz. Caller folder
 // must own the conversation (EngagedFolder match OR JID default route).
 func TestServeMCP_Engagement_Authz(t *testing.T) {
 	dir := t.TempDir()
@@ -586,7 +586,7 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 	}
 }
 
-// Spec 5/G-engagement §"MCP tools" arm 3 — fresh chat (no current engagement,
+// ROUTING.md arm 3 — fresh chat (no current engagement,
 // no default route) is engageable by any caller. Lets autonomous turns
 // bootstrap conversations without a pre-existing route.
 func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
@@ -623,7 +623,7 @@ func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
 	}
 }
 
-// Spec 5/G-engagement §"Write sites — one policy, two calls" — recordOutbound
+// ROUTING.md — recordOutbound
 // writes last_reply for every conversational outbound but skips the engagement
 // bump when the turn's trigger sender is timed-* (scheduled / autonomous
 // broadcasts must not extend engagement).
@@ -863,7 +863,7 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	// The recorded outbound must carry the platform id SendDocument returned,
 	// not "". A human reply to this file lands here via reply_to → the
-	// reply-to-bot → verb=mention promotion (spec 5/L) only fires when this is set.
+	// reply-to-bot → verb=mention promotion (ROUTING.md) only fires when this is set.
 	if recordedPlatformID != wantPlatformID {
 		t.Fatalf("recorded PlatformID = %q, want %q (empty = the send_file empty-platform_id bug)", recordedPlatformID, wantPlatformID)
 	}
@@ -930,12 +930,12 @@ func callRaw(t *testing.T, sock, name string, args map[string]any) string {
 }
 
 // NOTE: set_web_route/del_web_route/list_web_routes moved off ipc onto routd's
-// resreg web_routes resource (spec 5/16 pilot). Their self-slot + path-claim +
+// resreg web_routes resource (resreg/README.md). Their self-slot + path-claim +
 // tier-0-widen parity is covered by routd/web_routes_resource_test.go, which
 // drives the real socket through the ServeMCP postBuild seam.
 
 // NOTE: issue_chat_link/issue_webhook/list_tokens/revoke_token moved off ipc onto
-// routd's resreg route_tokens resource (spec 5/16 fold). Their mint tier matrix +
+// routd's resreg route_tokens resource (resreg/README.md). Their mint tier matrix +
 // owner-scoped revoke + Gate/visibility parity is covered by
 // routd/route_tokens_resource_test.go, which drives the real socket through the
 // ServeMCP postBuild seam.

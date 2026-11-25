@@ -39,7 +39,7 @@ count, and is exactly how a component gets rebuilt anyway.
   [6/24-crackbox-lightest](../6/24-crackbox-lightest.md)). squid does
   per-source ACL + CONNECT tunneling out of the box and reloads ACLs via an
   `external_acl` helper; mitmproxy is scriptable and would matter if we ever
-  want credential injection ([8/Z-egred-mitm](../5/13-ext-mcp.md)); envoy
+  want credential injection (`EXTENDING.md`); envoy
   is industrial but a large config surface for one allowlist. Cilium/Calico
   are Kubernetes-only and off our path.
 - **mcp-firewall** (`mcpfw/README.md`). **The most likely to be

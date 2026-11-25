@@ -2,7 +2,7 @@ package auth
 
 import "testing"
 
-// The sub prefix rule (spec 5/1): "user:"/"service:" exists ONLY in the JWT
+// The sub prefix rule (auth/README.md): "user:"/"service:" exists ONLY in the JWT
 // sub claim. Every stored principal — acl.principal, acl_membership.parent —
 // is bare, so a prefixed subject compared against stored rows matches nothing
 // and silently grants nothing. That is exactly how identity pairing shipped

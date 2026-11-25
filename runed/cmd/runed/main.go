@@ -99,7 +99,7 @@ func main() {
 	}
 	defer func() { _ = db.Close() }()
 	// runed's audit sink is its OWN record — each daemon owns its own audit_log;
-	// correlation across them is turn_id, not a shared table (spec 5/I-tool-call-logging). Init
+	// correlation across them is turn_id, not a shared table (audit/README.md). Init
 	// takes whichever handle runed was opened over, so the sink follows.
 	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	if n, err := db.ExpireOrphans(context.Background()); err != nil {
@@ -136,7 +136,7 @@ func main() {
 		Folders:   folders,
 	})
 	// POST /v1/holds: let an external process (arizuko apply, and any
-	// future folder-exclusive job) claim a folder's run slot (spec 5/8).
+	// future folder-exclusive job) claim a folder's run slot (runed/README.md).
 	mgr.RegisterExecutor(runed.KindHold, runed.NewHoldRuntime())
 
 	// Hourly GC of aged spawns. The RETENTION is this policy's, not the

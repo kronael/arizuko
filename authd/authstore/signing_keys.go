@@ -121,7 +121,7 @@ func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 // SigningKeyMetadata reads the non-secret attributes of every signing key and
 // derives each key's serving state. The PROJECTION is the security boundary:
 // `priv_pem` and `pub_pem` are not in it and nothing can add them, so the
-// private half never leaves the engine. Status is spec 5/1's window: a key
+// private half never leaves the engine. Status is the serving window (authd/README.md): a key
 // serves while it holds the slot, OR while now < retired_at + maxAccessTTL;
 // `retiring` still verifies already-issued tokens, `retired` verifies nothing.
 func (s *Store) SigningKeyMetadata(maxAccessTTL time.Duration, at time.Time) ([]resources.SigningKeysRow, error) {

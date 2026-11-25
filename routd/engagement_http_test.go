@@ -1,6 +1,6 @@
 package routd
 
-// Tests for the spec 5/G-engagement engagement surface.
+// Tests for the routd/README.md engagement surface.
 //
 // The READ half: the deadline crossing the wire, and the list that lets a viewer
 // find engaged chats instead of only looking one up. Before this,
@@ -128,7 +128,7 @@ func TestEngagementList_EnumeratesLiveWindows(t *testing.T) {
 // TestEngagementList_NoCrossFolderLeak is the content-level guard. A TOP-LEVEL
 // tenant is the dangerous case: its folder claim is non-empty but shallow, so
 // any widening keyed on depth rather than on an EMPTY claim hands it every
-// sibling's chats — the leak the 5/16 REST folds had to close. The assertion is
+// sibling's chats — the leak the resreg/README.md REST folds had to close. The assertion is
 // on the raw response BODY, not on a decoded count, so a jid reaching the
 // caller through any field still fails.
 func TestEngagementList_NoCrossFolderLeak(t *testing.T) {
@@ -222,7 +222,7 @@ func TestDefaultEngagementTTL(t *testing.T) {
 	}
 }
 
-// ---- spec 5/G-engagement §"The operator surface": the WRITE face,
+// ---- routd/README.md: the WRITE face,
 // POST /v1/engagement ----
 
 // postEngagement POSTs body to /v1/engagement through h and returns the code.

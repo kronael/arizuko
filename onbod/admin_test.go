@@ -50,7 +50,7 @@ func TestOpenOwned_PreparesOnbodsOwnEntitiesOnly(t *testing.T) {
 	}
 }
 
-// admin invite lifecycle through the resreg /v1/invites face (spec 5/16 fold):
+// admin invite lifecycle through the resreg /v1/invites face (resreg/README.md):
 // create → list → delete. Drives a real mux so {token} path binding + resreg
 // dispatch (a POST-collection create returning a server-generated token) are
 // exercised end-to-end; ks=nil (open, monolith/local-dev) so no bearer needed.
@@ -156,7 +156,7 @@ func TestInvitesRESTGateScopes(t *testing.T) {
 	}
 }
 
-// admin gate lifecycle through the resreg /v1/gates face (spec 5/16 fold):
+// admin gate lifecycle through the resreg /v1/gates face (resreg/README.md):
 // put (limit) → list → disable → re-put limit → delete. Drives a real mux so
 // {gate} path binding + resreg dispatch are exercised end-to-end; ks=nil (open)
 // so no bearer needed.

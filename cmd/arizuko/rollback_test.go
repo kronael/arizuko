@@ -1,7 +1,7 @@
 package main
 
-// Cross-subsystem pre-image rollback (spec 5/8 §"Cross-subsystem apply:
-// per-subsystem transaction, pre-image rollback"): routd and onbod are
+// Cross-subsystem pre-image rollback (resreg/README.md § An apply
+// replaces a subsystem under a claim): routd and onbod are
 // separate SQLite files with no shared transaction, so a failure on the
 // second must put the first back.
 //

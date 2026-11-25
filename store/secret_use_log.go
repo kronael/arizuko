@@ -2,7 +2,7 @@ package store
 
 // secret_use_log.go holds every read and write of `secret_use_log`: one item
 // per (tool call × resolved key), written by the broker middleware and never
-// touched again (spec 5/13 § Audit).
+// touched again (SECURITY.md).
 //
 // The partition is a constant and the sort key the instant: audit_log's shape,
 // for audit_log's reason. It is append-only history with a single writer and
@@ -55,7 +55,7 @@ const (
 	attrUseLatency   = "latency_ms"
 )
 
-// SecretUseRow is one use as the broker middleware reports it (spec 5/13). It
+// SecretUseRow is one use as the broker middleware reports it (SECURITY.md). It
 // persists as one item AND one audit_log row (category=secret,
 // action=secret.read) per call.
 type SecretUseRow struct {
@@ -110,7 +110,7 @@ func secretUseWrite(id string, r SecretUseRow) objstore.Write {
 // LogSecretUse records one resolved secret and the audit_log row that reports
 // it, in ONE write (store/README.md). A refusal is a FAULT rather than a race: both
 // ids carry eight hex digits of randomness on top of the instant, and a secret
-// read that silently recorded nothing is the one outcome spec 5/13 exists to
+// read that silently recorded nothing is the one outcome SECURITY.md exists to
 // prevent.
 func (s *Store) LogSecretUse(r SecretUseRow) error {
 	if r.TS.IsZero() {

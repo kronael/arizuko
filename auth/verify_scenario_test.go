@@ -1,6 +1,6 @@
 package auth
 
-// Verify-path threat scenarios for the offline ES256 verifier (specs/5/1
+// Verify-path threat scenarios for the offline ES256 verifier (auth/README.md
 // "offline verification" + "Crypto stack ... pins ES256 (closes
 // alg-confusion)"). Each test asserts a SECURITY property of VerifyToken /
 // subjectFromPayload that, if it regressed, would let a forged or stale token
@@ -77,8 +77,8 @@ func validClaims() map[string]any {
 }
 
 // Threat: a token from a different issuer (another authd deployment, a stolen
-// upstream IdP token) must not authorize here. specs/5/1 "Verifiers pin this
-// exact value" (iss=="authd").
+// upstream IdP token) must not authorize here. The verifier pins
+// iss=="authd" (auth/README.md § The platform token).
 func TestVerifyRejectsWrongIssuer(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -93,7 +93,7 @@ func TestVerifyRejectsWrongIssuer(t *testing.T) {
 }
 
 // Threat: a token with a missing or unknown typ claim must not verify — typ is
-// required and drives verifier policy (specs/5/1 § JWT claim set "typ ... req").
+// required and drives verifier policy (auth/README.md claim set "typ ... req").
 // A missing typ is a reject, never "no constraint" (no fail-open).
 func TestVerifyRejectsMissingOrUnknownTyp(t *testing.T) {
 	k, _ := NewSigningKey("k1")
@@ -113,7 +113,7 @@ func TestVerifyRejectsMissingOrUnknownTyp(t *testing.T) {
 }
 
 // Threat: a downscoped token carries no parent_jti — its delegation chain is
-// unverifiable. specs/5/1 § JWT claim set marks parent_jti req for typ
+// unverifiable. auth/README.md claim set marks parent_jti req for typ
 // "downscoped"; the verifier rejects a downscoped token that omits it.
 func TestVerifyRejectsDownscopedWithoutParentJTI(t *testing.T) {
 	k, _ := NewSigningKey("k1")
@@ -138,7 +138,7 @@ func TestVerifyRejectsDownscopedWithoutParentJTI(t *testing.T) {
 }
 
 // A valid typ is surfaced on the verified Subject so callers can apply
-// type-specific policy (specs/5/1 § JWT claim set adds Subject.Typ).
+// type-specific policy (auth/README.md claim set adds Subject.Typ).
 func TestVerifySurfacesTypOnSubject(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -156,7 +156,7 @@ func TestVerifySurfacesTypOnSubject(t *testing.T) {
 	}
 }
 
-// Threat: a token with no exp is an immortal token. specs/5/1 just-fixed
+// Threat: a token with no exp is an immortal token. auth/README.md just-fixed
 // "iat/nbf/exp are required ... no fail-open" — a missing exp is a reject, not
 // "no constraint".
 func TestVerifyRejectsAbsentExp(t *testing.T) {
@@ -174,7 +174,7 @@ func TestVerifyRejectsAbsentExp(t *testing.T) {
 
 // Threat: a token with no iat zeroes Subject.IssuedAt, disarming VerifyToken's
 // retired-key forgery check (iat>retired_at). iat is a required claim — reject
-// when absent (no fail-open), same clause as exp/nbf (specs/5/1).
+// when absent (no fail-open), same clause as exp/nbf (auth/README.md).
 func TestVerifyRejectsAbsentIat(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -189,7 +189,7 @@ func TestVerifyRejectsAbsentIat(t *testing.T) {
 }
 
 // Threat: a token with no nbf bypasses the not-before window. Same just-fixed
-// no-fail-open clause (specs/5/1).
+// no-fail-open clause (auth/README.md).
 func TestVerifyRejectsAbsentNbf(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -204,7 +204,7 @@ func TestVerifyRejectsAbsentNbf(t *testing.T) {
 }
 
 // Threat: an expired token replayed past the clock-skew grace must fail.
-// specs/5/1 TTL table "Access JWT ... the revocation blast-radius bound".
+// auth/README.md TTL table "Access JWT ... the revocation blast-radius bound".
 func TestVerifyRejectsExpiredPastSkew(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -261,8 +261,8 @@ func TestVerifyAcceptsNbfWithinSkew(t *testing.T) {
 // Threat (CLASSIC): alg-confusion. An attacker re-signs the same claims with a
 // symmetric HS256 MAC keyed on the public key bytes, hoping the verifier
 // treats the public key as a shared secret. verifyLocal pins ES256, so parsing
-// itself must refuse the HS256 token. specs/5/1 "pins ES256 (closes
-// alg-confusion)".
+// itself must refuse the HS256 token. The pin closes alg confusion
+// (auth/README.md § The platform token).
 func TestVerifyRejectsAlgConfusionHS256(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -376,7 +376,7 @@ func TestVerifyRejectsTamperedPayload(t *testing.T) {
 
 // Threat: a token carrying the global scope "*:*" authorizes nothing —
 // HasScope must never honor the global wildcard even when present in a verified
-// token. specs/5/1 / 5/17-openapi-mcp "never the global *:*".
+// token. auth/README.md.
 func TestGlobalWildcardScopeAuthorizesNothing(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
@@ -429,7 +429,7 @@ func TestVerifyHTTPBearerExtraction(t *testing.T) {
 // Remote-path retired-key forgery: a token whose iat is AFTER a kid's retired_at
 // could only have been freshly minted by a holder of the retired private key (a
 // thief). The check must fire on the RemoteKeySet (backend) path too, not just
-// the local path — the kid is lifted from the pre-parsed JWS header. specs/5/1
+// the local path — the kid is lifted from the pre-parsed JWS header. auth/README.md
 // § Revocation + jwks.go retired-key forgery window.
 func TestRemotePathRejectsRetiredKidForgery(t *testing.T) {
 	k, _ := NewSigningKey("kretired")

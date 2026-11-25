@@ -169,7 +169,7 @@ func TestInstalledPackagesMCP_OwnSubtreeGrantDenied(t *testing.T) {
 
 // TestInstalledPackagesMCP_ToolsListGating: neither tool is in the role:member
 // floor, so an ungranted folder is not even shown them; a folder granted them at
-// `**` is. Visibility and authorization are separate views (5/17) — this pins the
+// `**` is. Visibility and authorization are separate views (resreg/README.md) — this pins the
 // visibility half, the denial tests above pin the other.
 func TestInstalledPackagesMCP_ToolsListGating(t *testing.T) {
 	db := packagesFixture(t)

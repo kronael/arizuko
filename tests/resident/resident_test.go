@@ -104,7 +104,7 @@ func TestAgentFileCarriesTheCarveOut(t *testing.T) {
 }
 
 // TestMaintainerFilePointersResolve: root CLAUDE.md names repo files by path
-// (`INSTALL.md`, `specs/5/8-yaml-manifests.md`, `.claude/skills/eval/SKILL.md`);
+// (`INSTALL.md`, resreg/README.md, `.claude/skills/eval/SKILL.md`);
 // each must exist. Tokens with a placeholder (`<pkg>/README.md`) or a home
 // path are skipped.
 func TestMaintainerFilePointersResolve(t *testing.T) {

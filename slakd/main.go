@@ -37,7 +37,7 @@ func main() {
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b := newBot(cfg)
 			// Pane reads hit routd's tables — routd OWNS pane_sessions in the
-			// split topology (spec 5/16-mcp-rest-unification), and slakd writes panes there via routd
+			// split topology (ARCHITECTURE.md), and slakd writes panes there via routd
 			// HTTP (paneWrite). Reading from the same store keeps read-after-write
 			// coherent. store.OpenOwner is the door.
 			st, err := store.OpenOwner(store.OwnerRoutd)

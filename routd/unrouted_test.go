@@ -95,7 +95,7 @@ func TestUnroutedChats_HeldIsListedRoutedIsNot(t *testing.T) {
 }
 
 // TestUnroutedChats_ObserveRouteIsAClaim — a ?observe catch-all consumes the
-// miss (5/18 staging posture), so a chat it captures is not held.
+// miss (ROUTING.md staging posture), so a chat it captures is not held.
 func TestUnroutedChats_ObserveRouteIsAClaim(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
 	h := srv.Handler()

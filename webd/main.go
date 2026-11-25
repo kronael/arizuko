@@ -86,7 +86,7 @@ func main() {
 		syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Soak (spec 5/1 § cutover): when AUTHD_URL is set, build a JWKs KeySet so
+	// Soak (authd/README.md): when AUTHD_URL is set, build a JWKs KeySet so
 	// requireUser/-Folder additionally accept an authd-minted ES256 bearer
 	// alongside the live HMAC X-User-Sig. Unset → nil KeySet → HMAC-only,
 	// exactly as before.

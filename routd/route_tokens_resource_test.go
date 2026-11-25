@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/16 route_tokens fold: the agent's
+// Parity tests for the resreg/README.md route_tokens fold: the agent's
 // issue_chat_link/issue_webhook/list_tokens/revoke_token now ride resreg's MCP
 // mechanism through the ServeMCP postBuild seam instead of hand-rolled ipc bodies.
 // Each test drives the REAL unix socket end-to-end so the seam + injected Gate +
@@ -136,7 +136,7 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	}
 }
 
-// TestRouteTokensMCP_IssueWithContext: the optional context arg (spec 5/W § link
+// TestRouteTokensMCP_IssueWithContext: the optional context arg (ROUTING.md
 // context) lands on the row and surfaces via resolve + list_tokens; omitted →
 // empty, exactly the pre-context behavior.
 func TestRouteTokensMCP_IssueWithContext(t *testing.T) {

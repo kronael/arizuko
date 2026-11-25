@@ -12,7 +12,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// BUGS F49 / spec 5/8 §"Round-trip honesty": `dump` must emit something that
+// BUGS F49 / cmd/arizuko/README.md: `dump` must emit something that
 // re-applies to a no-op, and the content-hash CAS depends on it. It does not
 // hold for a row whose server-owned instant is ABSENT unless the writer knows
 // not to invent one.

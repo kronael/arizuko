@@ -29,7 +29,7 @@ var googleUserinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 // PostForm exposes the low-level form POST (shared 15s httpClient) for the
-// surrogate engine's token/refresh/revoke calls (auth/surrogate, spec 5/15).
+// surrogate engine's token/refresh/revoke calls (auth/surrogate, SECURITY.md).
 // accept sets the Accept header — surrogate wants "application/json" so GitHub
 // returns JSON; "" leaves it unset (login's private postForm shape). The login
 // exchange path is untouched; this is an additive exported primitive.

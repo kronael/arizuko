@@ -133,7 +133,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHold claims a folder's run slot for an external, folder-exclusive job
-// (spec 5/8). A hold IS a run, so it takes the same runs:run scope and folder
+// (runed/README.md). A hold IS a run, so it takes the same runs:run scope and folder
 // containment; releasing goes through DELETE /v1/runs/{run_id}.
 func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
 	sub, folder, ok := s.authz(w, r, "runs:run")

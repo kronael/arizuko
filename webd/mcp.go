@@ -18,7 +18,7 @@ import (
 
 // chatPin fixes the ONE chat an anonymous route-token principal addresses.
 //
-// The token row RECORDS its JID and its link context (spec 5/W); send and
+// The token row RECORDS its JID and its link context (webd/README.md); send and
 // get_history READ them. Neither may rebuild the JID from the folder: a token's
 // JID can be suffixed (`web:atlas/sfx`) or a hook (`hook:atlas/github`), and
 // `"web:"+folder` then names a different chat than the one the token delivers to.
@@ -84,7 +84,7 @@ func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
 func (s *server) buildWebMCP(sub, name string, grants []string, pin *chatPin) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer("arizuko-web", "1.0")
 
-	// Operator-only resource tools (spec 5/17-openapi-mcp). Invisible to non-operators, so a
+	// Operator-only resource tools (resreg/README.md). Invisible to non-operators, so a
 	// one-element grant set never sees them.
 	registerRoutesMCP(srv, s.proxyd, sub, name, grants)
 

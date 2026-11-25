@@ -1,5 +1,5 @@
 # teled-atlas — a further Telegram account, a multi-account variant of teled
-# (specs/5/R-multi-account.md). Its token is TELEGRAM_BOT_TOKEN_ATLAS in the
+# (compose/README.md). Its token is TELEGRAM_BOT_TOKEN_ATLAS in the
 # instance's .env; generate writes it as TELEGRAM_BOT_TOKEN into
 # env/teled-atlas.env, and every other key is the base adapter's. DATA_DIR is its
 # own state mount: it holds this account's getUpdates offset, and losing it makes

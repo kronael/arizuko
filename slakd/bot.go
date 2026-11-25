@@ -554,7 +554,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage, verb string) {
 	if m.ThreadTS != "" && m.ThreadTS != m.TS {
 		topic = m.ThreadTS
 		// A message inside a thread is an implicit reply to the thread root. Feeding
-		// ReplyTo lets the spec 5/L promotion flip verb→mention when that root is one
+		// ReplyTo lets the ROUTING.md promotion flip verb→mention when that root is one
 		// of the bot's own messages, so the agent auto-attends a thread it started.
 		// Roots authored by someone else do not resolve via IsBotMessageByID.
 		replyTo = m.ThreadTS
@@ -1407,7 +1407,7 @@ func (b *bot) Typing(jid, _ string, on bool) {
 }
 
 // paneWrite POSTs one pane mutation to routd's POST /v1/pane (routd OWNS
-// pane_sessions in the split topology — spec 5/16-mcp-rest-unification), authed with slakd's
+// pane_sessions in the split topology — ARCHITECTURE.md), authed with slakd's
 // registered channel token. op is "open" (UpsertPane) or "context"
 // (SetPaneContext). routd routes the write to routd.db; slakd never opens
 // messages.db for pane writes.

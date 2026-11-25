@@ -1,21 +1,14 @@
 ---
 status: reference
-depends:
-  [
-    13-ext-mcp,
-    14-credentials,
-    15-surrogate-oauth,
-    17-openapi-mcp,
-    19-hitl-firewall,
-  ]
+depends: [14-credentials]
 ---
 
 # specs/5/25 — integration catalog: the surface, derived from use cases
 
 > **Terminal state: `reference` (2026-08-07).** This is an analysis doc, not a
 > deliverable — the surface it derives is implemented by the specs it names
-> (`5/13` shapes 2 and 3 ship; `openapi2mcp` is `8/A`; the OAuth wall is `5/15`;
-> the stakes axis is `5/19`, shipped 2026-08-07). Nothing here waits on a
+> (`EXTENDING.md` shapes 2 and 3 ship; `openapi2mcp` is `8/A`; the OAuth wall is `SECURITY.md`;
+> the stakes axis is `template/web/pub/arizuko/reference/grants.html`, shipped 2026-08-07). Nothing here waits on a
 > decision, and there is no `specs/5` code left to write against it. Its sibling
 > corpus [`26-integration-usecases.md`](26-integration-usecases.md) carries the
 > same status for the same reason.
@@ -24,7 +17,7 @@ The niche: arizuko is **not the next agent** — it is the **gated, audited
 integration fabric plus a curated service catalog** an agent operates.
 Browse ready templates or point at any OpenAPI directly; every call is
 grant-gated, credential-brokered (secrets never enter the container), and
-audited through the one `5/13` dispatch chain. Bring your own agent/model
+audited through the one `EXTENDING.md` dispatch chain. Bring your own agent/model
 — arizuko sells the wiring, governance, and teaching, not the intelligence.
 
 The surface below is **derived** from a ~120-use-case corpus
@@ -38,7 +31,7 @@ asserted.
    1. **Vendor MCP server** — prefer when it exists (GitHub, Stripe,
       Shopify, Supabase, Notion, Linear, Tavily, …). It tracks the
       vendor's own auth/param evolution so we don't. → `connectors.toml`
-      (shipped, `5/13` shape 2).
+      (shipped, `EXTENDING.md` shape 2).
    2. **OpenAPI auto-import** — the DEFAULT for API-first services
       (Cloudflare, Vercel, Datadog, Sentry, PayPal, Airtable, …). →
       `openapi2mcp`, **the key gap** (`8/A`; researched, not built).
@@ -54,13 +47,13 @@ asserted.
    `secret set`); **OAuth-only (~⅓**, concentrated in Google, Microsoft
    Graph, Salesforce, Shopify, PayPal, QuickBooks, Xero) which needs a
    human consent flow and refresh management, **not** a TOML field — this
-   is the actual wall on agent self-serve, routed to the `5/15` broker;
+   is the actual wall on agent self-serve, routed to the `SECURITY.md` broker;
    and signature/derived (SigV4, GCP JWT) which can't be a descriptor at
    all.
 3. **`read|write` is too coarse — add a stakes axis.** Reads are
    low-stakes → default-grant. Writes split: **money movement** (refund,
    capture, invoice) and **destructive** (row delete, schema migration,
-   S3 overwrite, DNS change) are **high-stakes** → a `5/19` HITL confirm
+   S3 overwrite, DNS change) are **high-stakes** → a `template/web/pub/arizuko/reference/grants.html` HITL confirm
    plus idempotency and a dry-run affordance, not just a grant check.
 4. **The descriptor must express more than base+method+path.** Recurring
    across all four domains: typed path-params; three pagination
@@ -77,12 +70,12 @@ cursor}` triple mapped to each vendor's DSL rather than exposing raw
 
 ## The template — an integration is one manifest
 
-Extends `5/13`'s `rest` connector. Net-new fields, each earned by a finding
+Extends `EXTENDING.md`'s `rest` connector. Net-new fields, each earned by a finding
 above: `acquisition` (mcp|openapi|rest|go), `stakes` (low → default-grant,
-high → `5/19` confirm + idempotency), `kind` (sync | async submit+poll),
+high → `template/web/pub/arizuko/reference/grants.html` confirm + idempotency), `kind` (sync | async submit+poll),
 `response` (json|binary|xml), `pagination` (none|cursor|offset|jsonapi),
 `idempotent`, plus multi/templated auth headers and an `oauth2` method
-that refs the `5/15` broker instead of naming a secret. Catalog metadata
+that refs the `SECURITY.md` broker instead of naming a secret. Catalog metadata
 (`provider`, description, docs URL) rides along so the operator sees the
 governance before installing.
 
@@ -128,7 +121,7 @@ new machinery.
    template's tool runs with the folder's real grants, secrets, and
    egress; folder containment bounds cross-tenant blast radius, not
    in-tenant authority. Curated catalog first; a third-party repo needs the
-   skill-guard scan at add (`5/23`) plus an explicit confirm. The
+   skill-guard scan at add (`SECURITY.md`) plus an explicit confirm. The
    crackbox fail-closed precondition this used to name is met — the
    egress-fails-open entry closed 2026-08-15, `5/33` grants gate the `*`
    bypass and the e2e suite proves deny. the declined egress-credential proxy never owned either half;
@@ -136,8 +129,8 @@ new machinery.
 
 ## Ties
 
-`5/13` (the dispatch mechanism this catalogs) · `5/14` (credentials) ·
-`5/15` (OAuth broker — the auth wall) · `5/17` (two-face; arizuko's OWN
-resources are the reflexive case) · `5/19` (HITL hold) · `mcpfw` (MCP
+`EXTENDING.md` (the dispatch mechanism this catalogs) · `5/14` (credentials) ·
+`SECURITY.md` (OAuth broker — the auth wall) · `resreg/README.md` (two-face; arizuko's OWN
+resources are the reflexive case) · `template/web/pub/arizuko/reference/grants.html` (HITL hold) · `mcpfw` (MCP
 firewall) · `8/A` (openapi2mcp) ·
 [`5/26`](26-integration-usecases.md) (the corpus).

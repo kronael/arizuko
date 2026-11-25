@@ -1,12 +1,12 @@
 package routd
 
 // route_tokens_resource.go puts the agent's route-token tools on ONE
-// resreg.Resource (spec 5/16). issue binds the token's owner_folder to the
+// resreg.Resource (resreg/README.md). issue binds the token's owner_folder to the
 // caller's socket folder ALWAYS, never a client arg — target_folder is only
 // the JID's routing target, confined by the Gate on the agent face and by the
 // equal-or-descend check on REST. revoke scopes the DELETE to owner_folder =
 // the caller's folder, so a cross-folder JID matches zero rows. issue_pair
-// (spec 5/31-identity-pairing) is the one MCPOnly action: a kind='pair' token whose
+// (SECURITY.md) is the one MCPOnly action: a kind='pair' token whose
 // owner_folder is the folder the JID ROUTES to.
 
 import (
@@ -193,7 +193,7 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 // because resreg's Gate cannot hand a value to the handler; same read, same
 // table. An ingress surface is not an identity: web:/hook: name a public
 // endpoint and anon: an IP hash whose next holder would inherit the account
-// (spec 5/31-identity-pairing § Not in scope).
+// (SECURITY.md § Pairing needs the consent of the account owner).
 func pairingTargetFolder(db *DB, jid string) (string, error) {
 	if jid == "" {
 		return "", resreg.Errorf(http.StatusBadRequest, "jid required")

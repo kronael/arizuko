@@ -1,8 +1,8 @@
 # audit/PLAN.md — comprehensive audit-log coverage
 
 Status: round-1 plan for the `audit_log` entity as source of truth for
-security and state-change events. Driven by [`specs/5/I`](../specs/5/I-tool-call-logging.md)
-and [`specs/5/I`](../specs/5/I-tool-call-logging.md).
+security and state-change events. Driven by [audit/README.md](audit/README.md)
+and [audit/README.md](audit/README.md).
 
 ## Goal
 
@@ -40,15 +40,15 @@ The schema and category taxonomy below are cross-referenced with:
   diverge (one row, JSON params), but the read-write split (auditd's
   `SYSCALL` vs `PATH`) inspires our state-change vs read split.
 
-The schema in [`5/I`](../specs/5/I-tool-call-logging.md) is the canonical
+The schema in [audit/README.md](audit/README.md) is the canonical
 field set; this plan extends it with the columns needed to serve the
 adversary queries in round-3 ("who escalated grants on this folder six
 months ago").
 
 ## Final field schema
 
-Per [`5/I`](../specs/5/I-tool-call-logging.md) plus the bookkeeping
-columns the spec defers to [`5/I`](../specs/5/I-tool-call-logging.md):
+Per [audit/README.md](audit/README.md) plus the bookkeeping
+columns the spec defers to [audit/README.md](audit/README.md):
 
 ```sql
 CREATE TABLE audit_log (
@@ -311,9 +311,9 @@ landed.
 - **denied runed calls** — a folder-scoped token reaching for another
   tenant's run is `authz.deny`, applies to every runed endpoint
   including the reads, and belongs in one uniform gate. Auditing it
-  only on kills would be an arbitrary slice. Open in `specs/5/I`.
+  only on kills would be an arbitrary slice. Open in audit/README.md.
 - **`cost_log` inserts** — already its own append-only audit-shaped
-  table per [`5/34`](../specs/11/19-cost-caps.md); polling it from
+  table per the retired cost-caps spec; polling it from
   `audit_log` would double-write. Audit `mutation` references it via
   budget cap changes (above).
 - **`secret_use_log`** — replaced by `secret.read` rows in
@@ -477,7 +477,7 @@ landed.
 
 ## Read-vs-write split
 
-Per [`5/I`](../specs/5/I-tool-call-logging.md):
+Per [audit/README.md](audit/README.md):
 
 - **State-changing** ops emit `audit_log` row AND slog line, same
   DB transaction as the mutation. Roll back on audit insert failure.
@@ -487,7 +487,7 @@ Per [`5/I`](../specs/5/I-tool-call-logging.md):
 ## Redaction rules
 
 `params_summary` is JSON, ≤512 bytes after redaction. Pinned in
-`audit/log.go`; spec `specs/5/I` § Decisions (read path) states the reasoning.
+`audit/log.go`; audit/README.md (read path) states the reasoning.
 
 - Keys matching
   `(?i)pass(word|phrase)?|token|secret|credential|authorization|cookie|dsn|api_?key|^key$|[_-]key$`
@@ -554,8 +554,8 @@ func Init(db *sql.DB, instance string)
 
 ## References (citations in commit log)
 
-- `specs/5/I-tool-call-logging.md` (canonical field set)
-- `specs/5/17-openapi-mcp.md` (resreg audit contract)
+- audit/README.md (canonical field set)
+- resreg/README.md (resreg audit contract)
 - `specs/11/19-cost-caps.md` (cost_log adjacency)
 - AWS CloudTrail: docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html
 - Kubernetes audit: kubernetes.io/docs/tasks/debug/debug-cluster/audit/

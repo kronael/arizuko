@@ -1,5 +1,5 @@
 // Generated verbatim from refs/hermes-agent-fresh/tools/skills_guard.py
-// (THREAT_PATTERNS, 120 entries) by an AST extraction — spec 5/23 requires the
+// (THREAT_PATTERNS, 120 entries) by an AST extraction — SECURITY.md requires the
 // table be ported, not rewritten: a hand-retyped table is a new table with new
 // gaps. Regenerate with the same extraction if the upstream table moves.
 //

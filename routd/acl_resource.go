@@ -173,7 +173,7 @@ func (s *Server) nonCanonicalWarning(principal string) string {
 }
 
 // NonCanonicalWarning reports whether `principal` is a KNOWN alias of another
-// account and returns the operator-facing warning (BUGS N2): 5/32-acl-unified resolves a
+// account and returns the operator-facing warning (BUGS N2): auth/README.md resolves a
 // linked login to the canonical sub at MINT and grants key on the exact
 // string, so a grant against an alias can NEVER match. It is the ONE renderer
 // for every surface that writes an acl row — dashd writes grants straight to

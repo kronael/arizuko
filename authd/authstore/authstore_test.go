@@ -358,7 +358,7 @@ func TestRotationMovesTheSlotAndRetiresTheOutgoingKey(t *testing.T) {
 
 // A login resolves to the account that linked it, with every sub that account
 // holds — and an identity another account already owns is refused rather than
-// merged (spec 5/1 § Account linking).
+// merged (authd/README.md linking).
 func TestIdentityResolvesAndCannotBeStolen(t *testing.T) {
 	st := newStore(t)
 	if err := st.LinkOAuthIdentity("google:alice", "Alice", "google", "alice"); err != nil {

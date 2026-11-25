@@ -40,7 +40,7 @@ const (
 func init() { objstore.OrderedAttr(ChatReplyState, AttrReplyEngagedUntil, tsWidth) }
 
 // Engagement is one live conversation window: which folder holds (jid, topic),
-// and until when. Spec 5/G-engagement.
+// and until when. ROUTING.md.
 type Engagement struct {
 	JID    string
 	Topic  string

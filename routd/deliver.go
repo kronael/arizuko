@@ -48,7 +48,7 @@ func NewChannelDeliverer(reg *chanreg.Registry, disabled []string, lookupSource 
 	return newChanDeliverer(reg, disabled, lookupSource)
 }
 
-// resolve picks the channel for jid in the order spec 5/34-channel-protocol fixes: an explicit
+// resolve picks the channel for jid in the order ROUTING.md fixes: an explicit
 // pin (only POST /v1/outbound carries one) → the latest inbound source for the
 // jid → the registry's prefix owner. nil when no adapter owns the jid.
 func (d *chanDeliverer) resolveEntry(channel, jid string) *chanreg.Entry {

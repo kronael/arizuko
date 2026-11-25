@@ -69,7 +69,7 @@ var commonKeys = []string{
 	// The turn ceiling: runed's kill, routd's dispatch deadline and every
 	// adapter's typing backstop (chanlib) read it through core.RunTimeout.
 	"RUNED_RUN_TIMEOUT",
-	// OTLP export (spec 5/O-observability). Unset -> stock JSON handler, zero overhead.
+	// OTLP export (obs/README.md). Unset -> stock JSON handler, zero overhead.
 	"ARIZUKO_INSTANCE",
 	// METRICS_ENABLED gates the `/metrics` endpoint EIGHT daemons mount
 	// (obs.MetricsEnabled). It belongs here because compose is the only thing that
@@ -118,7 +118,7 @@ var daemonKeys = map[string][]string{
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"ENGAGEMENT_TTL",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		// get_web_presence reads the same vhost env proxyd does (spec 5/V-web-vhosts).
+		// get_web_presence reads the same vhost env proxyd does (proxyd/README.md).
 		"HOSTING_DOMAIN", "WEB_VHOST_ALIASES",
 		// routd OWNS secrets, so it needs the key to decrypt them.
 		"SECRETS_KEY",
@@ -137,7 +137,7 @@ var daemonKeys = map[string][]string{
 		"WHISPER_BASE_URL", "WHISPER_MODEL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
-		// Surrogate OAuth (spec 5/15): routd's broker refreshes near-expiry tokens.
+		// Surrogate OAuth (SECURITY.md): routd's broker refreshes near-expiry tokens.
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
 	},
 	// runed: execution plane, the ONLY daemon wired to /dev/kvm.
@@ -184,7 +184,7 @@ var daemonKeys = map[string][]string{
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"ONBOARDING_GREETING",
 		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
-		// service:onbod token for routd /v1/outbound (spec 5/1).
+		// service:onbod token for routd /v1/outbound (authd/README.md).
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 	},
 	// dashd verifies proxyd's transit bearer against authd's JWKS and presents
@@ -205,7 +205,7 @@ var daemonKeys = map[string][]string{
 	"webd":   {"ROUTER_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"proxyd": {"AUTH_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
 	// Channel adapters exchange a service:<adapter> JWT presented on EVERY
-	// routd call (spec 5/1).
+	// routd call (authd/README.md).
 	"teled": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
 	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_TOKEN"},
 	"slakd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
@@ -243,7 +243,7 @@ var adapterDaemons = map[string]bool{
 }
 
 // variantOf splits a multi-account variant `<adapter>-<label>` (spec
-// 5/R-multi-account) into its base adapter and label. Only a name in
+// compose/README.md) into its base adapter and label. Only a name in
 // adapterDaemons is a variant.
 func variantOf(name string) (base, label string, ok bool) {
 	base, label, ok = strings.Cut(name, "-")
@@ -267,7 +267,7 @@ func variantKey(key, label string) string {
 }
 
 // envFileName returns the env file a service reads. A multi-account variant
-// `<adapter>-<label>` reads its OWN file (spec 5/R-multi-account): two services on
+// `<adapter>-<label>` reads its OWN file (compose/README.md): two services on
 // the base adapter's file would poll one account twice.
 //
 // A name with no key list gets NO file, not the shared `.env`. The fallback used to
@@ -482,12 +482,12 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dash/webd/", Backend: "http://webd:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
-	// The route-token surface (spec 5/W). `optional`: proxyd identifies a
+	// The route-token surface (ROUTING.md). `optional`: proxyd identifies a
 	// caller who offers a bearer and forwards everyone else anonymously — the
 	// token is the credential.
 	{Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 	{Path: "/hook/", Backend: "http://webd:8080", Auth: "optional"},
-	// Identity pairing (spec 5/31-identity-pairing). `user` so an anonymous visitor is bounced
+	// Identity pairing (SECURITY.md). `user` so an anonymous visitor is bounced
 	// through OAuth with the pairing URL as the return path.
 	{Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
 	// The user portal. `user`: every handler is behind webd's requireUser. Bare
@@ -749,9 +749,9 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 		return "", nil, fmt.Errorf("invalid instance name %q (pass -i <name>)", instance)
 	}
 	const app = "arizuko"
-	// ARIZUKO_INSTANCE is the OTLP service.instance.id (spec 5/O-observability).
+	// ARIZUKO_INSTANCE is the OTLP service.instance.id (obs/README.md).
 	env["ARIZUKO_INSTANCE"] = instance
-	// Service-key provisioning (spec 5/E-routd + 5/P-runed): each daemon authenticates to
+	// Service-key provisioning (ARCHITECTURE.md + 5/P-runed): each daemon authenticates to
 	// authd with its own AUTHD_SERVICE_KEY, which authd recognises via
 	// AUTHD_SERVICE_KEYS (hashed at compare time). Keys persist in the
 	// per-daemon env files so a redeploy keeps the same identity.
@@ -782,7 +782,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
 	}
-	// routd federates /invite + /gate to onbod (spec 5/16-mcp-rest-unification); harmless when onbod
+	// routd federates /invite + /gate to onbod (compose/README.md); harmless when onbod
 	// does not run (nil client).
 	if _, ok := env["ONBOD_URL"]; !ok {
 		env["ONBOD_URL"] = "http://onbod:8080"
@@ -795,7 +795,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	}
 
 	// Each message-posting adapter in services/ gets a service:<adapter> key
-	// (spec 5/1); multi-account variants share the base adapter's key.
+	// (authd/README.md); multi-account variants share the base adapter's key.
 	for _, name := range services {
 		base, _, _ := strings.Cut(name, "-")
 		if adapterDaemons[base] {
@@ -863,7 +863,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 		}
 	}
 	b.WriteString("services:\n")
-	// authd + routd + runed are the only topology (spec 5/E-routd + 5/P-runed), so they
+	// authd + routd + runed are the only topology (ARCHITECTURE.md + 5/P-runed), so they
 	// carry no profile.
 	b.WriteString(authdService(app, instance))
 	b.WriteString(routdService(app, instance, dataDir, env))
@@ -1017,7 +1017,7 @@ func seedSharedDefaults(env map[string]string) {
 
 // dataMounts returns the bind-mount specs rooting a daemon at
 // containerDataMount. With no subdirs it gets the whole instance tree; naming
-// subdirs mounts only those children (spec 5/16, BUGS A1). Sources must
+// subdirs mounts only those children (compose/README.md, BUGS A1). Sources must
 // pre-exist: docker creates a missing bind source as root.
 func dataMounts(dataDir string, subdirs []string) []string {
 	if len(subdirs) == 0 {
@@ -1091,7 +1091,7 @@ func authdService(app, flavor string) string {
 	b.WriteString(envFileFor("authd"))
 	b.WriteString("    environment:\n")
 	// authd snapshots login/refresh scopes from routd's ACL owner; unset ->
-	// empty-scope sessions (spec 5/1-auth-standalone).
+	// empty-scope sessions (authd/README.md).
 	fmt.Fprintf(&b, "      GRANTS_URL: '%s'\n", routdURL)
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")

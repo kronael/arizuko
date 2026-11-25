@@ -90,7 +90,7 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 		t.Errorf("want used_count=1 in onbod.db, got %d", used)
 	}
 
-	// Redemption grants authority and writes NO route (5/18 step 7). It used to
+	// Redemption grants authority and writes NO route (onbod/README.md). It used to
 	// route every paired JID at the target; /onboard's step-6 branch routes the
 	// one unrouted JID instead, as an attributed act.
 	if routes := countRoutes(t, xdb); routes != 0 {
@@ -125,7 +125,7 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	if scope := firstScope(t, xdb, "github:new"); scope != "newworld/**" {
 		t.Errorf("acl grant should be subtree-scoped in routd.db, got %q", scope)
 	}
-	// create_world writes NO route (5/18 step 7) — the caller asked for a world,
+	// create_world writes NO route (onbod/README.md) — the caller asked for a world,
 	// not for their chats to move. The redirect lands on /onboard, which routes
 	// the one unrouted JID.
 	if routes := countRoutes(t, xdb); routes != 0 {

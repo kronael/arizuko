@@ -85,7 +85,7 @@ describe('/send dedup', () => {
 
   // A lost response leaves the claim inflight. The retry answers 409, not 502:
   // routd dead-letters an unresolved delivery for an operator instead of
-  // burning its retry budget on the same refusal (spec 5/34).
+  // burning its retry budget on the same refusal (whapd/README.md).
   it('answers 409 for a redelivery that never settled', async () => {
     sends = [];
     const body = {

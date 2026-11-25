@@ -1,7 +1,7 @@
 package ipc
 
 // MCP connector: call a third-party MCP server over streamable HTTP and proxy
-// its tools through the broker. Per spec 5/13 § "Shape 2 — MCP HTTP connector".
+// its tools through the broker. Per EXTENDING.md.
 //
 // Discovery is PER FOLDER, not per boot, because the credential is per folder:
 // routd's boot has no folder and therefore no token, and a remote MCP server
@@ -135,7 +135,7 @@ func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec, secrets ma
 
 // CallConnectorTool opens a session with the secrets rendered into headers,
 // proxies tools/call, and scrubs known secret values from the result. Per spec
-// 5/13 § "Why the agent can't leak the credential" the value scrub is exact
+// EXTENDING.md the value scrub is exact
 // string match against the (finite) per-call secret set.
 func CallConnectorTool(
 	ctx context.Context, tool ConnectorTool, args any, secrets map[string]string,

@@ -9,8 +9,8 @@ No spec is open in this phase. The group `send` rule is in `ipc/README.md`
 
 Merged or moved out of this phase:
 
-| Was                         | Now                                                                                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `8-web-virtual-hosts.md`    | [`../5/V-web-vhosts.md`](../5/V-web-vhosts.md) — `web_host` column, `set_web_host` IPC and CLI all retired; per-world hosts are derived   |
-| `V-platform-permissions.md` | [`../5/32-acl-unified.md`](../5/32-acl-unified.md) — the proposed `platform_grants` table was never built; permissions are routes-derived |
-| `J-container-commands.md`   | Deleted — never shipped. `container.Input` has no `Command` field and `scheduled_tasks` has no `command` column                           |
+| Was                         | Now                                                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `8-web-virtual-hosts.md`    | `proxyd/README.md` — `web_host` column, `set_web_host` IPC and CLI all retired; per-world hosts are derived     |
+| `V-platform-permissions.md` | `auth/README.md` — the proposed `platform_grants` table was never built; permissions are routes-derived         |
+| `J-container-commands.md`   | Deleted — never shipped. `container.Input` has no `Command` field and `scheduled_tasks` has no `command` column |

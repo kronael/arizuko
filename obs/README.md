@@ -64,7 +64,7 @@ Standard OTel SDK vars are honoured when endpoints are set:
 `service.name=<daemon>`, `service.namespace=arizuko`,
 `service.instance.id=<instance>`.
 
-Export is best-effort: batch processors drop on overflow and swallow errors.
+Export is best-effort: batch processors drop on overflow and swallow errors. The exporters use OTLP over HTTP with protobuf, and no gRPC exporter is imported. An operator who cannot lose records runs a collector with a disk buffer next to the daemon.
 `audit_log` stays the canonical record in the owner databases; OTLP is
 observability only.
 

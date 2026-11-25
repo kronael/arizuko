@@ -69,7 +69,7 @@ Two of the six carry an invariant a column could not:
 
 - Binary: `authd/main.go`
 - Listen: `:8080` (`LISTEN_ADDR` default). Surface:
-  - `GET /v1/keys` — public JWKS (`auth.PublicJWKS`)
+  - `GET /v1/keys` — public JWKS (`auth.PublicJWKS`), with `Cache-Control: public, max-age=3600`
   - `POST /v1/tokens` — mint / downscope
   - `POST /v1/service-token` — daemon service-key exchange
   - `POST /v1/refresh` — rotate refresh token
@@ -180,6 +180,18 @@ Two of the six carry an invariant a column could not:
   a downscope: same sub, scope a subset of the caller's, folder inside the
   caller's subtree, TTL clamped to the parent's remaining life
   (`403 scope_exceeds_parent`). Global `*:*` is refused in both.
+- **Issuer-mint always makes a `user` token.** authd ignores the `typ` of the
+  request body. With no grants backend, issuer-mint answers 503
+  `grants_unavailable`. A target with no grants answers 403
+  `scope_exceeds_minter`.
+- **`POST /v1/refresh` answers on the channel of the request.** A refresh
+  token in the `refresh_token` cookie returns the successor in `Set-Cookie`
+  and keeps it out of the body. A refresh token in the JSON body returns the
+  successor in the body and sets no cookie. When both exist, the cookie wins.
+- **The return path survives the login.** proxyd writes the `auth_return`
+  cookie when it sends an unauthenticated caller to `/auth/login`. authd reads
+  `?return=` first and the cookie second, accepts only a local path through
+  `auth.SafeReturn`, and clears the cookie on every read.
 - **Account linking.** `(provider, provider_sub)` belongs to one account.
   Linking an identity another account owns is a hard fail; accounts are
   never merged, and there is no auto-link by verified email, because each of

@@ -2,7 +2,7 @@ package routd
 
 // secrets_resource.go — the operator secret write surface on one
 // resreg.Resource. NO agent MCP tool and NO read face: a sealed value must
-// never appear in any read surface (spec 5/8). FORWARDER (Store nil), unlike
+// never appear in any read surface (resreg/README.md). FORWARDER (Store nil), unlike
 // every other cold-tier fold: resreg.invoke copies ALL call args into
 // audit_log, and the redaction regex matches `key`/`token`/`secret` but NOT a
 // bare `value`, so resreg's own audit would write the plaintext. The handler

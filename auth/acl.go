@@ -40,7 +40,7 @@ func MatchGroups(allowed []string, folder string) bool {
 // `atlas/search`'s slot and every file below it. Any path prefix a scope
 // covers therefore admits the whole path under it.
 //
-// This is 5/V-web-vhosts filesystem containment, not grant inheritance: it applies only
+// This is runed/README.md filesystem containment, not grant inheritance: it applies only
 // where one folder's mount already holds another's bytes. Folder decisions use
 // MatchGroups, which crosses no segment the glob did not ask for.
 func MatchSlot(allowed []string, slotPath string) bool {

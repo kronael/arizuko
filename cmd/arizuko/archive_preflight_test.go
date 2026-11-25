@@ -1,6 +1,6 @@
 package main
 
-// `apply`'s config phase (spec 5/8 §"Consistency levels", the
+// `apply`'s config phase (cmd/arizuko/README.md, the
 // pre-flight bullet: "before any subsystem's transaction opens, apply checks
 // referential integrity across the archive's documents ... and refuses the
 // whole restore rather than importing a half-wired instance").

@@ -1,7 +1,7 @@
 package routd
 
 // network_rules_resource.go folds the agent's egress-allowlist tools onto ONE
-// resreg.Resource (spec 5/16); there is no REST face. Both writers normalize
+// resreg.Resource (resreg/README.md); there is no REST face. Both writers normalize
 // a target through the same grammar, so a rule added as *.example.com is
 // removable as example.com. allow/deny take an optional `folder` TARGET arg,
 // so a caller may open or close egress for any folder its grant scope covers;

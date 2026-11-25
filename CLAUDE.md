@@ -74,8 +74,8 @@ them on each request.
   via both MCP (for agents) and REST (for humans / external tools)
   through one hand-written handler — no auto-generated DSL, no
   catalog-driven mapper. MCP is the canonical protocol; REST is the
-  boundary impedance match for non-MCP callers. Spec:
-  `specs/5/17-openapi-mcp.md`.
+  boundary impedance match for non-MCP callers. Mechanism:
+  `resreg/README.md` § "One handler, two faces".
 - **A resource's name IS its wire identity, globally unique**: the
   resreg `Name` becomes the `/v1/<name>` REST path AND the MCP tool
   prefix. Two daemons must NEVER register the same resource name —
@@ -88,10 +88,10 @@ them on each request.
 - **Every cold-tier management entity is a resreg resource — no
   exceptions**: a new operator/agent-managed table ALWAYS registers a
   resreg `Resource` (REST handler + `x-mcp-*` annotations → MCP derived,
-  per `5/17`). NEVER hand-roll a bespoke `ipc/ipc.go` management tool +
+  per `resreg/README.md`). NEVER hand-roll a bespoke `ipc/ipc.go` management tool +
   `dashd` direct-DB CRUD for it — that drifts the agent and operator
-  surfaces apart (the ~45 hand-rolled ipc.go tools are the debt `5/16`
-  reverses). A management resource without a resreg registration is a
+  surfaces apart (the hand-rolled ipc.go management tools are the debt).
+  A management resource without a resreg registration is a
   review-blocker. Only hot-tier agent actions (`reply`/`send`/`inspect_*`,
   no REST twin) are MCP-only, hand-authored.
 - **Auth is a uniform middleware, bound to handler + params**: authn
@@ -108,7 +108,7 @@ them on each request.
   Never a second hand-rolled check inside the handler. A handler that
   resolves a `jid`/`folder`/`run_id` param MUST bind it to the caller's
   folder. Drift = cross-folder access (cost a krons split review
-  2026-06-07). Spec: `specs/5/17-openapi-mcp.md`.
+  2026-06-07). Mechanism: `resreg/README.md` § "Authorization".
 
 (Spec-first change discipline lives in the `specs` skill.)
 
@@ -147,12 +147,12 @@ Every suite, its needs and the timeout facts: [tests/README.md](tests/README.md)
   (`proxyd` is the sole `X-User-*` stamper; backends trust the headers only
   behind its `service:proxyd` bearer).
 - **ROUTING.md** — route table, topic/sticky/reply rules. `/chat/<token>/`
-  and `/hook/<token>` surfaces; spec `specs/5/W-webhook-routes.md`.
+  and `/hook/<token>` surfaces.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills, tasks,
   diary, autocalls, host mounts, swapping the harness. Keep
   it current as extension points evolve.
-- **GRANTS.md** — pointer to `specs/5/33-paths-roles.md` (the model) +
-  `specs/5/32-acl-unified.md` (the row + evaluator) + the operator concepts page.
+- **GRANTS.md** — pointer to `auth/README.md` (the model, the row, the
+  evaluator) + the operator concepts page.
 - **CHANGELOG.md** — what shipped, dated.
 - **MIGRATION.md** — migrating from kanipi.
 - **`cmd/arizuko/README.md`** — every `arizuko` subcommand (`create`, `run`,
@@ -271,7 +271,7 @@ round that finds nothing commits nothing.
   `template/services/<kind>-<label>.yml` with a distinct `CHANNEL_NAME`, never
   an edit to the base fragment. The variant reads `env/<kind>-<label>.env`, and
   `<KEY>_<LABEL>` in `.env` overrides `<KEY>` there, so each account holds its
-  own credential (`specs/5/R-multi-account.md`).
+  own credential (`compose/README.md` § "Several accounts on one platform").
 - **Daemon HTTP port: `:8080` inside the container, always.** Every
   daemon's `LISTEN_ADDR` code-default is `:8080` and every fragment in
   `template/services/` declares it explicitly, so neither drifts. Backend

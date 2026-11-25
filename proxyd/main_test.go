@@ -340,7 +340,7 @@ func TestProxydPubWebRouteNoMatchProxies(t *testing.T) {
 }
 
 // /priv/* requires a JWT — anonymous callers bounce to /auth/login.
-// Spec 5/V-web-vhosts: web/priv/ is a JWT-gated parallel tree to web/pub/.
+// proxyd/README.md: web/priv/ is a JWT-gated parallel tree to web/pub/.
 func TestProxydPrivPathRequiresAuth(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
@@ -854,7 +854,7 @@ func TestProxydHandlerAuthProxiesToAuthd(t *testing.T) {
 
 // --- slink rate limiter ------------------------------------------------------
 
-// --- derived host → world redirect (spec 5/V-web-vhosts) --------------------------------
+// --- derived host → world redirect (proxyd/README.md) --------------------------------
 
 // vhostServer builds a route server with a fixed HOSTING_DOMAIN + optional
 // aliases. No upstream is needed — the world redirect is a 302, not a proxy.
@@ -1536,7 +1536,7 @@ func TestDavDestHeaderRoundTrip(t *testing.T) {
 
 // installRoute is a tiny helper for tests that wires one TOML route into
 // the server's route table. Test-only: uses the manual fallback path
-// (st nil); production reads from the DB per request (spec 5/8).
+// (st nil); production reads from the DB per request (resreg/README.md).
 func installRoute(s *server, r store.ProxydRoute) {
 	if s.rr == nil {
 		s.rr = newRoutesResource(nil, nil)

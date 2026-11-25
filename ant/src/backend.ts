@@ -19,7 +19,7 @@ export interface Turn {
   prompt: string; // the envelope, untouched — it IS the contract
   cwd: string; // the group home
   // turnID is arizuko's turn id, chassis-derived per inner-loop turn
-  // (messageId:N); the 5/24 TodoWrite hook keys the live checklist by it.
+  // (messageId:N); the routd/README.md TodoWrite hook keys the live checklist by it.
   turnID: string;
   model?: string; // backend-native id, verbatim
   // effort is the reasoning depth the harness asks for: low|medium|high|xhigh|max.

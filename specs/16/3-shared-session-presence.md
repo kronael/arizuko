@@ -1,6 +1,5 @@
 ---
 status: draft
-depends: []
 ---
 
 # Shared-session presence
@@ -36,7 +35,7 @@ liveness, not state; nothing to reconcile, nothing to put in git).
   default 45s; a subscriber that misses its heartbeat is dropped from
   the set). Payload: count + labels.
 - New SSE frame kind `working`: routd already knows a turn is in flight
-  for a (folder, topic) (its per-folder queue serializes turns, `5/E`).
+  for a (folder, topic) (its per-folder queue serializes turns, `routd/README.md`).
   When routd starts/ends a turn it publishes a `working{active:bool}`
   hub event on the chat's key — reusing the same publish path as message
   frames, so it rides `16/1`'s durable stream for late joiners

@@ -78,6 +78,7 @@ params    = host=*.prod.example.com</code></pre>
 
     <ul>
       <li><strong>The call waits.</strong> The gate suspends the tool call and polls for a verdict for up to <a href="env.html#HITL_WAIT"><code>HITL_WAIT</code></a>, 10 minutes by default; it must stay under <code>RUNED_RUN_TIMEOUT</code>, or the guest is killed first. Approval runs the same call, with the arguments the notice showed, in the same turn. A reject or a timeout answers the agent with a tool result, <code>NOT RUN (id &hellip;)</code>, telling it not to retry.</li>
+      <li><strong>Two reviewers cannot both win.</strong> A verdict is written only while the row is still <code>held</code>. The second reviewer gets a refusal, so the agent is never told twice to run one call. A verdict that arrives after the expiry is refused too.</li>
       <li><strong>The hold runs before the authorization check, and never replaces it.</strong> An approved call still meets <code>Authorize</code>. An elevated <code>/root</code> turn has no hold gate.</li>
       <li><strong>A hold that cannot be recorded still holds.</strong> If the <code>pending_actions</code> row cannot be written, the call is blocked and the agent gets an error, because there is no id anybody could approve.</li>
       <li><strong><code>/always</code> is <code>/approve</code> plus one skip-approval row.</strong> The row is <code>effect = deny</code> on the <code>hold:</code> action &mdash; deny on a hold means &ldquo;do not hold&rdquo; &mdash; and it is written in the same batch as the verdict. There is no third verdict on <code>pending_actions</code>. To revoke, remove that row with <code>remove_acl</code> or <code>arizuko group &hellip; ungrant</code>.</li>
@@ -259,7 +260,7 @@ grant_option: 0</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

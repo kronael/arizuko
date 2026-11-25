@@ -35,7 +35,7 @@ func AuditHandler(obj objstore.Store) resreg.Handler {
 // a caller forge or erase the record of an act. ONE registration serves FOUR
 // daemons without violating "two daemons must NEVER register the same
 // resource name": that rule forbids two DIFFERENT tables sharing a wire name,
-// and here one table shape is deliberately replicated per owner (specs/5/I-tool-call-logging),
+// and here one table shape is deliberately replicated per owner (audit/README.md),
 // so `/v1/audit` means "THIS daemon's audit log". There is no GET
 // /v1/audit/{id}: an id is unique inside one daemon's log only.
 var AuditEndpoints = []resreg.Endpoint{
@@ -48,7 +48,7 @@ var AuditResponses = map[resreg.Action]reflect.Type{
 	resreg.ActionList: reflect.TypeFor[[]audit.Row](),
 }
 
-// AuditMCPNames maps the action to the flat agent tool name (specs/5/I-tool-call-logging).
+// AuditMCPNames maps the action to the flat agent tool name (audit/README.md).
 var AuditMCPNames = map[resreg.Action]string{
 	resreg.ActionList: "query_audit",
 }
@@ -84,7 +84,7 @@ var AuditMCPDoc = map[resreg.Action]string{
 		"its own subtree, and omitting `folder` asks for the whole instance, which " +
 		"needs an instance-wide grant. Read-only — the log is append-only and each " +
 		"row is written inside the transaction of the act it records, so there is " +
-		"nothing to create, edit or delete. Spec 5/I.",
+		"nothing to create, edit or delete.",
 }
 
 func init() {

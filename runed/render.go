@@ -71,7 +71,7 @@ func renderTurn(
 	// names it — routd resolves that per key and adds nothing without a row.
 	// Every other secret is broker-resolved per tool call inside
 	// ipc.CallConnectorTool, so it lives in the connector subprocess's env on the
-	// host (spec 5/13 §Trust model).
+	// host (SECURITY.md model).
 	p.Secrets = spawnSecrets(cfg, req.Secrets)
 	p.AsstName = cfg.Name
 	stdin, _ := json.Marshal(p)

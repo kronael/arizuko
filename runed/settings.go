@@ -53,7 +53,7 @@ func seedSettings(
 	// WEB_PREFIX tells the agent its publishing surface: "pub" for an elevated /root
 	// turn (served at /pub/<folder>/), the world subdomain when the folder holds
 	// web:publish (its world's vhost — a top-level world IS its own world), "" with no
-	// web grant (no mount, no surface). Spec: specs/5/V-web-vhosts.md.
+	// web grant (no mount, no surface). Spec: runed/README.md.
 	switch {
 	case elevated:
 		env["ARIZUKO_IS_ROOT"] = "1"

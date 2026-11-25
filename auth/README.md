@@ -55,7 +55,8 @@ faces supply different callers and target bounds.
   its world, path and grants, never a rank.
 - **No cache.** Each ordinary non-elevated tool gate reads the current policy.
   A revoke therefore takes effect on the next checked call inside a live turn.
-  The turn socket supplies the credential without a token.
+  The turn socket supplies the credential without a token, because a token
+  with baked scope would keep a revoked grant until the token expired.
 - **Membership is one graph.** `acl_membership` carries roles, role
   hierarchy and the pairing edges that let a channel JID act as an account.
   The caller expands to its sender JID and room JID, transitively. A write
@@ -64,7 +65,9 @@ faces supply different callers and target bounds.
 - **The agent socket has two axes** (`AuthorizeTurn`). The route,
   `folder:<turn folder>`, confers in full. The sender adds an allow only
   inside the turn folder's subtree, on the exact action or its namespace
-  `*`, with no lattice; a glob target is inside no subtree. A deny counts on
+  `*`, with no lattice; a glob target is inside no subtree. Inside the
+  subtree means the same folder, or a path that starts with the folder and
+  `/`, compared exactly and case-sensitively, never with SQL `LIKE`. A deny counts on
   both axes within the selected layer. So outside the turn's subtree the verdict does not depend on
   who spoke, and a shared chat is not a place to borrow authority.
   `EffectiveActions` applies the same rule to `tools/list`.
@@ -77,6 +80,12 @@ faces supply different callers and target bounds.
 - **Hold and shell actions use isolated namespaces.** `CheckHold` and
   `ShellEnvKeys` call `Policy.Allows`. `actionCovers` accepts the exact action
   or its namespace wildcard. Other action grants do not cover these namespaces.
+- **A hold is never an effect on an `mcp:<tool>` row.** `Authorize` reads
+  every effect except `deny` as allow, so a hold written as an effect would
+  grant the tool it meant to gate. A hold uses the action `hold:mcp:<tool>`:
+  there `allow` means "hold the call" and `deny` means "do not hold it".
+  A hold has no form that returns at once, because such a call would let an
+  agent report an action it had not taken.
 - **Visibility is not the gate.** `EffectiveActions` lists a tool when the
   caller holds its action at any scope; a lattice row (`*`, `admin`,
   `mcp:*`) lists every `mcp:` tool. A deny row is scope-specific, so it hides
@@ -130,7 +139,11 @@ Shared auth primitives used across daemons. Four concerns:
    coordinate. The path carries ZERO authorization — only its own name and the
    root predicate.
 4. **The OAuth exchange half.** Pure exchange/userinfo wrappers plus state,
-   PKCE and cookie helpers; authd owns every route.
+   PKCE and cookie helpers; authd owns every route. Login and surrogate OAuth
+   are two engines on purpose: the login exchange is per-provider code in
+   `oauth.go`, and `surrogate/` reads provider files. They share only
+   `PostForm`, the PKCE helpers and the signed state, so a change to the
+   surrogate engine cannot break the login path.
 
 ## The platform token
 
@@ -154,6 +167,14 @@ is the unix socket routd bound for the turn (`ipc/README.md`). `TokenClaims`
   "parent_jti": "<parent token jti, downscoped only>"
 }
 ```
+
+A verifier accepts a token only when every rule holds. The JWS algorithm is
+ES256. The `kid` names a key in the cached JWKS. The `iss` claim is `authd`.
+The claims `iat`, `nbf` and `exp` are present, and `nbf` and `exp` hold within
+a 30 second skew. The `typ` claim is `user`, `service` or `downscoped`, and a
+`downscoped` token carries `parent_jti`. A missing or unknown `typ` is a
+refusal. The key set that authd builds for itself also refuses a token whose
+`iat` is later than the `retired_at` of its key.
 
 `Extra` (`map[string]string`) round-trips as top-level claims, not a
 nested object — e.g. `arz/folder` is read back as `Subject.Extra["arz/folder"]`.

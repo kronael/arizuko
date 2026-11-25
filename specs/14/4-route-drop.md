@@ -32,7 +32,7 @@ in `ResolveRoute` and no migration — about two lines. Rejected:
   more files, than one column costs in one place.
 - Routes already mirror ACL structurally (seq, match, target). Mirroring
   `acl.effect` keeps the two route-like tables shaped alike — a shipped
-  pattern ([5/32-acl-unified](../5/32-acl-unified.md)), not a new idea.
+  pattern (`auth/README.md`), not a new idea.
 - `target` stays a pure folder reference, so a drop row still documents
   which folder _would have_ matched — which is what makes toggling
   drop → allow a one-field edit.

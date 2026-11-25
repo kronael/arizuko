@@ -90,7 +90,7 @@ func (s *server) handler() http.Handler {
 	// public surface only.
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("webd", mux))
 
-	// Route tokens (spec 5/W). Two URL prefixes share one set of handlers; kind
+	// Route tokens (webd/README.md). Two URL prefixes share one set of handlers; kind
 	// metadata is for the agent, not a URL gate. Both prefixes get permissive CORS
 	// — the route token IS the public credential — and CORS wraps the anon DoS
 	// shield so a 429 still carries the headers the widget needs to read it.
@@ -150,7 +150,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /me/chats/{folder...}", s.requireUser(s.handleMeThreadOrList))
 	mux.HandleFunc("GET /me/folders/{folder...}", s.requireUser(s.handleMeFolderOrFiles))
 
-	// Identity pairing (spec 5/31-identity-pairing). GET is side-effect-free; the POST writes the
+	// Identity pairing (SECURITY.md). GET is side-effect-free; the POST writes the
 	// membership edge. Both require a signed-in human — proxyd's `user` gate
 	// bounces an anonymous visitor through OAuth and back here.
 	mux.HandleFunc("GET /pair/{token}", s.requireUser(s.handlePairGet))
@@ -279,7 +279,7 @@ func folderParam(r *http.Request) string {
 }
 
 // handleSlinkRedirect 301s legacy /slink/<token>/... → /chat/<token>/...
-// One-pass back-compat for already-pasted slink URLs (spec 5/W cutover).
+// One-pass back-compat for already-pasted slink URLs (webd/README.md cutover).
 func (s *server) handleSlinkRedirect(w http.ResponseWriter, r *http.Request) {
 	tail := strings.TrimPrefix(r.URL.Path, "/slink/")
 	target := "/chat/" + tail

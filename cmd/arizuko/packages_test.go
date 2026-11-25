@@ -109,7 +109,7 @@ func TestDirtyAssets(t *testing.T) {
 // TestPackagesInstallGit is P1b (see compose/README.md): install from a git source resolves
 // an immutable revision (not "local") and records it, cloning via file:// URL.
 
-// TestPackagesInstallRoutesHotApply is P2 (fixes 5/27-compose-native-packaging C2): install
+// TestPackagesInstallRoutesHotApply is P2 (EXTENDING.md § Installing packages): install
 // writes a package manifest's route straight into the live proxyd_routes table
 // and records its PK; remove deletes it. proxyd reads that table per request, so
 // the route is live without a restart.

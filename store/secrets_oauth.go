@@ -1,7 +1,7 @@
 package store
 
 // secrets_oauth.go is the surrogate-OAuth half of the `secrets` entity (spec
-// 5/15): `provider`, `refresh_val`, `expires_at` and `scope_list`. value and
+// store/README.md): `provider`, `refresh_val`, `expires_at` and `scope_list`. value and
 // refresh_val seal through the SAME storeValue/open keyring as a pasted PAT.
 // It writes through secrets.go's helpers and declares no coordinate of its
 // own, or the two halves of one credential would live at two coordinates.

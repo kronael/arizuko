@@ -1,6 +1,6 @@
 package resreg
 
-// OpenAPI emission (spec 5/8 §"OpenAPI emission"): one walk over the registry
+// OpenAPI emission (resreg/README.md): one walk over the registry
 // yields an OpenAPI 3.1 document, served from every daemon's `/openapi.json`.
 // No huma, no swag, no codegen. Schemas cannot drift: handler and doc read the
 // same struct, and a response body, which reflection cannot see, is DECLARED
@@ -59,7 +59,7 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 		"openapi": "3.1.0",
 		"info": map[string]any{
 			"title":       fmt.Sprintf("arizuko %s API", daemon),
-			"description": fmt.Sprintf("Engine-generated OpenAPI for the %s daemon. Spec: arizuko/specs/5/8-yaml-manifests.md.", daemon),
+			"description": fmt.Sprintf("Engine-generated OpenAPI for the %s daemon.", daemon),
 			"version":     "v1",
 		},
 		"servers": []any{
@@ -496,7 +496,7 @@ func schemaName(resource string) string {
 // which makes advertised-vs-mounted drift unrepresentable (BUGS F33). The
 // document is built on FIRST REQUEST, so this may be mounted on the same mux
 // it documents, and is then cached for the process lifetime. Public: mount
-// BEFORE any auth middleware (spec 5/8 §"OpenAPI emission").
+// BEFORE any auth middleware (resreg/README.md).
 func OpenAPIHandler(daemon string, mux *http.ServeMux) http.HandlerFunc {
 	var (
 		mu     sync.Mutex

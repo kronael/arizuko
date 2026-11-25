@@ -63,8 +63,8 @@ func TestOAuthDispatchMintsES256AndCreatesUser(t *testing.T) {
 }
 
 // Regression (oracle finding 3): the access-token subject must be identical
-// across login and refresh. The refresh row stores the BARE sub (spec 5/1 "sub
-// prefix rule"); Refresh re-adds the user: prefix at mint, so the access claim
+// across login and refresh. The refresh row stores the BARE sub (auth/README.md
+// § Files, sub.go); Refresh re-adds the user: prefix at mint, so the access claim
 // keeps the prefix consistently rather than dropping it or double-prefixing.
 func TestOAuthRefreshSubMatchesLogin(t *testing.T) {
 	db := testDB(t)
@@ -188,7 +188,7 @@ func TestOAuthSessionSnapshotsGrants(t *testing.T) {
 }
 
 // A grants backend that is DOWN (not "no grants") fails the login closed: no
-// token is minted with a masked empty scope (spec 5/1 § Login-time scope
+// token is minted with a masked empty scope (authd/README.md scope
 // snapshot, "fail closed" on 5xx).
 func TestOAuthSessionGrantsDownFailsClosed(t *testing.T) {
 	db := testDB(t)
@@ -487,7 +487,7 @@ func jsonField(t *testing.T, body []byte, key string) string {
 // The post-login return path rides the SIGNED state, sourced from the
 // auth_return cookie proxyd drops when it bounces an unauthenticated caller
 // here. Without this the cookie was written and never read, so a bounced caller
-// landed on / — spec 5/31-identity-pairing needs the pairing URL to survive the round-trip.
+// landed on / — SECURITY.md needs the pairing URL to survive the round-trip.
 func TestOAuthRedirectCarriesAuthReturnCookie(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

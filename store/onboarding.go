@@ -544,7 +544,7 @@ func (s *Store) QueuedAdmission(userSub string) (OnboardingRow, bool, error) {
 }
 
 // ApprovedAdmissions counts a user's approved admissions: the second authority
-// an admitted stranger holds to create a first world (spec 5/18 step 8).
+// an admitted stranger holds to create a first world (onbod/README.md).
 func (s *Store) ApprovedAdmissions(userSub string) (int, error) {
 	rows, err := s.Obj().Query(context.Background(), objstore.Query{Entity: objstore.IndexEntity, Partition: indexPartition("onboarding/approved_user", userSub)})
 	return len(rows), err

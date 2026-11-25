@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/16 web_routes pilot: the agent's
+// Parity tests for the resreg/README.md web_routes pilot: the agent's
 // set_web_route/del_web_route/list_web_routes now ride resreg's two-face
 // mechanism through the ServeMCP postBuild seam instead of hand-rolled ipc
 // bodies. Each test drives the REAL unix socket end-to-end (not the handler
@@ -198,7 +198,7 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 }
 
 // TestWebRoutesMCP_DeleteTenantNoCrossTenant is the fail-on-broken guard for the
-// 5/16 list-all leak class. A top-level tenant folder delegated del_web_route must
+// resreg/README.md list-all leak class. A top-level tenant folder delegated del_web_route must
 // still NOT delete a sibling tenant's route: the delete widening keys on the EMPTY
 // folder claim, never on the caller being top-level. Before the fix a top-level
 // caller widened the delete scope to "" and removed any folder's route (then

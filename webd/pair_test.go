@@ -1,6 +1,6 @@
 package main
 
-// Browser half of identity pairing (spec 5/31-identity-pairing). The security properties, not
+// Browser half of identity pairing (SECURITY.md). The security properties, not
 // just the happy path: GET must not consume, one parent per identity, and
 // missing/expired/consumed tokens must be indistinguishable.
 
@@ -177,7 +177,7 @@ func TestPair_OneParentPerIdentity(t *testing.T) {
 }
 
 // Pairing writes the edge but does not route the JID, so a terminal success page
-// leaves the chat the user just linked silent (spec 5/31-identity-pairing "What step 6 broke",
+// leaves the chat the user just linked silent (SECURITY.md,
 // BUGS P1b blocker 4). The success page must offer the way on to /onboard, whose
 // step-6 branch does the routing — and ONLY the success page: an outcome where
 // no edge was written has nothing to continue to, and pointing a refused or
@@ -300,7 +300,7 @@ func csrfFromGet(t *testing.T, s *server, token, sub string) string {
 	return ""
 }
 
-// The JWT sub arrives prefixed ("user:google:123", spec 5/1's sub prefix rule)
+// The JWT sub arrives prefixed ("user:google:123", auth/README.md § Files)
 // but every stored principal is bare — acl.principal, acl_membership.parent.
 // Storing the prefixed form makes the edge expand to a principal that matches
 // no grant, so pairing succeeds and grants nothing. That is how it shipped

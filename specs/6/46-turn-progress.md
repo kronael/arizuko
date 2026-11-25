@@ -1,11 +1,6 @@
 ---
 status: partial
-depends:
-  [
-    45-gdrive-comments-channel,
-    ../5/24-live-tasklist-status,
-    ../5/34-channel-protocol,
-  ]
+depends: [45-gdrive-comments-channel]
 ---
 
 # Turn progress uses one checklist and one temporary message
@@ -590,7 +585,7 @@ human's comment and `action=resolve` are not. Concretely:
 
 ## Tier
 
-Hot-tier per-turn output, as `specs/5/24-live-tasklist-status.md §"Tier"`: no
+Hot-tier per-turn output, as `routd/README.md`: no
 REST twin, no resreg resource. The mark's persisted state is adapter-local
 plumbing in the adapter store, not a managed entity.
 

@@ -45,7 +45,7 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 	t.Helper()
 	st := testutils.NewRoutdStore(t)
 	// Seed ACL so the operator (predicate operator=1) admits everywhere.
-	// Spec 5/32-acl-unified — operator is emergent from the `**` row, not a role.
+	// auth/README.md — operator is emergent from the `**` row, not a role.
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "**", Action: "*", Scope: "**",
 		Effect: "allow", Predicate: "operator=1",
@@ -281,7 +281,7 @@ func TestRoutesResource_NonWebdBearerRejected(t *testing.T) {
 
 // Persistence: a new routesResource opened against the same store sees
 // what the previous one wrote. Validates the "mutations are durable"
-// invariant from spec 5/7-proxyd-standalone phase-3.
+// invariant from proxyd/README.md.
 func TestRoutesResource_Durable(t *testing.T) {
 	mux, _, st := testResourceMux(t, nil)
 	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
@@ -302,7 +302,7 @@ func TestRoutesResource_Durable(t *testing.T) {
 }
 
 // One Handler, two adapters: the handler used by REST is the exact same
-// function value the MCP tool dispatches to. Spec 5/17-openapi-mcp — one handler,
+// function value the MCP tool dispatches to. resreg/README.md — one handler,
 // two faces, and the MCP face is derived from it.
 func TestRoutesResource_SingleHandler(t *testing.T) {
 	st := testutils.NewRoutdStore(t)

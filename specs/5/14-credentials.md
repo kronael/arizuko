@@ -1,13 +1,6 @@
 ---
 status: shipped
-depends:
-  [17-openapi-mcp, 5/13-ext-mcp, specs/5/32-acl-unified, 5/15-surrogate-oauth]
-supersedes:
-  [
-    specs/5/13 §Secrets-table,
-    specs/5/5 §Phase-C-secrets,
-    specs/8/E §Anthropic-keys,
-  ]
+supersedes: [specs/8/E §Anthropic-keys]
 ---
 
 # specs/5/14 — credential model
@@ -54,7 +47,7 @@ caused silent injection bugs and a wrong `scope_kind` split.
   (`store/secrets.go:449`) — folder walk (deeper wins) with a user overlay. The
   **triggering user's** key resolves; a folder default only when they have none.
 - **Injection**: **never into the container.** The credential reaches a tool
-  only through the call-time broker (`5/13` shape 2 and 3): `ConnectorSecrets`
+  only through the call-time broker (`EXTENDING.md` shape 2 and 3): `ConnectorSecrets`
   narrows it to the keys that call declares, the value lands in the connector
   subprocess's env or the outbound REST request **on the host**, and it is
   scrubbed from the result. An agent that reads its whole environment finds no
@@ -71,7 +64,7 @@ caused silent injection bugs and a wrong `scope_kind` split.
   `container/runner.go` `readSecrets()` at spawn.
 
 (`CHANNEL_SECRET` was an infra credential of this class and is **retired** —
-adapters present a `service:<daemon>` ES256 JWT instead, `5/1`.)
+adapters present a `service:<daemon>` ES256 JWT instead, `authd/README.md`.)
 
 ## Storage summary
 
@@ -117,7 +110,7 @@ what they can use, and the call-time check remains as defence in depth.
   operator fallback read-only ("Platform key active") when no user override
   exists.
 - **`arizuko secret`** (`cmd/arizuko/secret.go`) — the operator path.
-- **Connect** ([`5/15`](15-surrogate-oauth.md)) — the OAuth-automated writer for
+- **Connect** (`SECURITY.md`) — the OAuth-automated writer for
   both types. It writes the same rows a paste would, plus `expires_at` and a
   refresh token.
 
@@ -172,9 +165,9 @@ reads as an error, not as plaintext.
 
 ## Supersedes
 
-- [`5/13`](13-ext-mcp.md) §Secrets table — replaced here; `5/13` keeps the
+- `EXTENDING.md` §Secrets table — replaced here; `EXTENDING.md` keeps the
   handler shapes only.
-- [`5/5`](5-worlds-agents-sessions.md) §Secrets (Phase C) — the `chats.kind`
+- `onbod/README.md` §Secrets (Phase C) — the `chats.kind`
   gate and scope model are replaced here.
 - [`8/E`](../8/E-encryption-at-rest.md) §Anthropic-keys — operator anchors are
   host env, not the secrets table; only user BYOA overrides land in the table.

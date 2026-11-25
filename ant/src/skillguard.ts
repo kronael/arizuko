@@ -1,4 +1,4 @@
-// skillguard.ts — spec 5/23. A skill file is code the agent grants itself: it
+// skillguard.ts — SECURITY.md. A skill file is code the agent grants itself: it
 // runs in the NEXT session. This is the gate between "the agent wrote it" and
 // "the agent runs it". The regex table is ported verbatim from hermes-agent (see
 // skillguard-patterns.ts) — a retyped table is a new table with new gaps.
