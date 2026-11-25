@@ -136,6 +136,8 @@ callback sink (e.g. a freshly minted chat-link token). Checkers:
 - `rest_reply` — a **bot-authored** message carrying `{nonce}` is readable in
   `{chat}` via REST (the user-injected prompt is excluded, so the marker the
   harness itself sent can't false-pass). `rest_observe` matches any author.
+  A check that names no `chat` reads the chat of the run, and one that names
+  no `text` looks for `{nonce}`.
 - `mcp_roundtrip` — same over the MCP face.
 - `parity_sentinel` — `{nonce}` is identical via REST and MCP (uniform surface).
 

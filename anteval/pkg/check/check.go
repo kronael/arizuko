@@ -98,8 +98,16 @@ func wantText(ctx Ctx, c spec.Check) (string, error) {
 	return ctx.Expand(t)
 }
 
+func wantChat(ctx Ctx, c spec.Check) (string, error) {
+	t := c.Chat
+	if t == "" {
+		t = "{chat}"
+	}
+	return ctx.Expand(t)
+}
+
 func findText(ctx Ctx, c spec.Check, mcp, botOnly bool) (bool, string) {
-	chat, err := ctx.Expand(c.Chat)
+	chat, err := wantChat(ctx, c)
 	if err != nil {
 		return false, err.Error()
 	}
@@ -123,7 +131,7 @@ func findText(ctx Ctx, c spec.Check, mcp, botOnly bool) (bool, string) {
 }
 
 func parity(ctx Ctx, c spec.Check) (bool, string) {
-	chat, err := ctx.Expand(c.Chat)
+	chat, err := wantChat(ctx, c)
 	if err != nil {
 		return false, err.Error()
 	}

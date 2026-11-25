@@ -83,3 +83,34 @@ func TestParity(t *testing.T) {
 		t.Fatal("want fail when MCP lacks the sentinel")
 	}
 }
+
+type chatReader struct{ chats []string }
+
+func (r *chatReader) RestMessages(chat string) ([]Msg, error) {
+	r.chats = append(r.chats, chat)
+	return nil, nil
+}
+func (r *chatReader) McpMessages(chat, _ string) ([]Msg, error) {
+	r.chats = append(r.chats, chat)
+	return nil, nil
+}
+
+// A check that names no chat reads the chat of the run: every product suite
+// omits the field, and an empty chat reached the instance as `jid=` and 400.
+func TestOmittedChatIsTheRunChat(t *testing.T) {
+	reader := &chatReader{}
+	ctx := Ctx{Reader: reader, Expand: func(s string) (string, error) {
+		return strings.ReplaceAll(s, "{chat}", "web:run"), nil
+	}}
+	for _, kind := range []string{"rest_reply", "rest_observe", "mcp_roundtrip", "parity_sentinel"} {
+		Run(ctx, spec.Check{Kind: kind})
+	}
+	if len(reader.chats) != 5 {
+		t.Fatalf("reads = %v", reader.chats)
+	}
+	for _, chat := range reader.chats {
+		if chat != "web:run" {
+			t.Fatalf("read chat %q, want the run chat; all reads %v", chat, reader.chats)
+		}
+	}
+}
