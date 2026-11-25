@@ -164,10 +164,26 @@ func TestPreflightChecksGatewayImages(t *testing.T) {
 	for _, image := range want {
 		host.availableImages[image] = true
 	}
-	if err := preflight(context.Background(), host, cfg); err != nil {
+	if err := preflight(context.Background(), host, cfg, true); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(host.images, want) {
+		t.Fatalf("images = %v, want %v", host.images, want)
+	}
+}
+
+// A direct run installs no gateway, so its preflight must not ask for the
+// gateway images: a host that never cached them still runs it.
+func TestPreflightSkipsGatewayImagesOnDirectRun(t *testing.T) {
+	_, cfg := preflightFixture(t)
+	host := &fakeHost{availableImages: map[string]bool{"arizuko:latest": true, "arizuko-davd:latest": true}}
+	if err := os.Remove(filepath.Join(cfg["HOST_APP_DIR"], "template", "services", "litellm", "litellm.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := preflight(context.Background(), host, cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"arizuko:latest", "arizuko-davd:latest"}; !reflect.DeepEqual(host.images, want) {
 		t.Fatalf("images = %v, want %v", host.images, want)
 	}
 }
@@ -274,7 +290,7 @@ func TestAllocationAllowsUnrelatedResources(t *testing.T) {
 		"ip -j -4 route show table all": `[{"dst":"default","scope":"link"},{"dst":"0.0.0.0/0","scope":"link"},{"dst":"10.99.0.0/24","scope":"link"}]`,
 		"ss -H -l -n -t":                "LISTEN 0 128 10.98.0.2:3128 0.0.0.0:*\n",
 	}}
-	if err := preflight(context.Background(), host, cfg); err != nil {
+	if err := preflight(context.Background(), host, cfg, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -292,7 +308,7 @@ func TestPreflightMemory(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			host := &fakeHost{meminfo: fmt.Sprintf("MemAvailable: %d kB\n", tc.available)}
-			err := preflight(context.Background(), host, cfg)
+			err := preflight(context.Background(), host, cfg, true)
 			if tc.refuse {
 				if err == nil {
 					t.Fatal("accepted insufficient memory")

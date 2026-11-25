@@ -29,7 +29,7 @@ type lifecycleOptions struct {
 
 type lifecycleProcess interface{ Stop() error }
 type lifecycleCLI interface {
-	Preflight(context.Context, map[string]string) error
+	Preflight(context.Context, map[string]string, bool) error
 	Command(context.Context, []string, []string) (string, error)
 	Start(context.Context, []string, []string) (lifecycleProcess, error)
 	UnitExists(context.Context, string) (bool, error)
@@ -305,7 +305,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	if exists {
 		return fmt.Errorf("compose project for %s exists", name)
 	}
-	if err := cli.Preflight(ctx, cfg); err != nil {
+	if err := cli.Preflight(ctx, cfg, isGateway); err != nil {
 		return err
 	}
 	private, err := os.MkdirTemp(base, ".anteval-")
@@ -317,6 +317,9 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 		"USER=" + os.Getenv("USER"), "ARIZUKO_DATA_DIR=" + private,
 		"HOST_APP_DIR=" + cfg["HOST_APP_DIR"],
 		"EXTENDDB_PASSWORD=" + cfg["EXTENDDB_PASSWORD"]}
+	if uid := os.Getenv("SUDO_UID"); uid != "" {
+		env = append(env, "SUDO_UID="+uid)
+	}
 	command := func(ctx context.Context, args ...string) (string, error) {
 		return cli.Command(ctx, env, append([]string{args[0], "-i", name}, args[1:]...))
 	}

@@ -53,8 +53,8 @@ func (realHost) InspectImages(ctx context.Context, images []string) error {
 	}
 	return nil
 }
-func (realCLI) Preflight(ctx context.Context, cfg map[string]string) error {
-	return preflight(ctx, realHost{}, cfg)
+func (realCLI) Preflight(ctx context.Context, cfg map[string]string, isGateway bool) error {
+	return preflight(ctx, realHost{}, cfg, isGateway)
 }
 
 // Measured 2026-11-08: krons daemon containers 291 MiB, an idle litellm
@@ -99,7 +99,7 @@ func checkMemory(host preflightHost, cfg map[string]string) error {
 	return errors.New("missing MemAvailable in /proc/meminfo")
 }
 
-func preflight(ctx context.Context, host preflightHost, cfg map[string]string) error {
+func preflight(ctx context.Context, host preflightHost, cfg map[string]string, isGateway bool) error {
 	if err := checkMemory(host, cfg); err != nil {
 		return err
 	}
@@ -147,10 +147,25 @@ func preflight(ctx context.Context, host preflightHost, cfg map[string]string) e
 	if !valid {
 		return fmt.Errorf("%s has no environment entries", path)
 	}
-	path = filepath.Join(cfg["HOST_APP_DIR"], "template", "services", "litellm", "litellm.yml")
-	data, err = host.ReadFile(path)
+	images := []string{"arizuko:latest", "arizuko-davd:latest"}
+	if isGateway {
+		gateway, err := gatewayImages(host, cfg["HOST_APP_DIR"])
+		if err != nil {
+			return err
+		}
+		images = append(images, gateway...)
+	}
+	if err := host.InspectImages(ctx, images); err != nil {
+		return err
+	}
+	return checkAllocation(ctx, host, cfg)
+}
+
+func gatewayImages(host preflightHost, appDir string) ([]string, error) {
+	path := filepath.Join(appDir, "template", "services", "litellm", "litellm.yml")
+	data, err := host.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var fragment struct {
 		Services map[string]struct {
@@ -158,20 +173,17 @@ func preflight(ctx context.Context, host preflightHost, cfg map[string]string) e
 		} `yaml:"services"`
 	}
 	if err := yaml.Unmarshal(data, &fragment); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	images := []string{"arizuko:latest", "arizuko-davd:latest"}
+	var images []string
 	for _, name := range []string{"litellm", "litellm_db"} {
 		image := fragment.Services[name].Image
 		if image == "" || strings.ContainsAny(image, "$ \t\r\n") {
-			return fmt.Errorf("invalid %s image in %s", name, path)
+			return nil, fmt.Errorf("invalid %s image in %s", name, path)
 		}
 		images = append(images, image)
 	}
-	if err := host.InspectImages(ctx, images); err != nil {
-		return err
-	}
-	return checkAllocation(ctx, host, cfg)
+	return images, nil
 }
 
 func checkAllocation(ctx context.Context, host preflightHost, cfg map[string]string) error {

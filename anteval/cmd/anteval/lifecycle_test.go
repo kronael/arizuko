@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -34,9 +35,9 @@ type fakeLifecycle struct {
 }
 type fakeProcess struct{ cli *fakeLifecycle }
 
-func (f *fakeLifecycle) Preflight(ctx context.Context, cfg map[string]string) error {
+func (f *fakeLifecycle) Preflight(ctx context.Context, cfg map[string]string, isGateway bool) error {
 	if f.host != nil {
-		return preflight(ctx, f.host, cfg)
+		return preflight(ctx, f.host, cfg, isGateway)
 	}
 	return nil
 }
@@ -188,6 +189,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 	t.Setenv("DATA_DIR", "/serving-instance")
 	t.Setenv("AGENTEVAL_TOKEN", "serving-token")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "serving-credential")
+	t.Setenv("SUDO_UID", "1234")
 	f := &fakeLifecycle{}
 	if err := doLifecycle(context.Background(), f, opts); err != nil {
 		t.Fatal(err)
@@ -199,6 +201,11 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 		if strings.Contains(entry, "serving-") {
 			t.Fatalf("inherited instance configuration: %q", entry)
 		}
+	}
+	// Under sudo, git reads the checkout of HOST_APP_DIR only when SUDO_UID
+	// names its owner, so `package sync` needs the variable.
+	if !slices.Contains(f.env, "SUDO_UID=1234") {
+		t.Fatalf("env = %v, want SUDO_UID carried", f.env)
 	}
 	for key, want := range map[string]string{
 		"APP_SRC_DEV": "", "MAX_CONCURRENT_AGENTS": "1", "RUNED_GUEST_MEM": "2G",
