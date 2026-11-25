@@ -133,7 +133,7 @@ func buildMounts(
 	// grant with readonly=true downgrades it to RO for that folder.
 	world := worldOf(folder, elevated)
 	share := filepath.Join(cfg.GroupsDir, world, "share")
-	mkMountSource(share)
+	mkSlot(share)
 	m = append(m, core.Mount{
 		Host:      share,
 		Container: "/var/lib/share",
@@ -171,7 +171,7 @@ func buildMounts(
 	// codex wrote its rollout to a guest-local path and every resume
 	// afterwards found nothing.
 	groupCodex := filepath.Join(groupDir, ".codex")
-	mkMountSource(groupCodex)
+	mkSlot(groupCodex)
 	m = append(m, core.Mount{Host: groupCodex, Container: core.ContainerHome + "/.codex"})
 	if cfg.HostCodexDir != "" && cfg.ModelGatewayURL == "" {
 		container.SeedCodexMountTargets(groupCodex)

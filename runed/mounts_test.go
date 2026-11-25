@@ -501,10 +501,14 @@ func TestBuildMountsNewGroupHomeWritable(t *testing.T) {
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	uid, _ := container.RunUID()
-	cmd := exec.Command("/usr/bin/touch", filepath.Join(groupDir, "probe"))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)}}
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("run uid cannot write group home: %v: %s", err, output)
+	// The codex home and the world share are writable mounts too: a root-owned
+	// one stops a codex turn before it starts.
+	for _, dir := range []string{groupDir, filepath.Join(groupDir, ".codex"), filepath.Join(cfg.GroupsDir, "eval", "share")} {
+		cmd := exec.Command("/usr/bin/touch", filepath.Join(dir, "probe"))
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)}}
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("run uid cannot write %s: %v: %s", dir, err, output)
+		}
 	}
 	if err := os.Chown(groupDir, 0, 0); err != nil {
 		t.Fatal(err)
