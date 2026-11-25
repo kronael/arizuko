@@ -291,7 +291,7 @@ The VM record on disk names every process that the turn started: QEMU, two `virt
 2. The rule set of the tap, then the tap.
 3. The proxy, the bridge and the two `virtiofsd` processes.
 4. The staging tree: unmount, then remove. A tree that will not go is reported by path and kept for an operator.
-5. The record, only once every pid that it names is confirmed gone.
+5. The record, only once every pid that it names is confirmed gone. Then the turn's `/tmp`, deleted whole, and the sockets and pid files, by name.
 
 runed signals a pid only when its `/proc/<pid>/cmdline` carries the token of the turn. A stale record may name a pid that the kernel has reused. `-no-reboot` on QEMU and `reboot=t` on the guest keep a power-off final. The reap still sends SIGKILL to QEMU after the grace, because a guest power-off does not prove that QEMU exited.
 
@@ -320,10 +320,11 @@ A guest sees its files through two virtio-fs shares. ACPI microvm allows eight M
                ▼                                 ▼
 ┌──────────────────────────────┐  ┌──────────────────────────────┐
 │ overlay: rootfs lower,       │  │ /turn, then one bind per     │
-│ 512m tmpfs upper: the        │  │ manifest entry onto its      │
+│ 128m tmpfs upper: the        │  │ manifest entry onto its      │
 │ agent's /, gone at power-off │  │ guest path                   │
 └──────────────────────────────┘  └──────────────────────────────┘
-/run/ipc: a 16m guest tmpfs, never on a share; /dev/shm: 1g tmpfs
+/run/ipc: a 16m guest tmpfs, never on a share; /dev/shm: 256m tmpfs
+/tmp: a manifest entry from <turn dir>/tmp on disk, empty every turn
 ```
 
 <!-- /twin -->
@@ -332,7 +333,8 @@ A guest sees its files through two virtio-fs shares. ACPI microvm allows eight M
 
 - **Read-only is enforced on the host.** A read-only entry is a bind plus a remount with `MS_RDONLY` before `virtiofsd` starts. So every write that the daemon attempts fails with `EROFS`. The release rootfs gets the same bind, because `virtiofsd` 1.10.1 has no read-only export flag. A guest that mounts the rootfs writable would change the release that every later turn boots from.
 - **The writable share runs as the uid of the agent.** So it cannot create a host file owned by anyone else, whatever uid the guest states. The clamp in "The turn substrate" describes this.
-- **Sizes are explicit.** The overlay upper and each guest tmpfs live in guest RAM inside `RUNED_GUEST_MEM`: 512m for the upper, 16m per manifest tmpfs, and 1g for `/dev/shm`. A write past a cap fails with `ENOSPC` in the guest and never causes memory pressure on the host.
+- **Sizes are explicit.** The overlay upper and each guest tmpfs live in guest RAM inside `RUNED_GUEST_MEM`: 128m for the upper, 16m per manifest tmpfs, and 256m for `/dev/shm`. A write past a cap fails with `ENOSPC` in the guest and never causes memory pressure on the host.
+- **`/tmp` is on disk, not in guest RAM.** `prepareTmp` (`vmtree.go`) makes `<turn dir>/tmp` empty, root-owned, mode 1777, and adds it to the table as one more read-write entry, so the guest binds it from the `turn` share like any family. The reap deletes it whole, and a stale one under the same turn dir is deleted before the turn starts. The upper cannot live on the share: overlayfs needs a DAC override on its workdir that the clamped `virtiofsd` does not have, so that mount fails with `EACCES` (measured 2026-11-25 on the 6.1 guest kernel). The host disk is the only bound on `/tmp`, as it is on `/home/node`.
 - **`/run/ipc` is never shared.** A unix socket does not cross virtio-fs. So the socket directory of the agent is a guest tmpfs, and the socket is bridged over vsock. "The peer credential" describes the bridge.
 
 Every host path is the path that runed itself sees. `virtiofsd` is a child of runed in the mount namespace of runed, so no source passes through `HOST_DATA_DIR`. runed does not read that variable, because it is a compose fact.
@@ -351,6 +353,7 @@ Every host path is the path that runed itself sees. `virtiofsd` is a child of ru
 | `/etc/codex/config.toml`, `/etc/codex/hooks.json` | selected native hook configuration in folder IPC scratch                            | RO                                               | every turn, including an empty hook map             |
 | `/var/lib/share`                                  | `<data>/groups/<world>/share/`; `groups/share/` for an elevated turn                | RW, RO with a `share_mount(readonly=true)` grant | every turn                                          |
 | `/run/ipc`                                        | none: a guest tmpfs                                                                 | RW                                               | every turn                                          |
+| `/tmp`                                            | `<turn dir>/tmp`, empty at turn start, deleted at the reap                          | RW                                               | every turn                                          |
 | `/var/lib/www/arizuko`                            | `<data>/web/pub/arizuko/`                                                           | RO                                               | no `web:publish` grant                              |
 | `/var/lib/www`                                    | `<data>/web/pub/`                                                                   | RO                                               | `web:publish`                                       |
 | `~/public_html`                                   | `<data>/web/pub/<folder>/`, served at `/pub/<folder>/`                              | RW                                               | `web:publish`                                       |
@@ -424,7 +427,7 @@ Startup expires orphan spawn rows and reaps VM records before accepting work.
 VM records and staging trees live under `RUNED_VM_DIR` (default `DATA_DIR/vms`).
 The rootfs uses `RUNED_ROOTFS_DIR`; the kernel directory holds `bzImage` and `initrd.gz`.
 Group homes and `.claude/settings.json` persist under `DATA_DIR/groups`.
-Per-group turn logs live in `groups/<folder>/logs`; guest overlay changes outside shared mounts are transient.
+Per-group turn logs live in `groups/<folder>/logs`; guest overlay changes outside shared mounts are transient, and `/tmp` lives in the turn dir until the reap.
 Store failure can prevent a run claim or completion record; no local run queue takes over.
 A routd request cancellation ends the run context. A guest cannot keep using MCP after routd exits.
 Authd availability matters for key discovery; verification uses the cached public keyset.

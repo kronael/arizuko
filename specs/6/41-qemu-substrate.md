@@ -552,6 +552,7 @@ exports it:
 | `/var/lib/www` + web slots `:625-645` | `www/`, `pub/`, `priv/` | ro, rw, rw            |
 | all groups, elevated only `:665-669`  | `groups/`               | rw                    |
 | `ipc/` `:574-578`                     | —                       | guest-local tmpfs     |
+| turn scratch (`vmtree.go prepareTmp`) | `tmp/`                  | rw, empty every turn  |
 
 **The tree MIRRORS the guest's paths, and a manifest names them.** A flattened
 name collides — `/mnt/a-b` and `/mnt/a/b` both render `mnt-a-b` — so the staging
@@ -577,6 +578,26 @@ situation. Host-side changes reach the guest as they happen.
 overlay discarded at power-off; what the folder keeps, it keeps because it is
 a share. That overlay is RAM inside `-m`, so `guest-init` mounts it with an
 explicit `size=` (§"The host budget").
+
+**`/tmp` is turn scratch on the host disk, not in the overlay.** runed makes
+`<turn dir>/tmp` empty, root-owned and mode 1777 before the tree is staged, and
+adds it to the table as one more read-write family, so the guest binds
+`/turn/tmp` onto `/tmp` like any other. The reap deletes it whole after every
+pid is gone; a stale one under the same turn dir is deleted before the turn
+starts, and the boot sweep reaps a crashed turn's through its record. So `/tmp`
+is still wiped every turn, and what the agent writes there stops counting
+against `-m`. The host disk is its only bound, as it is for the group home.
+
+The overlay UPPER cannot move to the share as well. MEASURED 2026-11-25 on the
+6.1.112 guest kernel, with the Rust `virtiofsd` 1.10.1 run as production runs
+it (uid 1000, `--sandbox=none`, `--cache=always`): `mount -t overlay` with
+upper and work on the `turn` share fails with `EACCES`, with or without
+`--xattr` and with or without `userxattr`. overlayfs creates `work/work` mode
+000 and relies on the mounter's DAC override there; the clamped daemon is
+unprivileged and has none, and the kernel also logs "upper fs does not support
+tmpfile". A plain directory on the share passes every operation `/tmp` needs
+as the agent: create, mkdir, rename, symlink, chmod, a FIFO, a unix socket
+bind, a shared `mmap` write and a 64 MiB write.
 
 ## The image and the guest kernel
 
@@ -672,13 +693,18 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   set changes the `KERNEL_KEY` and costs the operator 30–60 minutes of both vCPUs
   for no change in the artifact.
 - **The tmpfs overlay upper is inside `-m`, and it is capped.** The guest's
-  writable layer is RAM, so an agent that unpacks a large dependency tree
-  consumes the guest's memory rather than disk. `guest-init` mounts the upper
-  with an explicit `size=`, and a write past it is `ENOSPC` inside the guest —
-  a failed turn, never a host that reclaims under pressure. **The numbers, set
-  2026-09-24: `size=512m` for the upper and `size=16m` for each manifest tmpfs
-  entry**, against the 2 GB `RUNED_GUEST_MEM` default and leaving `/dev/shm` the
-  gigabyte `runner.go:682` gives it. They are consts in `guest-init`, not
+  writable layer outside its shares is RAM, so an agent that unpacks a large
+  dependency tree outside `/tmp` and its home consumes the guest's memory rather
+  than disk. `guest-init` mounts the upper and `/dev/shm` with an explicit
+  `size=`, and a write past one is `ENOSPC` inside the guest — a failed turn,
+  never a host that reclaims under pressure. **The numbers, set 2026-11-25:
+  `size=128m` for the upper, `size=256m` for `/dev/shm` and `size=16m` for each
+  manifest tmpfs entry**, against the 2 GB `RUNED_GUEST_MEM` default. Together
+  they can pin 384 MiB of the guest where the 512m upper and the 1g `/dev/shm`
+  could pin 1.5 GiB; `/tmp` left the upper for the host disk (§"The files").
+  Measured on krons and sloth before the change, 28 turns: `Shmem` at turn exit
+  was 3.3 MB at most, so a typical turn frees about 3 MB; the change lowers the
+  ceiling, not the common case. They are consts in `guest-init`, not
   per-instance tunables, so an instance that raises `-m` does not raise them;
   Open question 3's peak-RSS measurement is what says whether they should move
   onto the command line beside `ARIZUKO_CTL` and `ARIZUKO_MCP`.

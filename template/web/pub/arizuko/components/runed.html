@@ -119,10 +119,11 @@
                ▼                                 ▼
 ┌──────────────────────────────┐  ┌──────────────────────────────┐
 │ overlay: rootfs lower,       │  │ /turn, then one bind per     │
-│ 512m tmpfs upper: the        │  │ manifest entry onto its      │
+│ 128m tmpfs upper: the        │  │ manifest entry onto its      │
 │ agent's /, gone at power-off │  │ guest path                   │
 └──────────────────────────────┘  └──────────────────────────────┘
-/run/ipc: a 16m guest tmpfs, never on a share; /dev/shm: 1g tmpfs
+/run/ipc: a 16m guest tmpfs, never on a share; /dev/shm: 256m tmpfs
+/tmp: a manifest entry from &lt;turn dir&gt;/tmp on disk, empty every turn
 </code></pre>
     <p>Read-only means read-only on the <em>host</em>. runed remounts each read-only bind before <code>virtiofsd</code> starts, so a write fails with <code>EROFS</code> whatever the guest kernel does. A <code>virtiofsd</code> that runs as the uid of the agent serves the writable share. So a guest that claims to be root still cannot leave a file owned by root in the folder.</p>
     <table>
@@ -135,6 +136,7 @@
       <tr><td><code>/var/lib/groups</code></td><td>every group, for an elevated <code>/root</code> turn only</td><td>RW</td></tr>
       <tr><td><code>/mnt/&lt;name&gt;</code></td><td>an extra mount of the operator under <code>MOUNT_ALLOWED_ROOTS</code></td><td>RO</td></tr>
       <tr><td><code>/run/ipc</code></td><td>a tmpfs in the guest only. The MCP socket lives here, and vsock bridges it</td><td>RW</td></tr>
+      <tr><td><code>/tmp</code></td><td>a directory on the host disk for this turn only. It is empty when the turn starts and deleted when the turn ends</td><td>RW</td></tr>
     </table>
     <p>The section Mounts of <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md">[runed/README.md]</a> has the full table with the host paths.</p>
 
@@ -175,7 +177,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/rootfs-a35045d89e3e
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-22">2026-11-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-25">2026-11-25</time>
       </div>
     </main>
 
