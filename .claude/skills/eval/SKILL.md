@@ -97,7 +97,6 @@ ALWAYS read the file the task needs; NEVER work from this page alone.
 |------|------|
 | Health of a running instance — the 22 checks, the report table, the known failure modes | `checks.md` |
 | After a deploy or a tag — the five gates, `anteval --smoke` | `gates.md` |
-| First `anteval` run on an instance whose eval folder does not exist | `gates.md` § "Bringing `anteval` up on an instance that has never run it" |
 
 **Never**: auto-fix, auto-commit. Every proposed fix goes to `BUGS.md` per
 **Method** step 4 and waits for the user.
