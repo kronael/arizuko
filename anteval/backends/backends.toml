@@ -1,0 +1,52 @@
+# Per-backend acceptance of the group harness document
+# (specs/6/53-per-group-harness.md). One disposable instance answers on every
+# backend ant accepts, because each case writes its own document:
+#
+#   anteval run --env FILE --sink URL --cases backends
+#
+# The env file sets ARIZUKO_BACKEND=codex and HOST_CODEX_DIR, so the instance
+# runs direct and the first case answers on the instance default. The claude
+# case also needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in that file.
+# The pi case names a model of the Codex login; change it when that id retires.
+#
+# Each case names the agent program from the guest's process table, so a turn
+# that ran on another backend fails its check.
+
+[[case]]
+id = "backend-a-default"
+dimension = "backends"
+prompt = '''Run this in bash: `for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' < "$f"; echo; done`. One of the listed programs is the agent CLI that runs you: `codex`, `pi` or `claude`. Reply to me with exactly `{nonce}-` followed by that one name, for example `{nonce}-claude`. Decide from the process list only.'''
+max_wall_ms = 150000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}-codex"
+
+[[case]]
+id = "backend-b-pi"
+dimension = "backends"
+harness = '{"backend":"pi","model":"openai-codex/gpt-6.1-sol"}'
+prompt = '''Run this in bash: `for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' < "$f"; echo; done`. One of the listed programs is the agent CLI that runs you: `codex`, `pi` or `claude`. Reply to me with exactly `{nonce}-` followed by that one name, for example `{nonce}-claude`. Decide from the process list only.'''
+max_wall_ms = 150000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}-pi"
+
+[[case]]
+id = "backend-c-codex"
+dimension = "backends"
+harness = '{"backend":"codex","effort":"low"}'
+prompt = '''Run this in bash: `for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' < "$f"; echo; done`. One of the listed programs is the agent CLI that runs you: `codex`, `pi` or `claude`. Reply to me with exactly `{nonce}-` followed by that one name, for example `{nonce}-claude`. Decide from the process list only.'''
+max_wall_ms = 150000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}-codex"
+
+[[case]]
+id = "backend-d-claude"
+dimension = "backends"
+harness = '{"backend":"claude"}'
+prompt = '''Run this in bash: `for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' < "$f"; echo; done`. One of the listed programs is the agent CLI that runs you: `codex`, `pi` or `claude`. Reply to me with exactly `{nonce}-` followed by that one name, for example `{nonce}-codex`. Decide from the process list only.'''
+max_wall_ms = 150000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}-claude"

@@ -49,7 +49,10 @@ and a separately allocated web port. IP literals are refused.
 
 The runner generates `anteval-<unix-ms>` or uses the fresh name supplied by
 `--target`. An existing data directory, systemd unit or Compose project is
-refused before creation. `--product` selects a product for the eval group.
+refused before creation. `--product` selects a product for the eval group. It
+takes a package source as `arizuko create --product` does: the absolute path of
+the product tree, a `github.com/<owner>/<repo>` reference or a `.tgz`. A product
+run is `--product <checkout>/packages/<name> --cases <checkout>/packages/<name>/eval`.
 Before creation, the runner checks the KVM devices, kernel and rootfs artifacts,
 and locally cached daemon, web and gateway images. The gateway image names come
 from the litellm Compose fragment under `HOST_APP_DIR`. A run that installs no
@@ -119,6 +122,8 @@ folder through routd `PATCH /v1/groups/{folder}` before the case's first turn
 and clears it after the case's turns, so a later case without one runs on the
 instance defaults. A run with at least one such case mints the eval bearer with
 the extra scope `routes:write:own_group`; any other run does not.
+`backends/backends.toml` uses the field to answer on every backend on one
+instance: `--cases backends`, with `ARIZUKO_BACKEND=codex` in the env file.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 

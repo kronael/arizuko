@@ -158,3 +158,21 @@ func TestSmokeKeepsALivenessProbe(t *testing.T) {
 			"(%d smoke cases checked)", smoke)
 	}
 }
+
+// The per-backend suite runs only by hand, so nothing else parses it before a
+// paid run: it must load, and its documents must name every backend ant accepts.
+func TestBackendSuiteCoversEveryBackend(t *testing.T) {
+	cases, err := Load("../../backends")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backends := map[string]bool{}
+	for _, c := range cases {
+		backends[c.HarnessBackend()] = true
+	}
+	for _, want := range []string{"", "claude", "codex", "pi"} {
+		if !backends[want] {
+			t.Errorf("no case with backend %q; have %v", want, backends)
+		}
+	}
+}
