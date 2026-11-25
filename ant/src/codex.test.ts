@@ -254,6 +254,16 @@ test('codexArgs: model passes through verbatim only when set', () => {
   expect(codexArgs({ cwd: '/home/node', env: {} })).not.toContain('-m');
 });
 
+/** Fresh and resumed turns enable the plan tool while ignoring user config. */
+test.each([undefined, 'session'])('codexArgs: plan tool with continuity %s', (continuity) => {
+  const args = codexArgs({ cwd: '/home/node', env: {}, continuity });
+  const enabled = 'tools.update_plan.enabled=true';
+  expect(args.filter((arg) => arg === enabled)).toEqual([enabled]);
+  expect(args[args.indexOf(enabled) - 1]).toBe('-c');
+  expect(args).toContain('--ignore-user-config');
+  expect(args).toContain('--json');
+});
+
 test('codexArgs: forwards effort for fresh and resumed runs', () => {
   for (const continuity of [undefined, 'session']) {
     const args = codexArgs({ cwd: '/home/node', env: {}, continuity, effort: 'high' });

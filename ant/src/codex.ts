@@ -56,6 +56,7 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'effort' | 'continu
     // NOTHING — no warning, no error (measured 2026-08-21).
     '--dangerously-bypass-hook-trust',
     '--json',
+    '-c', 'tools.update_plan.enabled=true',
     '-c', `project_doc_fallback_filenames=${tomlValue(['CLAUDE.md'])}`,
     // Nested model CLIs use the same credentials as this turn.
     '-c', 'shell_environment_policy.inherit="all"',
