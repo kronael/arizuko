@@ -389,6 +389,14 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 	if err := syscall.Rmdir(rootfs); err != nil && !os.IsNotExist(err) {
 		slog.Warn("vm teardown: rootfs kept", "path", rootfs, "err", err)
 	}
+	// The turn's /tmp is the agent's scratch and nobody else's, so it goes whole,
+	// whatever the guest left in it. A family declared under /tmp is bound at
+	// tree/tmp/<x>, so on this path its mount point is EBUSY and the delete
+	// never enters it.
+	tmp := filepath.Join(rec.TurnDir, tmpDirName)
+	if err := os.RemoveAll(tmp); err != nil {
+		slog.Warn("vm teardown: turn tmp kept", "path", tmp, "err", err)
+	}
 	for _, name := range []string{
 		qemuPidName,
 		rootSockName, rootSockName + pidSuffix,

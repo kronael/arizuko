@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -253,8 +254,13 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	ts := time.Now().Format("2006-01-02T15-04-05") + "-" + strconv.FormatUint(uint64(rec.CID), 10)
 	console := filepath.Join(logsDir, "container-"+ts+".console.log")
 
-	// Step 2: the staging tree and the two shares.
-	plan := treePlan(t.Mounts)
+	// Step 2: the staging tree and the two shares. /tmp is a family of its own,
+	// on disk, so the agent's scratch is not guest RAM.
+	tmp, err := prepareTmp(rec.TurnDir)
+	if err != nil {
+		return fail(err)
+	}
+	plan := treePlan(append(slices.Clip(t.Mounts), tmp))
 	if err := tree.stageTargets(plan); err != nil {
 		return fail(err)
 	}

@@ -238,3 +238,40 @@ func TestTeardownScansTheTurnDirSoTheRootfsBindGoesToo(t *testing.T) {
 		t.Errorf("scanRoot = %q, want the turn dir", tree.scanRoot())
 	}
 }
+
+// The turn's /tmp is a family on disk, handed to the tree like any other, and it
+// starts empty even where a turn under the same dir left scratch behind. Mode is
+// /tmp's own: the guest writes through the sticky bit, not through ownership.
+func TestPrepareTmpStartsEmptyAndIsTheGuestsTmp(t *testing.T) {
+	turnDir := t.TempDir()
+	stale := filepath.Join(turnDir, "tmp", "left-by-an-earlier-turn", "f")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := prepareTmp(turnDir)
+	if err != nil {
+		t.Fatalf("prepareTmp: %v", err)
+	}
+	want := core.Mount{Host: filepath.Join(turnDir, "tmp"), Container: "/tmp"}
+	if m != want {
+		t.Errorf("mount = %+v, want %+v", m, want)
+	}
+	left, err := os.ReadDir(m.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Errorf("the turn's /tmp holds %d entries from an earlier turn", len(left))
+	}
+	fi, err := os.Stat(m.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode() & (os.ModePerm | os.ModeSticky); got != os.ModeSticky|0o777 {
+		t.Errorf("mode = %v, want %v", got, os.ModeSticky|0o777)
+	}
+}

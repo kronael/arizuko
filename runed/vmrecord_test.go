@@ -520,6 +520,83 @@ func TestReapRemovesTheDaemonsOwnPidFiles(t *testing.T) {
 	}
 }
 
+// A turn that failed after its /tmp was made still reaps, and the reap takes the
+// /tmp whole, whatever the guest wrote. A symlink the guest left pointing out of
+// it is removed as a link: its target outside the turn dir stays.
+func TestReapDeletesTheTurnTmpAfterAFailedTurn(t *testing.T) {
+	rec, p := fullRecord(t)
+	tmp, err := prepareTmp(rec.TurnDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "keep")
+	if err := os.WriteFile(outside, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmp.Host, "claude-1000", "deep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp.Host, "claude-1000", "deep", "out.txt"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(tmp.Host, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := reapVM(rec, p, time.Millisecond, time.Millisecond, nil, nil); err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if _, err := os.Stat(rec.TurnDir); !os.IsNotExist(err) {
+		left, _ := os.ReadDir(rec.TurnDir)
+		t.Fatalf("the turn dir survived the reap holding %v: a /tmp the reap leaves "+
+			"is a directory that leaks once per turn", left)
+	}
+	if b, err := os.ReadFile(outside); err != nil || string(b) != "keep\n" {
+		t.Fatalf("the reap followed the guest's symlink out of /tmp: %q, %v", b, err)
+	}
+}
+
+// The tree binds a family declared under /tmp at tree/tmp/<x>, and the turn's
+// /tmp is that bind's parent on the host. The reap's delete walks the turn dir's
+// own path, so even with the tree's teardown skipped it cannot reach into the
+// family: the mount point is busy and the family's files stay.
+func TestReapTmpDeleteDoesNotEnterAFamilyBoundUnderTmp(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires mount privilege; run in a private mount namespace")
+	}
+	rec, p := fullRecord(t)
+	tmp, err := prepareTmp(rec.TurnDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	family := t.TempDir()
+	if err := os.WriteFile(filepath.Join(family, "keep"), []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(rec.TurnDir, treeDirName, "tmp")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(tmp.Host, "fam"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mount(tmp.Host, tree, "", syscall.MS_BIND, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Unmount(tree, syscall.MNT_DETACH) })
+	if err := syscall.Mount(family, filepath.Join(tree, "fam"), "", syscall.MS_BIND, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Unmount(filepath.Join(tree, "fam"), syscall.MNT_DETACH) })
+
+	if err := reapVM(rec, p, time.Millisecond, time.Millisecond, nil, nil); err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(family, "keep")); err != nil || string(b) != "keep\n" {
+		t.Fatalf("the /tmp delete reached a family bound under /tmp: %q, %v", b, err)
+	}
+}
+
 func TestReapKeepsRootfsFile(t *testing.T) {
 	rec, p := fullRecord(t)
 	rootfs := filepath.Join(rec.TurnDir, rootfsDirName)

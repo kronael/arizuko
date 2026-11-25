@@ -35,9 +35,14 @@ const (
 	// on every instance, because the artifact is shared by content hash (BUGS
 	// `L381`).
 	rootfsDirName = "rootfs"
-	rootSockName  = "root.sock"
-	turnSockName  = "turn.sock"
-	qemuPidName   = "qemu.pid"
+	// tmpDirName is the turn's /tmp on disk, bound into the tree like any
+	// family. Each turn gets it empty and the reap deletes it, so /tmp is wiped
+	// per turn without holding guest RAM.
+	tmpDirName   = "tmp"
+	guestTmp     = "/tmp"
+	rootSockName = "root.sock"
+	turnSockName = "turn.sock"
+	qemuPidName  = "qemu.pid"
 )
 
 // treeEntry is one family in the staging tree. Path is the guest path, and it is
@@ -125,6 +130,25 @@ func (t *turnTree) bindRootfs(src string) (string, error) {
 		return "", fmt.Errorf("remount rootfs ro %s: %w", target, err)
 	}
 	return target, nil
+}
+
+// prepareTmp makes the turn's /tmp, empty, and answers it as a family the tree
+// binds. A dir an earlier turn left under the same turn dir is deleted first, so
+// no turn starts with another's scratch. Root-owned 1777, as /tmp is in any
+// distro: the agent writes through the sticky bit, not through ownership.
+func prepareTmp(turnDir string) (core.Mount, error) {
+	dir := filepath.Join(turnDir, tmpDirName)
+	if err := os.RemoveAll(dir); err != nil {
+		return core.Mount{}, fmt.Errorf("stale turn tmp %s: %w", dir, err)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return core.Mount{}, fmt.Errorf("turn tmp: %w", err)
+	}
+	// Chmod, because Mkdir's mode passes through the umask.
+	if err := os.Chmod(dir, os.ModeSticky|0o777); err != nil {
+		return core.Mount{}, fmt.Errorf("turn tmp: %w", err)
+	}
+	return core.Mount{Host: dir, Container: guestTmp}, nil
 }
 
 // stageTargets creates the tree's mount points and writes the manifest. It makes
