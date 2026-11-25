@@ -1,12 +1,63 @@
 package obs
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
+
+func TestHTTPMiddlewareTraceBoundary(t *testing.T) {
+	provider := sdktrace.NewTracerProvider()
+	oldTracer, oldTracesOn := tracer, tracesOn
+	tracer, tracesOn = provider.Tracer("test"), true
+	t.Cleanup(func() { tracer, tracesOn = oldTracer, oldTracesOn })
+
+	headerParent := WithTurn(context.Background(), "test", "header")
+	contextParent := WithTurn(context.Background(), "test", "context")
+	for _, tc := range []struct {
+		name   string
+		public bool
+	}{
+		{"public_header", true},
+		{"public_context", true},
+		{"internal_header", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got trace.SpanContext
+			var forwarded string
+			middleware := HTTPMiddleware
+			if tc.public {
+				middleware = PublicHTTPMiddleware
+			}
+			h := middleware("testd")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				got = trace.SpanContextFromContext(r.Context())
+				forwarded = r.Header.Get("traceparent")
+			}))
+			req := httptest.NewRequest("GET", "/", nil)
+			parent := headerParent
+			if tc.name == "public_context" {
+				parent = contextParent
+				req = req.WithContext(parent)
+			} else {
+				InjectRequest(parent, req)
+			}
+			h.ServeHTTP(httptest.NewRecorder(), req)
+			parentID := trace.SpanContextFromContext(parent).TraceID()
+			if !got.IsValid() || (got.TraceID() == parentID) == tc.public {
+				t.Errorf("trace ID = %s, parent = %s, public = %t", got.TraceID(), parentID, tc.public)
+			}
+			if tc.name == "public_header" && forwarded != "" {
+				t.Errorf("public traceparent forwarded: %s", forwarded)
+			}
+		})
+	}
+}
 
 func TestStatusWriterFlushCommitsStatus(t *testing.T) {
 	for _, status := range []int{0, http.StatusTeapot} {

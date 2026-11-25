@@ -310,7 +310,7 @@ func (s *server) mux() *http.ServeMux {
 }
 
 func (s *server) handler(aud *audit.Audit) http.Handler {
-	return obs.HTTPMiddleware("proxyd")(logging(s.mux(), aud))
+	return obs.PublicHTTPMiddleware("proxyd")(logging(s.mux(), aud))
 }
 
 func clientIP(r *http.Request) string {

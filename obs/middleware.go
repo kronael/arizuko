@@ -1,7 +1,7 @@
 package obs
 
 // HTTP middleware: one wrapper that emits per-request metrics and a
-// cross_daemon span, and joins any inbound traceparent. Mount it as the
+// cross_daemon span. Mount it as the
 // outermost handler on every HTTP-serving daemon. When metrics + traces are
 // both off it still runs but does only a status-capturing wrap — microseconds,
 // and arizuko is not latency-sensitive.
@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTPMiddleware wraps a daemon's mux to record arizuko_requests_total +
@@ -19,16 +21,32 @@ import (
 // inbound trace. daemon names the metric/span owner. Mount BEFORE auth so the
 // public /metrics and /health are measured too (they're cheap).
 func HTTPMiddleware(daemon string) func(http.Handler) http.Handler {
+	return httpMiddleware(daemon, false)
+}
+
+// PublicHTTPMiddleware starts a new trace for requests at an untrusted boundary.
+func PublicHTTPMiddleware(daemon string) func(http.Handler) http.Handler {
+	return httpMiddleware(daemon, true)
+}
+
+func httpMiddleware(daemon string, public bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			// Join the caller's trace (signed sibling hops carry traceparent;
-			// trust-boundary ingress carries none → fresh root). WithContext
-			// returns a NEW request; the mux stamps Pattern on THAT one, so read
-			// it back from r2, not the original r.
-			ctx, end := StartSpan(ExtractRequest(r), "cross_daemon",
+			ctx := r.Context()
+			if public {
+				ctx = trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+			} else {
+				ctx = ExtractRequest(r)
+			}
+			ctx, end := StartSpan(ctx, "cross_daemon",
 				"target", daemon, "method", r.Method, "path", r.URL.Path)
 			r2 := r.WithContext(ctx)
+			if public {
+				r2.Header = r.Header.Clone()
+				r2.Header.Del("traceparent")
+				r2.Header.Del("tracestate")
+			}
 			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(sw, r2)
 

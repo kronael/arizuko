@@ -169,7 +169,7 @@ func (s *server) handler() http.Handler {
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}
-	return obs.HTTPMiddleware("webd")(chanlib.LogMiddleware(mux))
+	return obs.PublicHTTPMiddleware("webd")(chanlib.LogMiddleware(mux))
 }
 
 func userGroups(r *http.Request) []string {
