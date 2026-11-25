@@ -146,11 +146,11 @@ func OneClaimWinsAndTheLosersAreNotErrors(t *testing.T, newStore Factory) {
 	}
 }
 
-// deadlockRounds is how many times the opposite-order pair runs. Spec 6/42 §12
+// deadlockRounds is how many times the opposite-order pair runs. Spec 8/42 §12
 // item 5 names a thousand.
 const deadlockRounds = 1000
 
-// TwoBatchesOverTheSameItemsInOppositeOrderBothLand is spec 6/42 §12 item 5:
+// TwoBatchesOverTheSameItemsInOppositeOrderBothLand is spec 8/42 §12 item 5:
 // two batches lock the same two items as (a, b) and (b, a) at once. A SQL
 // engine may abort one as a deadlock; the port's answer must still be one
 // commit and one REFUSAL, then a commit on retry — never an error reaching the

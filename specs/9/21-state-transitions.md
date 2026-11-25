@@ -805,7 +805,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
   job: state preparation classification and actual crash behavior
   names: ['How a turn ends']
   never: promises blanket retry for QEMU start failure
-- path: specs/6/41-qemu-substrate.md (changed)
+- path: specs/8/41-qemu-substrate.md (changed)
   job: bind startup failures to common classification
   names: ['The seam']
   never: changes the two-operation execution port

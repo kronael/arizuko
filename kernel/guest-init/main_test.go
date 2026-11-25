@@ -268,7 +268,7 @@ func TestFrameCodecRoundTripsBothDirections(t *testing.T) {
 }
 
 // The exit frame carries the agent's own code, whichever way the agent ended.
-// RunResult.ExitCode IS this frame (spec 6/41 §"The turn"), and it decides
+// RunResult.ExitCode IS this frame (spec 8/41 §"The turn"), and it decides
 // whether routd retries, trips the breaker or does nothing.
 func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 	for _, tc := range []struct {

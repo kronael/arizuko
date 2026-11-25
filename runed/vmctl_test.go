@@ -166,7 +166,7 @@ func TestVsockListenRefusesASquattedPort(t *testing.T) {
 
 // The bridge serves ONE guest: the CID the host assigned. The host kernel stamps
 // it, so a second guest dialing this turn's port is refused at accept — the
-// acceptance test's own case (spec 6/41 §Acceptance).
+// acceptance test's own case (spec 8/41 §Acceptance).
 func TestMCPBridgeServesOnlyItsOwnGuestCID(t *testing.T) {
 	requireVsock(t)
 	requireVsockLoopback(t)

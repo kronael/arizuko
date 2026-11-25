@@ -81,7 +81,7 @@ func decodeCtlFrames(r io.Reader, fn func(ctlFrame) error) error {
 // returned file is pollable and accept honours a deadline.
 //
 // A bind error is returned, never worked around: runed binds before QEMU starts
-// (spec 6/41 §"The turn" steps 4-5), so a port a squatter already holds makes
+// (spec 8/41 §"The turn" steps 4-5), so a port a squatter already holds makes
 // this fail before any guest exists. Picking another port instead is what would
 // turn a denial into a guest talking to whoever answered.
 func vsockListen(port uint32) (*os.File, error) {
@@ -240,7 +240,7 @@ const mcpBridgeFlag = "--mcp-bridge"
 // exactly one VM, accepts only a peer whose CID is that VM's, and dials exactly
 // one path: that turn's folder socket. routd's check is byte-for-byte the one it
 // runs today — the peer is the agent's uid — because this process IS that uid
-// (spec 6/41 §"The peer credential").
+// (spec 8/41 §"The peer credential").
 func MCPBridgeMain() (int, bool) {
 	if len(os.Args) < 4 || os.Args[1] != mcpBridgeFlag {
 		return 0, false

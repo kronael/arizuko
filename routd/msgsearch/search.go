@@ -1,6 +1,6 @@
 // Package msgsearch is message search: a bounded newest-first scan of the
 // store that matches each row it reads and holds nothing between two calls
-// (specs/6/42-dynamo-over-postgres.md).
+// (specs/8/42-dynamo-over-postgres.md).
 package msgsearch
 
 import (

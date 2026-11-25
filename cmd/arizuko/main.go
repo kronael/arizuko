@@ -324,7 +324,7 @@ func cmdCreate(args []string) {
 		//
 		// There is no egress switch to write any more. The turn runs in a KVM
 		// guest whose tap accepts the proxy and drops everything else, and runed
-		// refuses to start without the proxy binary (spec 6/41 §"Egress by name,
+		// refuses to start without the proxy binary (spec 8/41 §"Egress by name,
 		// sealed below the kernel"), so isolation is a property of the substrate
 		// rather than a variable an operator can leave empty. That closes the
 		// half of BUGS `L24` that asked whether the default should be on.

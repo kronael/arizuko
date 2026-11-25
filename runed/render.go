@@ -37,7 +37,7 @@ type payload struct {
 // renderTurn is the ONE renderer: the wire request in, one Turn out. Every fact
 // a guest receives is decided here — the mount table, the process environment,
 // the stdin frame and the egress allowlist — so a substrate delivers bytes and
-// names and reads no grant, persona or session id (spec 6/41 §"The renderer").
+// names and reads no grant, persona or session id (spec 8/41 §"The renderer").
 // ttl is the run ceiling the caller armed ctx with; 0 means no ceiling.
 func renderTurn(
 	cfg *core.Config, folders *groupfolder.Resolver,

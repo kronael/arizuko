@@ -24,7 +24,7 @@ import (
 // is the only thing that reaps after a runed crash and it can reap only what the
 // record names. A container substrate finds a turn's second process by container
 // label; with four host processes and no label, the record IS the label (spec
-// 6/41 §"What moves into `runed`").
+// 8/41 §"What moves into `runed`").
 //
 // runed keeps no in-memory index of guests: this file and the pid table are the
 // one source of truth, so two readers of the same instance see the same set.
@@ -33,7 +33,7 @@ type vmRecord struct {
 	Folder string `json:"folder"`
 	// CID is the guest's vsock context id, which is the turn's folder binding:
 	// the host's vhost driver drops every packet whose source is not this CID
-	// (spec 6/41 §"The peer credential").
+	// (spec 8/41 §"The peer credential").
 	CID uint32 `json:"cid"`
 	// CtlPort and McpPort are host-side vsock ports, bound before QEMU starts.
 	CtlPort uint32 `json:"ctl_port"`
@@ -225,7 +225,7 @@ func allocateCID(used map[uint32]bool, cap int, base uint32) (uint32, error) {
 // vsockPorts derives a guest's two host-side ports from its SLOT. Derived, not
 // searched: the acceptance test binds "the port runed would take" before the
 // turn starts, and a port runed picks by probing is a port no test can squat
-// (spec 6/41 §"The peer credential"). A bind failure fails the turn — runed
+// (spec 8/41 §"The peer credential"). A bind failure fails the turn — runed
 // never moves to another port, because a silent retry is what would turn a
 // denial into a guest talking to whoever answered.
 //
@@ -290,7 +290,7 @@ type reapTarget struct {
 	token string
 }
 
-// reapTargets lists this turn's processes in the order spec 6/41 §"The turn"
+// reapTargets lists this turn's processes in the order spec 8/41 §"The turn"
 // step 9 fixes: QEMU first — nothing else may go while a guest can still write
 // through the share — then the host processes that served it, then the two
 // virtiofsd whose sockets the guest held.
@@ -323,7 +323,7 @@ func cmdlineHas(raw, token string) bool {
 
 // reapVM ends every process the record names and removes the record only when
 // each pid is confirmed gone. A record removed over a live QEMU is a guest
-// nothing reaps (spec 6/41 §"The turn" step 9), so a pid that survives SIGKILL
+// nothing reaps (spec 8/41 §"The turn" step 9), so a pid that survives SIGKILL
 // leaves the record in place and returns an error.
 //
 // grace is how long a process gets to exit on its own before SIGKILL. poll is
@@ -338,7 +338,7 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 		return fmt.Errorf("vm %s not fully reaped, record kept: %w", rec.Handle, err)
 	}
 	// Then the rule set and the tap, then the host processes that served the
-	// guest, in the order spec 6/41 §"The turn" step 9 fixes.
+	// guest, in the order spec 8/41 §"The turn" step 9 fixes.
 	if net != nil && rec.Tap != "" {
 		net.rulesDown(rec)
 		net.tapDown(rec.Tap)
@@ -466,7 +466,7 @@ func waitGone(p procs, pid int, grace, poll time.Duration) bool {
 
 // newVMRecord fills the fields that are known before anything is started. Every
 // later step appends its pid and saves again, so a runed that dies at any point
-// leaves a record naming what it started (spec 6/41 §"The turn" step 1).
+// leaves a record naming what it started (spec 8/41 §"The turn" step 1).
 func newVMRecord(root, handle, folder string, cid, slot, base uint32) (*vmRecord, error) {
 	dir, err := vmDir(root, handle)
 	if err != nil {

@@ -8,7 +8,7 @@
 #   - arizuko-davd  davd, WebDAV over groups/ (optional)
 # The agent image (arizuko-ant) is a BUILD input, not a runtime setting:
 # `make rootfs` exports its filesystem into runed.rootfsDir and runed boots
-# that tree (spec 6/41).
+# that tree (spec 8/41).
 # ---------------------------------------------------------------------------
 image:
   repository: arizuko

@@ -43,7 +43,7 @@ const (
 
 // substrateName is what the audit row and the turn log call this substrate. It is
 // a LABEL and no longer a selector: RUNED_SUBSTRATE went with the Docker runtime
-// at spec 6/41 step 4, because a setting with one legal value stops applying
+// at spec 8/41 step 4, because a setting with one legal value stops applying
 // without saying so.
 const substrateName = "kvm"
 
@@ -58,7 +58,7 @@ const (
 	// binary at /usr/libexec/virtiofsd and /usr/lib/qemu/virtiofsd. On a Debian
 	// host the same second path holds QEMU's C daemon instead, which carries no
 	// id mapping at all, so this default names the file that CAN clamp and the
-	// check below refuses the one that cannot (spec 6/41 §"The peer credential").
+	// check below refuses the one that cannot (spec 8/41 §"The peer credential").
 	virtiofsdDefault = "/usr/libexec/virtiofsd"
 	clampUIDFlag     = "--uid-map"
 	clampGIDFlag     = "--gid-map"
@@ -125,7 +125,7 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 	}
 
 	// runed must be root: the staging tree's bind mounts and a virtiofsd that
-	// carries guest credentials to host files both need it (spec 6/41 §"The
+	// carries guest credentials to host files both need it (spec 8/41 §"The
 	// runed deploy topology").
 	if os.Getuid() != 0 {
 		miss("runed runs as uid %d; the QEMU substrate needs root for the staging tree's bind mounts and for virtiofsd", os.Getuid())
@@ -299,7 +299,7 @@ func readImageEnv(rootfs string) (map[string]string, error) {
 // memoryFits is the host-budget guard: the guest size and the concurrency cap
 // are ONE setting, because `-m` times the cap is what the host must hold. Five
 // guests at 4G is 20 GB on a 15 GB host, so the pair is refused at start rather
-// than discovered when the second turn touches its pages (spec 6/41 §"The host
+// than discovered when the second turn touches its pages (spec 8/41 §"The host
 // budget").
 func memoryFits(mem string, maxContainers int, total int64) error {
 	guest, err := parseGuestMem(mem)

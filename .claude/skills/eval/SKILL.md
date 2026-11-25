@@ -54,7 +54,7 @@ Groups: `sudo ls /srv/data/arizuko_<instance>/groups/`.
 ## Reaching the store
 
 Every owner's tables live on the instance's store server — ExtendDB over
-PostgreSQL, one per instance (`specs/6/42`). There is no file to open, and the
+PostgreSQL, one per instance (`specs/8/42`). There is no file to open, and the
 `store/<owner>/` directories a pre-v0.68.0 instance left behind are FROZEN: a
 query against one answers what was true before the flip, which reads like a
 healthy instance that stopped working (BUGS `L284` is this class).

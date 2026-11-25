@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [../6/41-qemu-substrate]
+depends: [../8/41-qemu-substrate]
 ---
 
 # specs/9/20 — each group sizes its own machine
@@ -233,7 +233,7 @@ turn. The `timeout` key above has no floor and no second instance default.
    `Mem int64` and `CPUs int`, a field a substrate interprets, which root
    `CLAUDE.md` ("A port is two methods and stays two") reserves for an
    approved plan. Recommendation: approve the two fields, named for the turn
-   as `specs/6/41-qemu-substrate.md` §"The seam" asks. No other carrier
+   as `specs/8/41-qemu-substrate.md` §"The seam" asks. No other carrier
    reaches the substrate without it interpreting `Turn.Env`.
 2. The per-turn check against `MemAvailable` holds a turn (`Busy`) on a host
    short of memory, where today the guest boots into swap. Recommendation:

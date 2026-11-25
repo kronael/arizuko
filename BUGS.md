@@ -2652,25 +2652,25 @@ existing exact-folder web-publish grant and copy generated HTML reports to the
 private served slot. Prior owner authorization covers Jynx setup repair;
 no new permission system or source publication is involved.
 
-## ✅ FIXED 2026-11-04 dc5c36e0c L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `6/42` say it does (2026-10-20)
+## ✅ FIXED 2026-11-04 dc5c36e0c L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `8/42` say it does (2026-10-20)
 
 FOUND 2026-10-20 by the docs fold. Measured at `62d7233a`:
 `objstore/dynstore/query.go:111-135` builds the whole `dynamodb.QueryInput`
 (table, key condition, filter, projection, limit) and sets neither
 `ConsistentRead` nor `IndexName`; `git grep -n -i ConsistentRead -- '*.go'`
 finds no production hit. The service reads eventually consistent by default.
-`specs/6/42-dynamo-over-postgres.md:246` ("The driver sends `ConsistentRead:
+`specs/8/42-dynamo-over-postgres.md:246` ("The driver sends `ConsistentRead:
 true` on every `Query`") and `:428`, and `specs/6/37-store-model.md:402` ("the
 authorization read stays a strongly consistent read of the base table"), say
 the opposite. `objstore.Increment` re-reads its counter to tell a lost race
 from a refusal, and revocation is an authorization read.
 
 Live impact today is nil: the deployed server (ExtendDB over PostgreSQL)
-answers committed state either way (`6/42:246`). The gap shows on Amazon's own
+answers committed state either way (`8/42:246`). The gap shows on Amazon's own
 service, or on any endpoint behind `ARIZUKO_TEST_DYNAMO_ENDPOINT` that is
 eventual.
 
-The second half of the filed premise is REFUTED. `6/42:435` says
+The second half of the filed premise is REFUTED. `8/42:435` says
 `ClientRequestToken` is fresh per call and reused across retries.
 `dynstore/batch.go:159` sets none, but the SDK does:
 `aws-sdk-go-v2/service/dynamodb@v1.68.0/api_op_TransactWriteItems.go:321-340`
@@ -2679,7 +2679,7 @@ retries reuse it, and `dynstore.go:77-86` leaves the provider alone. Not a
 defect.
 
 **Fix:** `ConsistentRead: aws.Bool(true)` on the input at `query.go:111`, with
-a test that captures the `QueryInput`. Until then `6/37` and `6/42` carry
+a test that captures the `QueryInput`. Until then `6/37` and `8/42` carry
 `status: defected` and `defects: [L483]`.
 
 - **Status:** fixed. `query.go` sets `ConsistentRead: true`; `dynstore/consistent_test.go` captures the request body. The driver names no index, so no GSI query exists to exclude.
@@ -3522,7 +3522,7 @@ reproduce.
 
 **The finding that should worry you more.** The deployed krons build reaches
 `/init` at a **3.15 s median across 216 console logs**. The 1.5 s gate in
-`specs/6/41-qemu-substrate.md:47` is measured to first ready frame on a bench
+`specs/8/41-qemu-substrate.md:47` is measured to first ready frame on a bench
 that sees 1085 ms, so production is already about 3x the bench and past the
 gate. The gate and the fleet disagree, and nobody noticed because only the
 bench is measured.
@@ -8948,7 +8948,7 @@ chart would now *look* current. That is worse than the honest breakage.
   that as well.** Beyond the three missing core daemons:
   - **The whole persistence layer is absent.** Every owner table now lives on
     the `extenddb` store server reached over TLS (`template/services/extenddb.yml`,
-    spec 6/42) — "no daemon opens a file". The chart has no `extenddb` or
+    spec 8/42) — "no daemon opens a file". The chart has no `extenddb` or
     `extenddb_db` object and none of the env that addresses them. It instead
     provisions an RWO PVC whose stated job is "a live SQLite WAL"
     (`gated.yaml:17`, `values.yaml:32,71`) that nothing opens any more.
@@ -9655,7 +9655,7 @@ qemubox or so in tools and remove from this repo."*
   `shippable` set is `egress`, `substrate`, `mcpfw`. `qemubox` is the
   standalone KVM tool, so arizuko publishes no Go library for it.
 - `sandbox/`'s code folds into `runed/` as unexported code, which is
-  `specs/6/41-qemu-substrate.md` step 1 of §"Order". Until that step runs,
+  `specs/8/41-qemu-substrate.md` step 1 of §"Order". Until that step runs,
   `sandbox/` sits in the tree with no consumer at all. That is the measured
   state, not a regression.
 - `egress/match` and `substrate` stay in arizuko, so the 203-line severance
@@ -9669,7 +9669,7 @@ qemubox or so in tools and remove from this repo."*
   `crackbox/pkg/run/run.go:175,180`; `runed/docker.go:46`;
   `tests/components/imports_test.go`
 - **Status:** decided. `crackbox/` is out of the repo; the `sandbox/` half
-  waits on `6/41` step 1.
+  waits on `8/41` step 1.
 - **Fix:**
 
 - [x] ✅ FIXED 2026-09-05 — `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it. `aclArgsRow` reads the argument, `grantACLTx` writes the column and `list_acl` reports it; the Gate needed no change, because `auth.Delegate`'s `grantableRows` already only holds rows the caller has WITH the option. `fix(routd): write grant_option on the live acl grant surfaces`
@@ -10135,7 +10135,7 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
   (`specs/6/34-resident-prompt.md` §"The catalog on a disposable instance"); the one
   row with a case, `unknown-addressee`, fails and is BUGS `L952`.
 
-## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `6/41`, pending that spec's step 1)
+## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `8/41`, pending that spec's step 1)
 
 Measured at `7c631ed3`: `sandbox/internal/netfilter.go` `RestoreNetworkRules`
 and `CleanupNetworkRules` walk `meta.AllowList` and act only where
@@ -10163,14 +10163,14 @@ the proxy ("a rule that never matches reads as protection and is not").
 - **Affected:** a caller that passes host names in `VMConfig.AllowList`
 - **Source:** `sandbox/internal/netfilter.go` RestoreNetworkRules; `egress/match.LooksLikeIP`; `sandbox/sandbox.go` Profile
 - **Status:** open — the design answer is settled and the code change waits on
-  `specs/6/41-qemu-substrate.md` step 1. `L137` chose option C, so the KVM
-  lifecycle becomes runed's own code, and `6/41` §"Egress by name, sealed
+  `specs/8/41-qemu-substrate.md` step 1. `L137` chose option C, so the KVM
+  lifecycle becomes runed's own code, and `8/41` §"Egress by name, sealed
   below the kernel" reaches option (c) by construction rather than by a
   reject: the tap rule set is static (accept guest to the host-side proxy,
   drop everything else), and every allowlist entry — name and address alike —
   goes to the proxy, which already matches both. A name never reaches
   netfilter, so no rule that "never matches" is left to read as protection.
-- **Fix:** lands with `6/41` step 1; no separate change.
+- **Fix:** lands with `8/41` step 1; no separate change.
 
 - **The silence is fixed 2026-09-20, and the stale comment with it.**
   `RestoreNetworkRules` said "domains are handled by egred proxy — no iptables

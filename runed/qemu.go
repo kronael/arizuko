@@ -33,7 +33,7 @@ import (
 // qemuRuntime is the KVM substrate: one guest per turn, driven by
 // qemu-system-x86_64, with the turn's files on one virtio-fs share, its control
 // channel and its tool calls on vsock, and its only route out through the proxy
-// on the host side of its tap (spec 6/41).
+// on the host side of its tap (spec 8/41).
 type qemuRuntime struct {
 	cfg     *core.Config
 	folders *groupfolder.Resolver
@@ -99,7 +99,7 @@ func layerImageEnv(image, rendered map[string]string) map[string]string {
 // qemuProfile is what this substrate declares. Egress is domain-granular because
 // the proxy matches names at CONNECT, and the guest has no resolver at all: a
 // name is meaningful only in a CONNECT line, so nothing leaves the tap except to
-// the proxy (spec 6/41 §"Egress by name, sealed below the kernel").
+// the proxy (spec 8/41 §"Egress by name, sealed below the kernel").
 var qemuProfile = substrate.Profile{
 	Backend:     substrate.KVM,
 	Persistence: substrate.MountedHome,
@@ -236,7 +236,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		return fail(allocErr)
 	}
 	tree := treeFor(rec.TurnDir)
-	// One teardown for every exit, in the order spec 6/41 §"The turn" step 9
+	// One teardown for every exit, in the order spec 8/41 §"The turn" step 9
 	// fixes. It removes the record only when every pid it names is gone.
 	defer func() {
 		if err := reapVM(rec, q.procs, q.paths.Grace, q.reapPoll, tree, q); err != nil {
@@ -634,7 +634,7 @@ type turnEnd struct {
 	code     int
 	timedOut bool
 	// framed is true when the GUEST reported the exit. RunResult.ExitCode is
-	// the {exit} frame (spec 6/41 §"The turn"), so a turn without one has no
+	// the {exit} frame (spec 8/41 §"The turn"), so a turn without one has no
 	// result: QEMU's own status says the VMM ended, never how the agent did.
 	// Reporting that as a clean turn is the silent-success the project forbids.
 	framed bool
@@ -650,7 +650,7 @@ func guestTerminalExit(code int) bool { return code == agentTerminalExit }
 // guestPeak carries QEMU's peak resident set (touched guest pages included) out
 // of the goroutine that waits for it. It reaches the turn log and the "guest
 // exited" line only; Runtime and RunResult do not carry it
-// (specs/6/41-qemu-substrate.md, Open question 3).
+// (specs/8/41-qemu-substrate.md, Open question 3).
 type guestPeak struct {
 	done chan struct{}
 	kib  int64
@@ -709,7 +709,7 @@ func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp b
 		// agent's own uid, so it cannot create a host file owned by anyone else
 		// whatever uid the guest states. Measured 2026-09-25: as ROOT the same
 		// daemon made a guest's file `root root` on the host, and it outlived the
-		// guest (spec 6/41 §"The peer credential"). The read-only rootfs share
+		// guest (spec 8/41 §"The peer credential"). The read-only rootfs share
 		// stays root's, because it is read-only.
 		uid, _ := container.RunUID()
 		cmd.SysProcAttr = &syscall.SysProcAttr{

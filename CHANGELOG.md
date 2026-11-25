@@ -16,7 +16,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 ### Changed
 
 - `find_messages` and `GET /v1/messages/find` read the store for each search
-  and keep no index (spec `6/42` §8). A search is a bounded scan, newest first:
+  and keep no index (spec `8/42` §8). A search is a bounded scan, newest first:
   one call reads at most 20,000 messages and answers `searched_to` and
   `complete`; a new optional `before` continues an incomplete search. Hits come
   newest first and carry no `rank`; the MCP answer carries no `source`. An

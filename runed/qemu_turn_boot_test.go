@@ -475,7 +475,7 @@ func TestGuestTurnOverCtl(t *testing.T) {
 
 // A read-only family is read-only in the GUEST: the host remounts the bind
 // read-only before virtiofsd starts, so a write from inside answers EROFS
-// (spec 6/41 §"The mechanisms"), and the host file keeps its bytes. The file and
+// (spec 8/41 §"The mechanisms"), and the host file keeps its bytes. The file and
 // directory are world-writable, so only the mount can be what refuses.
 func TestGuestReadOnlyMountAnswersEROFS(t *testing.T) {
 	if testing.Short() {

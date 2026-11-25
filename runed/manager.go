@@ -36,7 +36,7 @@ type Manager struct {
 	instance  string
 	maxRun    int
 	// cfg + folders are what renderTurn reads: with the request they decide
-	// every fact one turn delivers to its guest (spec 6/41 §"The renderer").
+	// every fact one turn delivers to its guest (spec 8/41 §"The renderer").
 	cfg     *core.Config
 	folders *groupfolder.Resolver
 
@@ -304,7 +304,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 
 // execute renders this turn's envelope and hands it to the kind's executor.
 // One renderer, two consumers: a substrate reads the Turn and interprets none
-// of it (spec 6/41 §"The seam"). A kind that starts nothing — a hold — gets the
+// of it (spec 8/41 §"The seam"). A kind that starts nothing — a hold — gets the
 // handle and the folder, which is all its executor reads.
 func (m *Manager) execute(
 	ctx context.Context, exec Runtime, req runedv1.RunRequest,

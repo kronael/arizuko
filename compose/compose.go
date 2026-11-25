@@ -83,7 +83,7 @@ var commonKeys = []string{
 	"OTEL_EXPORTER_OTLP_PROTOCOL",
 	"OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_RESOURCE_ATTRIBUTES",
-	// The store server (spec 6/42-dynamo-over-postgres): one endpoint for every daemon, the CA as
+	// The store server (spec 8/42-dynamo-over-postgres): one endpoint for every daemon, the CA as
 	// base64 because a container has no file of its own. The access key is
 	// per daemon (perDaemon), so a daemon signs as itself.
 	dynstore.EnvURL,
@@ -143,7 +143,7 @@ var daemonKeys = map[string][]string{
 	// runed: execution plane, the ONLY daemon wired to /dev/kvm.
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
-		// The turn substrate and everything the QEMU one reads (spec 6/41
+		// The turn substrate and everything the QEMU one reads (spec 8/41
 		// §"The seam"). A var runed reads and compose does not emit is SILENTLY
 		// dead — the class that cost three outages (BUGS reference
 		// `ant_env_delivery`) — so `TestRunedEnvKeysCoverEveryRunedVar` derives
@@ -806,7 +806,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
 	}
 
-	// Store credentials (spec 6/42-dynamo-over-postgres): one access key per daemon, written by the
+	// Store credentials (spec 8/42-dynamo-over-postgres): one access key per daemon, written by the
 	// operator into that daemon's env file and carried forward on regenerate.
 	// It stays OUT of the shared .env. This runs after the service keys so it
 	// merges into their maps rather than standing where wireServiceKey tests
@@ -874,7 +874,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	b.WriteString(onbodService(app, instance, dataDir))
 	b.WriteString(davdService(app, instance, dataDir, env))
 	// No egress proxy service: runed starts one `egress` PROCESS per turn on the host
-	// side of that turn's tap and kills it with the turn (spec 6/41 §"Egress by name,
+	// side of that turn's tap and kills it with the turn (spec 8/41 §"Egress by name,
 	// sealed below the kernel"). There is no image to name: EGRESS_IMAGE went with the
 	// Docker substrate, and runed refuses to start without the proxy binary.
 	out := b.String()
@@ -1153,7 +1153,7 @@ func hostViewPaths(env map[string]string) []string {
 }
 
 // runedService emits the execution plane: one KVM guest per turn, so three device
-// nodes and two capabilities, and NO docker socket (spec 6/41 §"The runed deploy
+// nodes and two capabilities, and NO docker socket (spec 8/41 §"The runed deploy
 // topology"). The docker-substrate branch that mounted /var/run/docker.sock went
 // with the substrate at step 4 of that spec's order.
 func runedService(app, flavor, dataDir string, env map[string]string) string {

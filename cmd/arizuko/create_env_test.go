@@ -13,7 +13,7 @@ import (
 // It used to name `EGRESS_IMAGE` and warn that an empty value ran the agent
 // unfiltered — the discoverability half of BUGS `L24`, which existed because
 // `create` writes its own key set and never reads `template/env.example`. Spec
-// `6/41` step 4 closed the other half by construction: the turn runs in a KVM
+// `8/41` step 4 closed the other half by construction: the turn runs in a KVM
 // guest whose tap accepts the proxy and drops everything else, and runed refuses
 // to start without the proxy binary. So the assertion inverts — a re-introduced
 // switch would be a way back to an unfiltered turn, and it would look like
@@ -39,7 +39,7 @@ func TestCreateEnvCarriesNoEgressSwitch(t *testing.T) {
 	for _, gone := range []string{"EGRESS_IMAGE", "EGRESS_NETWORK_PREFIX", "EGRESS_UPLINK_NETWORK", "EGRESS_SUBNET"} {
 		if strings.Contains(env, gone) {
 			t.Errorf("the generated .env names %s; the docker substrate's egress settings "+
-				"went with it (spec 6/41 step 4), and one back in this file is a turn that "+
+				"went with it (spec 8/41 step 4), and one back in this file is a turn that "+
 				"can run unfiltered again:\n%s", gone, env)
 		}
 	}
@@ -77,7 +77,7 @@ func TestCreateEnvNamesNoAgentImage(t *testing.T) {
 	if strings.Contains(string(b), "CONTAINER_IMAGE") {
 		t.Errorf("the generated .env names CONTAINER_IMAGE; nothing reads it, so an "+
 			"operator who sets it gets a silent no-op — the tree is named by "+
-			"RUNED_ROOTFS_DIR (spec 6/41):\n%s", b)
+			"RUNED_ROOTFS_DIR (spec 8/41):\n%s", b)
 	}
 }
 

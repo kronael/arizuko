@@ -33,7 +33,7 @@ type vmNetOps interface {
 const tapPrefix = 30
 
 // tapNet carves the idx'th /30 out of the configured subnet. The guest takes the
-// low address and the host side the high one (spec 6/41 §"Egress by name, sealed
+// low address and the host side the high one (spec 8/41 §"Egress by name, sealed
 // below the kernel").
 func tapNet(subnet string, idx int) (guest, host string, err error) {
 	_, n, err := net.ParseCIDR(subnet)
@@ -79,7 +79,7 @@ func tapName(instance string, idx int) string {
 // and there is nothing per-destination to render: the proxy is the one matcher
 // for names and addresses alike. UDP/53 is covered by the same drop, which is
 // what closes the resolver side channel an internal docker network leaves open
-// (spec 6/41 §"Egress by name, sealed below the kernel"; BUGS L136, L189).
+// (spec 8/41 §"Egress by name, sealed below the kernel"; BUGS L136, L189).
 func tapRules(rec *vmRecord) [][]string {
 	port := strconv.Itoa(rec.ProxyPort)
 	return [][]string{
@@ -303,7 +303,7 @@ const egressReady = 15 * time.Second
 // proxyEnv is the variables the guest needs to use its proxy: the proxy
 // address and bypass list in upper and lower case, because curl reads only
 // lower-case http_proxy for an http:// URL, and the Node shim. A substrate adds
-// them because their value is its own address (spec 6/41 §"The seam").
+// them because their value is its own address (spec 8/41 §"The seam").
 func proxyEnv(env map[string]string, proxyURL string) {
 	const noProxy = "localhost,127.0.0.1"
 	env["HTTP_PROXY"] = proxyURL

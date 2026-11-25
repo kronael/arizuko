@@ -3,7 +3,7 @@ status: partial
 depends: [41-qemu-substrate, ../5/33-paths-roles]
 ---
 
-# specs/6/42 — DynamoDB over PostgreSQL: one server, one driver, no database layer
+# specs/8/42 — DynamoDB over PostgreSQL: one server, one driver, no database layer
 
 Decision (maintainer): **the integration is DynamoDB and PostgreSQL. arizuko
 speaks the DynamoDB API to a server that stores in PostgreSQL, removes its
@@ -729,9 +729,9 @@ the subcommands, and step 6 below states that an unmoved instance stays on that
 tag). `L276` and `L277` blocked an unattended run and are both fixed
 (`aae3c0cb`, 2026-09-13). Then the copy.
 
-`6/41` states the rule this spec inherits: "Two levers are never in one deploy
+`8/41` states the rule this spec inherits: "Two levers are never in one deploy
 window." The copy's lever is the previous image tag plus untouched SQLite
-files; `6/41`'s is `RUNED_SUBSTRATE=docker`. Neither ships in the other's
+files; `8/41`'s is `RUNED_SUBSTRATE=docker`. Neither ships in the other's
 window, in either order.
 
 1. **The gate on ExtendDB** (§3): compose it, run the suite, run the probes of
@@ -876,7 +876,7 @@ All remaining items are LIVE:
 ## Ties
 
 `INSTALL.md` § "The store server holds every table of the instance" (one server for every deployment) · `objstore/README.md` (the object model, the surface,
-the protocols, the audited write) · `6/41` (the two-lever rule) ·
+the protocols, the audited write) · `8/41` (the two-lever rule) ·
 `routd/README.md` § "The model gateway" (the PostgreSQL service already in the deployment,
 `template/services/litellm.yml`) · `resreg/README.md` (ownership, and the federation debt
 the policies do not close) · `5/33` (the path is the coordinate) · BUGS `L97`,

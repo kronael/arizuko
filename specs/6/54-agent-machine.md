@@ -47,7 +47,7 @@ Arizuko grants still gate platform actions; an SSH key grants no platform author
 
 Machine access uses the standard SSH client and Unix processes.
 No custom shell/file endpoint, exec tool or host-side harness migration is required.
-[The seam](41-qemu-substrate.md#the-seam-one-interface-one-production-type-one-instance-one-substrate) still governs Runtime and its Turn value.
+[The seam](../8/41-qemu-substrate.md#the-seam-one-interface-one-production-type-one-instance-one-substrate) still governs Runtime and its Turn value.
 Keep `Run(ctx, Turn)` and `Kill(handle)` without new methods or fields.
 `renderTurn` remains the single producer of the turn envelope.
 Machine details stay in runtime-owned state reached through the handle.
@@ -124,7 +124,7 @@ No compressed image format or first-boot provisioning contract is required here.
 Current, `runed/qemu.go:255-262`:
 
 ```go
-    // One teardown for every exit, in the order spec 6/41 §"The turn" step 9
+    // One teardown for every exit, in the order spec 8/41 §"The turn" step 9
     // fixes. It removes the record only when every pid it names is gone.
     defer func() {
         if err := reapVM(rec, q.procs, q.paths.Grace, q.reapPoll, tree, q); err != nil {

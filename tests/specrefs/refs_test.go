@@ -124,7 +124,7 @@ func TestEveryDependsEntryResolves(t *testing.T) {
 	}
 }
 
-// specIDRe matches a spec ID written as prose in backticks — `6/42`, `5/A`,
+// specIDRe matches a spec ID written as prose in backticks — `8/42`, `5/A`,
 // `specs/5/33`. That is how most of the corpus cites a spec, and it is the form
 // no other check sees: a link check reads `](path.md)` and the depends check
 // reads frontmatter, so a prose ID can name a retired number while the build
@@ -200,8 +200,8 @@ func TestEveryProseSpecIDResolves(t *testing.T) {
 	t.Logf("resolved %d prose spec IDs", checked)
 }
 
-// sectionRe matches a quoted section pointer — `spec 6/42 §"Ties"` and
-// `spec 6/42-dynamo-over-postgres § "Ties"`. BOTH spacings, because the tree
+// sectionRe matches a quoted section pointer — `spec 8/42 §"Ties"` and
+// `spec 8/42-dynamo-over-postgres § "Ties"`. BOTH spacings, because the tree
 // writes both and two earlier sweeps each covered one: three stale pointers sat
 // in the gap between them (BUGS L356).
 var sectionRe = regexp.MustCompile(`spec[s]? ([1-9][0-9]?)/([0-9A-Z][0-9A-Za-z-]*) § ?"([^"]+)"`)
@@ -357,7 +357,7 @@ func TestEveryBareSectionCitationResolves(t *testing.T) {
 // this check needs no exclusion list — an exclusion list is the part that rots.
 func TestEverySpecCitationInGoResolves(t *testing.T) {
 	root := filepath.Join("..", "..")
-	// `spec 5/33`, `specs 6/41`, `spec 11/17` — the phase is always written, which is
+	// `spec 5/33`, `specs 8/41`, `spec 11/17` — the phase is always written, which is
 	// what makes a citation resolvable at all.
 	//
 	// The id class is the one `tests/webdocs` already proved: one or two digits, or a

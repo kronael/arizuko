@@ -26,7 +26,7 @@ build:
 	  $(MAKE) -C $$d build || { echo "build: $$d failed" >&2; exit 1; }; \
 	done
 
-# kernel: the guest kernel arizuko boots per turn (spec 6/41). Its own target and
+# kernel: the guest kernel arizuko boots per turn (spec 8/41). Its own target and
 # NOT a stage of ant/Dockerfile: ant/ took 130 commits in 60 days while this
 # changes only when KVER or the fragment does, and `docker builder prune -f` —
 # the disk lever the spec names — deletes a build cache, so a kernel living in
@@ -89,7 +89,7 @@ docker-build-arizuko:
 
 # egress is a COMPONENT, not a daemon, and it is in the image anyway: under the
 # QEMU substrate runed starts it as a HOST process on the tap's host side, not
-# as a container from EGRESS_IMAGE (spec 6/41 §"The runed deploy topology").
+# as a container from EGRESS_IMAGE (spec 8/41 §"The runed deploy topology").
 docker-build-egress:
 	CGO_ENABLED=0 go build -o $(OUT)/egress ./egress/cmd/egress/
 
@@ -308,7 +308,7 @@ images: check-skills
 	make rootfs
 
 # rootfs exports the agent image's filesystem as a directory tree, which is what
-# the QEMU substrate boots read-only per turn (spec 6/41 §"The image and the guest
+# the QEMU substrate boots read-only per turn (spec 8/41 §"The image and the guest
 # kernel"). `docker export` of a created-but-never-started container gives the flat
 # filesystem; `docker save` gives layers, which the guest cannot mount, and
 # virtio-fs exports a directory, so the tree cannot stay a tarball.

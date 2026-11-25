@@ -95,7 +95,7 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 		t.Errorf("topic annotation missing from the prompt: %q", prompt)
 	}
 	// caller_sub is the brokered token's subject and nothing in the envelope
-	// reads it: it stays on the wire body (spec 6/41 §"What leaves the port").
+	// reads it: it stays on the wire body (spec 8/41 §"What leaves the port").
 	if strings.Contains(string(turn.Stdin), "user:caller") {
 		t.Errorf("caller_sub reached the guest: %s", turn.Stdin)
 	}

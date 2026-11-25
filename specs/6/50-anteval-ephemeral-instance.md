@@ -1,7 +1,11 @@
 ---
 status: shipped
 depends:
-  [../5/9-agent-capability-eval, 41-qemu-substrate, 42-dynamo-over-postgres]
+  [
+    ../5/9-agent-capability-eval,
+    ../8/41-qemu-substrate,
+    ../8/42-dynamo-over-postgres,
+  ]
 ---
 
 # specs/6/50 — anteval runs against an instance it creates

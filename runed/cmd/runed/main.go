@@ -46,7 +46,7 @@ func newRunedMux(srv *runed.Server) *http.ServeMux {
 func main() {
 	// runed re-execs itself as one turn's MCP bridge: a child running as the
 	// agent's uid that holds one guest's vsock port and dials one folder socket
-	// (spec 6/41 §"The peer credential"). It is the same binary so the pid the
+	// (spec 8/41 §"The peer credential"). It is the same binary so the pid the
 	// VM record names has a cmdline the reap can recognize, and it must answer
 	// before any daemon setup runs.
 	if code, isBridge := runed.MCPBridgeMain(); isBridge {
@@ -62,7 +62,7 @@ func main() {
 	}
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	// The turn substrate, built once at start where the operator is looking
-	// (spec 6/41 §"The seam"), together with what it delivers on this
+	// (spec 8/41 §"The seam"), together with what it delivers on this
 	// configuration (spec 6/25 §3). An error is a host that cannot run
 	// a turn as declared — a missing device node, a missing guest kernel or
 	// rootfs, an egress proxy binary that is not there, a virtiofsd that cannot

@@ -2,15 +2,15 @@
 status: partial
 depends:
   [
-    24-crackbox-lightest,
-    25-qm-adoptions,
+    ../6/24-crackbox-lightest,
+    ../6/25-qm-adoptions,
     ../5/P-runed,
     ../5/14-credentials,
     ../5/33-paths-roles,
   ]
 ---
 
-# specs/6/41 — the QEMU substrate: one turn, one guest kernel
+# specs/8/41 — the QEMU substrate: one turn, one guest kernel
 
 Decision (maintainer): **the turn substrate is a KVM virtual machine, one per
 turn, driven by `qemu-system-x86_64`, and it is the only substrate arizuko
@@ -505,7 +505,7 @@ either.
 
 ## Egress by name, sealed below the kernel
 
-[`6/24`](24-crackbox-lightest.md) §"Two substrates, one design" states the VM
+[`6/24`](../6/24-crackbox-lightest.md) §"Two substrates, one design" states the VM
 case: put the proxy on the host side of the tap and the guest's only route is
 through it. This spec builds exactly that.
 
@@ -1036,9 +1036,9 @@ step 8), which splits what the guest holds into page cache (`Cached`), tmpfs
 ## Ties
 
 `ARCHITECTURE.md` § Decided, and why (no warm pool: the trigger and the pool's
-consequences) · [`6/24`](24-crackbox-lightest.md) (the VM case of the
+consequences) · [`6/24`](../6/24-crackbox-lightest.md) (the VM case of the
 proxy, and the docker-only egress env vars step 4 deletes) ·
-[`6/25`](25-qm-adoptions.md) §2 (the declared substrate) ·
+[`6/25`](../6/25-qm-adoptions.md) §2 (the declared substrate) ·
 [`5/P`](../5/P-runed.md) (the envelope) · [`5/14`](../5/14-credentials.md)
 (env-profile keys are the only credential in the `{env}` frame; capability
 credentials stay brokered) · [`5/33`](../5/33-paths-roles.md) (the grant

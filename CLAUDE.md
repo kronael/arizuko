@@ -54,14 +54,14 @@ them on each request.
   `GuardedBatch`, and every storage protocol is written OVER them rather than
   added TO them. `runed.Runtime` is the same shape for the execution substrate:
   `Run` + `Kill`, one production type, one instance one substrate
-  (`specs/6/41-qemu-substrate.md` §"The seam"). **Adding a method to either, or
+  (`specs/8/41-qemu-substrate.md` §"The seam"). **Adding a method to either, or
   widening the value they carry, needs an explicit plan the user approves
   first** — a port grows one convenience at a time and then no second
   implementation can be written against it, which is the whole reason it
   exists. The rule is the port, not the file.
 
   The value the port carries is named for the turn, never for a substrate:
-  `specs/6/41-qemu-substrate.md` §"The seam" fixes that vocabulary and says
+  `specs/8/41-qemu-substrate.md` §"The seam" fixes that vocabulary and says
   which fact each field holds. A substrate's own state — a container name, a
   CID, a tap — hangs off the handle and is never a field, so `Kill(handle)`
   finds all of it. A new per-turn fact changes the renderer, never the port.

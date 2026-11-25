@@ -27,7 +27,7 @@ const (
 	// ipcMount is where the agent's ipc dir appears in the guest. Declared here
 	// because two readers need the same path: this renderer mounts it, and the
 	// QEMU substrate's staging tree makes it a guest-local tmpfs instead — a
-	// unix socket does not cross virtio-fs (spec 6/41 §"The files").
+	// unix socket does not cross virtio-fs (spec 8/41 §"The files").
 	ipcMount = "/run/ipc"
 )
 

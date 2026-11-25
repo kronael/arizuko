@@ -104,7 +104,7 @@ bounded by the same deadline timers, with teardown on every exit path
 `Runtime`; the prose here would only restate it. `Manager.spawn` renders the
 wire request into the substrate's envelope and arms the one deadline from
 `RunTTL`, so a substrate reads `ctx.Deadline()` and never keeps a timer of
-its own ([`6/41`](../6/41-qemu-substrate.md) §"The seam").
+its own ([`8/41`](../8/41-qemu-substrate.md) §"The seam").
 
 Two properties that are decisions, not mechanism:
 
@@ -128,7 +128,7 @@ never sees the conversation.
   production type, chosen at runed start: `dockerRuntime`
   (`runed/docker.go:27`, built by `NewDockerRuntime` at line 43) runs
   `docker run -i --rm`, and the VM substrate of
-  [`6/41`](../6/41-qemu-substrate.md) replaces it. `FakeRuntime`
+  [`8/41`](../8/41-qemu-substrate.md) replaces it. `FakeRuntime`
   (`runed/runtimes.go:11`) backs the contract and unit tests, and
   `holdRuntime` (`runed/hold.go`) is the run that starts nothing. An
   instance runs exactly one substrate.

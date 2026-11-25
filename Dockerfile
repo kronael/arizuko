@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     make -j$(nproc) docker-build OUT=/
 
 FROM alpine:3.20
-# The VMM side (spec 6/41 §"The runed deploy topology"): qemu runs one guest per
+# The VMM side (spec 8/41 §"The runed deploy topology"): qemu runs one guest per
 # turn, virtiofsd exports the turn's share, socat bridges the guest's MCP port,
 # iptables writes the tap's rule set — the one that accepts the guest's proxy and
 # drops everything else — and iproute2 creates the tap itself. BOTH were missing

@@ -83,7 +83,7 @@ func TestCheckSourcedFragment(t *testing.T) {
 }
 
 // The owner databases are gone from the instance tree: the store server holds
-// them (spec 6/42 §9). A volume line that names one of the three old
+// them (spec 8/42 §9). A volume line that names one of the three old
 // directories would hand a service a bind to a path nothing writes, so no
 // line of the generated deployment may carry one, whichever service it is
 // under.

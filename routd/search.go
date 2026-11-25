@@ -12,7 +12,7 @@ import (
 
 // FindMessages is the one handler behind `find_messages` and `GET
 // /v1/messages/find`: a bounded newest-first scan of the store
-// (specs/6/42-dynamo-over-postgres.md). The caller has already confined
+// (specs/8/42-dynamo-over-postgres.md). The caller has already confined
 // req.Scope to what it may read.
 func (d *DB) FindMessages(ctx context.Context, req apiv1.FindRequest) (apiv1.FindResponse, error) {
 	since, err := findInstant("since", req.Since)

@@ -1,5 +1,5 @@
 // guest-init is the guest's entire userspace: PID 1 in the initrd arizuko boots
-// per turn (spec 6/41 §"The turn" steps 6-9). It mounts what the host exported,
+// per turn (spec 8/41 §"The turn" steps 6-9). It mounts what the host exported,
 // takes the turn's env and payload over vsock, runs the agent, and powers the
 // guest off. Nothing else is in the initrd, so every driver it uses is built
 // into the kernel (kernel/arizuko.fragment).

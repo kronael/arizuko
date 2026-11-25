@@ -1,5 +1,5 @@
 {{/*
-runed — the execution plane: one KVM guest per turn (spec 6/41). Root, because
+runed — the execution plane: one KVM guest per turn (spec 8/41). Root, because
 virtiofsd carries guest credentials onto host files and the staging tree's bind
 mounts are made in runed's own mount namespace. /dev/kvm, /dev/vhost-vsock and
 /dev/net/tun come from the node; NET_ADMIN is for the tap and its rule set,

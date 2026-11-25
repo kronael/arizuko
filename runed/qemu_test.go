@@ -171,7 +171,7 @@ func TestClampRefusesAMissingBinary(t *testing.T) {
 
 // The guest size and the concurrency cap are one budget: this refusal is what
 // stops five 4 GB guests being admitted onto a 15 GB host, where the second one
-// to touch its pages takes the host down rather than the turn (spec 6/41 §"The
+// to touch its pages takes the host down rather than the turn (spec 8/41 §"The
 // host budget"). Both settings are named, because either one is the fix.
 func TestMemoryFitsIsTheGuestSizeTimesTheCap(t *testing.T) {
 	const total = 16376992 * 1024 // hel1v5's own MemTotal

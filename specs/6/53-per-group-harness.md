@@ -238,7 +238,7 @@ Settings affect the next run. An active process retains its snapshot.
 Before a backend change, the operator ends the active run and uses `/new`
 for affected topics. Session conversion and automatic resets are outside scope.
 The runtime port and its `Turn` value remain unchanged; `Turn.Env` already
-carries the document (specs/6/41-qemu-substrate.md §"The seam").
+carries the document (specs/8/41-qemu-substrate.md §"The seam").
 
 ## One store write serves the dashboard, REST and agents
 

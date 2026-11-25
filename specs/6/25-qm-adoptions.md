@@ -104,7 +104,7 @@ with no reader.
 `substrate.Effective` is what a substrate delivers against it
 (`substrate/substrate.go:53,65`). There is now ONE declaration, not two:
 `runed.qemuProfile` (`runed/qemu.go:100`). `container.Profile` and
-`EgressConfig.Effective` were the Docker substrate's half and went with it at `6/41`
+`EgressConfig.Effective` were the Docker substrate's half and went with it at `8/41`
 step 4, which is the stronger form of this adoption — a second declaration cannot
 drift from the first when there is no second. `runed.NewQemuRuntime`
 (`runed/qemu.go`) returns the `Effective` at boot and `substrateLine`

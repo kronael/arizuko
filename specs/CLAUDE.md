@@ -72,7 +72,7 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
 
 ## Quote the section you cite
 
-`spec 6/42-dynamo-over-postgres §"Ties"`, not `spec 6/42 § ties`. The quotes are not style: they are the only delimiter a checker has.
+`spec 8/42-dynamo-over-postgres §"Ties"`, not `spec 8/42 § ties`. The quotes are not style: they are the only delimiter a checker has.
 
 `tests/specrefs` `TestEverySectionCitationResolves` reads the quoted form and
 fails when the text is nowhere in the spec. The unquoted form has no end — the
@@ -129,7 +129,7 @@ whether the number resolves, never whether it names the same document
 
 This is not hypothetical arithmetic. **MEASURED 2026-09-20: 56 spec numbers are
 live today and named a different file before** — among them `5/9`,
-`5/33`, `6/41`, `6/42` and every number in phases 16 and 17.
+`5/33` and every number in phases 16 and 17.
 
 Two corollaries, both of which have cost real work:
 

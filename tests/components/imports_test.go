@@ -24,7 +24,7 @@ const (
 // other — a component reads substrate's declaration and egress's allowlist
 // matcher — but nothing else inside arizuko. The KVM substrate is not in the
 // set: it is runed's own unexported code, and qemubox is the standalone tool
-// (spec 6/41-qemu-substrate).
+// (spec 8/41-qemu-substrate).
 var shippable = []string{"egress", "substrate", "mcpfw"}
 
 func deps(t *testing.T, pattern string) []string {
@@ -129,7 +129,7 @@ func TestNoPackageOpensSQL(t *testing.T) {
 	for _, dep := range lines {
 		if banned[dep] {
 			t.Errorf("a package imports the SQL driver %q; the store server owns the "+
-				"engine and arizuko is one client of it (spec 6/42)", dep)
+				"engine and arizuko is one client of it (spec 8/42)", dep)
 		}
 	}
 }

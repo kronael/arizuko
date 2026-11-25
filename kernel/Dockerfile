@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# The guest kernel arizuko boots per turn (spec 6/41). Built here and NOT in
+# The guest kernel arizuko boots per turn (spec 8/41). Built here and NOT in
 # ant/Dockerfile: ant/ took 130 commits in 60 days while this changes when its
 # pinned version or fragment changes, and `docker builder prune -f` — the disk
 # lever of the spec's host budget — would delete a cache this lived in.

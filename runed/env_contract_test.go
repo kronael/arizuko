@@ -11,7 +11,7 @@ package runed
 // then asserts that the ONE renderer of that env, turnEnv, emits each one. It
 // fails when either side moves: ant adding a read, or Go dropping an emission.
 //
-// It read the Docker substrate's `-e` argument list until spec 6/41 step 4
+// It read the Docker substrate's `-e` argument list until spec 8/41 step 4
 // deleted that substrate. The map is the better subject anyway: it is what
 // renderTurn produces and what every substrate delivers unchanged, so this pins
 // the producer rather than one consumer's spelling of it.

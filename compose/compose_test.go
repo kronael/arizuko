@@ -130,7 +130,7 @@ func TestGenerateBaseDaemons(t *testing.T) {
 		}
 		// runed is the exception and it is root: virtiofsd carries guest
 		// credentials to host files and the staging tree's binds are made in its
-		// own mount namespace (spec 6/41 §"The runed deploy topology").
+		// own mount namespace (spec 8/41 §"The runed deploy topology").
 		if svc == "runed" {
 			continue
 		}
@@ -139,7 +139,7 @@ func TestGenerateBaseDaemons(t *testing.T) {
 		}
 	}
 	// NO daemon mounts the docker socket: the turn is a KVM guest, so runed holds
-	// device nodes instead (spec 6/41 step 4 deleted the container substrate).
+	// device nodes instead (spec 8/41 step 4 deleted the container substrate).
 	for _, svc := range []string{"runed", "routd", "authd"} {
 		if strings.Contains(serviceBlock(out, svc), "docker.sock") {
 			t.Errorf("%s must NOT mount docker.sock", svc)
@@ -995,7 +995,7 @@ func TestTheModelGatewayMasterKeyReachesRoutdAndNotRuned(t *testing.T) {
 // TestRunedHoldsTheDockerSocketOnlyUnderDocker and its qemu twin pin the two
 // shapes of one service against each other. A substrate is chosen once, in the
 // instance's configuration, and the privilege the service grants has to follow
-// that choice or runed refuses to start (spec 6/41 §"The runed deploy topology").
+// that choice or runed refuses to start (spec 8/41 §"The runed deploy topology").
 // service cuts one service's block out of the compose document. Scoping matters
 // and is not pedantry: the first cut of the test below asserted on the WHOLE
 // file and failed, because every other daemon also runs as uid 1000, so an
@@ -1023,7 +1023,7 @@ func service(t *testing.T, doc, name string) string {
 
 // runed holds the VM's three device nodes and two capabilities, and no docker
 // socket. There is nothing to select: the Docker substrate and RUNED_SUBSTRATE
-// went at spec 6/41 step 4, so this is what every generated instance gets.
+// went at spec 8/41 step 4, so this is what every generated instance gets.
 func TestRunedHoldsTheVMDevices(t *testing.T) {
 	out := service(t, gen(t, seed(t, "")), "runed")
 	// Every device and capability is named, not counted: a missing /dev/net/tun

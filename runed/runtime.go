@@ -22,12 +22,12 @@ const (
 
 // Runtime starts one guest and stops it. ctx carries the deadline.
 //
-// There is one production implementation, the KVM guest of spec 6/41
+// There is one production implementation, the KVM guest of spec 8/41
 // (NewQemuRuntime in qemu.go). holdRuntime is the executor for a run that starts
 // nothing, and FakeRuntime backs tests without a hypervisor. The port is two methods: a
 // third, or a Turn field a substrate must interpret rather than deliver, needs
 // an approved plan first (root CLAUDE.md, "A port is two methods and stays
-// two"; spec 6/41 §"The seam").
+// two"; spec 8/41 §"The seam").
 type Runtime interface {
 	Run(ctx context.Context, t Turn) RunResult
 	// Kill stops a live guest by handle (DELETE /v1/runs/{id}). A no-op for a
@@ -36,7 +36,7 @@ type Runtime interface {
 }
 
 // Turn is the envelope: one guest, rendered. A substrate delivers every field
-// and interprets none. renderTurn is the one producer (spec 6/41
+// and interprets none. renderTurn is the one producer (spec 8/41
 // §"The renderer"); the substrates and the fake are the only consumers.
 type Turn struct {
 	// Handle is what the substrate starts and kills by.

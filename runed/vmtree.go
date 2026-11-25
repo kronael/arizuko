@@ -70,7 +70,7 @@ type treeManifest struct {
 	// Tmpfs are the guest-local paths that are NOT in the share. A unix socket
 	// does not cross virtio-fs — a bind-mounted socket answers "Operation not
 	// supported" — so the agent's ipc dir is a guest tmpfs and its socket is
-	// bridged over vsock instead (spec 6/41 §"The mechanisms").
+	// bridged over vsock instead (spec 8/41 §"The mechanisms").
 	Tmpfs []string `json:"tmpfs"`
 }
 

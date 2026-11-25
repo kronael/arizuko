@@ -1,4 +1,4 @@
-# arizuko guest kernel fragment (spec 6/41 §"The image and the guest kernel").
+# arizuko guest kernel fragment (spec 8/41 §"The image and the guest kernel").
 # Every driver the turn needs is built IN, never a module: the initrd carries
 # guest-init and nothing else, so a module has nothing to load it.
 # Measured 2026-09-24: the distro kernel ships these three as =m and a guest on

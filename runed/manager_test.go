@@ -171,7 +171,7 @@ func TestRepeatedRunFailuresKeepAdmission(t *testing.T) {
 }
 
 // TestRunTTLBecomesTheCtxDeadline: m.runTTL is the run ceiling and it reaches
-// the executor as ctx's deadline — the ONE deadline of spec 6/41 §"The seam".
+// the executor as ctx's deadline — the ONE deadline of spec 8/41 §"The seam".
 // A substrate with a timer of its own reads it from there, so nothing on the
 // port carries a duration. TestManagerAppliesRunTTLDeadline covers the kill the
 // elapsed deadline causes; TestDockerCtxDeadlineKills covers the substrate's
