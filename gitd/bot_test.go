@@ -165,6 +165,32 @@ func TestSend_PostsComment(t *testing.T) {
 	}
 }
 
+func TestSend_EventNoticeTarget(t *testing.T) {
+	const path = "POST /repos/kronael/arizuko/issues/12/comments"
+	gh, seen := fakeGitHubAPI(t, map[string]string{path: `{"id":777}`})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
+	pr := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "pull_request", "pull_request_opened")
+	id, err := b.Send(chanlib.SendRequest{ChatJID: pr.ChatJID, Content: "turn failed"})
+	if err != nil || id != "gh-c777" || len(*seen) != 1 || (*seen)[0] != path {
+		t.Fatalf("PR notice = %q, %v; requests = %v", id, err, *seen)
+	}
+
+	*seen = nil
+	push := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "push", "push")
+	_, err = b.Send(chanlib.SendRequest{ChatJID: push.ChatJID, Content: "turn failed"})
+	if !errors.Is(err, chanlib.ErrInvalidRequest) {
+		t.Fatalf("push notice error = %v, want ErrInvalidRequest", err)
+	}
+	failure := retry.FromError(err, time.Now())
+	if failure.Kind != "permanent" || !strings.Contains(err.Error(), "github:kronael/arizuko") ||
+		!strings.Contains(err.Error(), "pr/<n>") || !strings.Contains(err.Error(), "issue/<n>") {
+		t.Errorf("push notice failure = %+v, error = %v", failure, err)
+	}
+	if len(*seen) != 0 {
+		t.Errorf("push notice requests = %v, want none", *seen)
+	}
+}
+
 // fakeGitHubAPI answers only the paths a test names, so a request to any other
 // endpoint comes back 404 and the test says which path the code chose.
 func fakeGitHubAPI(t *testing.T, bodies map[string]string) (*httptest.Server, *[]string) {

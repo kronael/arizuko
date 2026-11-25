@@ -14,6 +14,29 @@
 > so counting one as open overstates the queue.
 
 
+## 📋 RECORD L947 — repository-level GitHub events have no PR comment target (2026-11-25, not a defect; original L938)
+
+The supplied census reports 52 failure notices refused on
+`github:<owner>/<repo>`. A repository JID alone names no PR or issue comment
+thread. `gitd/event.go:430–500` assigns PR events and comments their full
+`/pr/<number>` JID; repository push events at lines 370–407 carry no PR
+identity. `routd/placement.go:21` and `returnTarget` preserve the bound JID
+and explicit ReturnTo. Neither a topic label nor free text is an authoritative
+PR association.
+`gitd/bot.go:320–322` correctly rejects the repository destination with
+`has no comment thread; reply on a pr/<n> or issue/<n> jid`. The detailed
+refusal reaches status logs; the failed notice remains in the delivery store.
+Choosing a PR from a repository event would require a new, explicit target.
+**Measured:** source establishes supported PR placement and unsupported
+repository placement; the 52 live inputs are outside this task's data scope,
+so their individual event types are not inferred.
+**Type:** traceability; intentional refusal. `gitd/bot_test.go::TestSend_EventNoticeTarget`
+maps PR and push fixtures through `Send`: the PR posts to issue comments for
+PR 12; the push returns a permanent, descriptive refusal without any GitHub
+request. Current correct behavior has no pre-fix red. Removing the repository
+guard fails this regression (an HTTP 404 replaces the explicit refusal).
+The restored guard passes the focused race tests.
+
 ## L938 — a failure notice for a GitHub turn on the repository chat is never posted (2026-11-25, open)
 
 A turn whose chat is the repository JID (`github:vumilan/morha`) ends with a
