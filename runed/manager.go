@@ -23,7 +23,7 @@ const defaultMaxConcurrent = 5
 // Manager owns the execution plane's run lifecycle: per-topic serialization
 // (one live spawn per folder and topic; a hold takes the whole folder), the
 // global concurrency cap and the Runtime envelope
-// (spec 5/P-runed). Admission is a pure claim-or-reject decision off the DB; runed
+// (runed/README.md). Admission is a pure claim-or-reject decision off the DB; runed
 // keeps NO internal admission queue, and a caller that cannot be admitted
 // gets a retryable busy outcome and routd re-feeds it.
 type Manager struct {

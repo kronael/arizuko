@@ -1,4 +1,4 @@
-// Command runed runs the runed daemon: the execution plane (spec 5/P-runed) —
+// Command runed runs the runed daemon: the execution plane (runed/README.md) —
 // the work queue and the per-spawn container lifecycle. runed never appends a
 // message (routd is the sole appender), holds no signing key, and mints no
 // token: it verifies its callers against authd's JWKs and spawns containers.
@@ -63,7 +63,7 @@ func main() {
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	// The turn substrate, built once at start where the operator is looking
 	// (spec 8/41 §"The seam"), together with what it delivers on this
-	// configuration (spec 6/25 §3). An error is a host that cannot run
+	// configuration (substrate/README.md). An error is a host that cannot run
 	// a turn as declared — a missing device node, a missing guest kernel or
 	// rootfs, an egress proxy binary that is not there, a virtiofsd that cannot
 	// clamp the guest's uid. Refusing to start is the loud version, once at
@@ -113,7 +113,7 @@ func main() {
 	go audit.PruneLoop(ctx, db.Obj())
 
 	// Verifier: offline-verify callers (routd / operator / agent) against
-	// authd's JWKs. runed holds no signing key (spec 5/P-runed § Auth).
+	// authd's JWKs. runed holds no signing key (runed/README.md § Dependencies).
 	var verify runed.Verifier
 	// dashKeys arms the /dash/runed/ operator gate from the SAME keyset the /v1
 	// verifier uses; nil (no AUTHD_URL) leaves the dashboard open in local dev.
@@ -184,7 +184,7 @@ func main() {
 	}()
 
 	<-stop
-	// Graceful shutdown (spec 5/P-runed § Graceful shutdown): stop accepting new
+	// Graceful shutdown (runed/README.md § "What runed does"): stop accepting new
 	// POST /v1/runs and wait up to RUNED_SHUTDOWN_GRACE for the handlers
 	// already running to finish.
 	//

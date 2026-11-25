@@ -54,7 +54,7 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
    (`README`/`ARCHITECTURE`/`SECURITY`/`EXTENDING`/`GRANTS`) + the owning
    daemon's `<pkg>/README.md`.
 4. **Tiers** — placed in the hot/cold-tier model (and, for credentials,
-   the three tiers of `5/14`: env-profile keys, which are the only
+   the three tiers in `SECURITY.md`: env-profile keys, which are the only
    table-backed credential that reaches container env; capability
    credentials, which are broker-only; infra credentials, which live in
    the host `.env`). The tier framing must name the new thing, not leave
@@ -83,7 +83,7 @@ can tell the pointer from the prose after it.
 MEASURED 2026-09-22: 83 quoted citations, all resolving and all guarded,
 against 146 unquoted ones that nothing can check. Five of the unquoted named a
 section that did not exist, including two in a retired auth spec about refresh behaviour and
-one in `5/P` about steering a live container.
+one in a retired runed spec about steering a live container.
 
 The same rule as the filename form above, one level down: prefer the shape that
 fails loudly when it stops being true.

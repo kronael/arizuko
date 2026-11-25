@@ -238,7 +238,7 @@ func main() {
 	srv := routd.NewServer(db, loop, deliver, verify, engagementTTL, webHost)
 	srv.SetDashKeySet(dashKeys)
 	srv.SetIdentityResolver(identity)
-	// session_log run history federated from runed (runed OWNS it — spec 5/P-runed):
+	// session_log run history federated from runed (runed OWNS it — runed/README.md):
 	// reuse routd's existing runed client, no new auth wiring. nil client →
 	// the new_session hint / inspect_session render "no prior session".
 	srv.SetSessionResolver(routd.NewSessionResolver(runedClient))

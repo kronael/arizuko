@@ -13,7 +13,7 @@ import (
 )
 
 // Verifier offline-verifies inbound bearer tokens against authd's keys. runed
-// is a verifier, not a signer (spec 5/P-runed § Auth). nil = open (local-dev).
+// is a verifier, not a signer (runed/README.md § Dependencies). nil = open (local-dev).
 type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
@@ -31,8 +31,8 @@ type Server struct {
 	// open.
 	dashKeys *auth.KeySet
 	// sub is what the substrate delivers on this configuration, shown on the
-	// dashboard so an operator reads a downgrade where they look (spec 6/25
-	// §3). The zero value renders nothing.
+	// dashboard so an operator reads a downgrade where they look
+	// (substrate/README.md). The zero value renders nothing.
 	sub substrate.Effective
 }
 
@@ -280,7 +280,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// handleRecentSessions is the routd→runed federation read (spec 5/P-runed): the n
+// handleRecentSessions is the routd→runed federation read (runed/README.md § Endpoints): the n
 // newest session_log rows for a folder, since routd never opens runed's store.
 // Folder is bound by the token's arz/folder claim when present; routd's
 // service token honors ?folder=.

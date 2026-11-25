@@ -2,7 +2,7 @@
 // for /v1/*. It imports only types/ — no arizuko-internal domain packages — so
 // routd can call runed without dragging in core (ARCHITECTURE.md § Daemon
 // conventions). The POST /v1/runs shapes are PINNED to the peer rendering in
-// routd/README.md and specs/5/P-runed; any drift between this package and routd's call
+// routd/README.md and runed/README.md; any drift between this package and routd's call
 // site is a contract break.
 package v1
 

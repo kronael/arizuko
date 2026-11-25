@@ -17,7 +17,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// /dash/me/env is the env-profile half of the spec 5/14 credential model:
+// /dash/me/env is the env-profile half of the credential model (SECURITY.md):
 // ANTHROPIC_API_KEY and its three siblings, user scope only. Its twin
 // /dash/me/secrets carries capability credentials and rejects these key names;
 // this file covers the reverse guard plus the write path itself, which shipped
@@ -233,8 +233,9 @@ func TestMeEnv_CrossGuard(t *testing.T) {
 }
 
 // TestMeEnv_ScopeValidationRejectsBadScope covers the store-layer enforcement the
-// env page's writes go through (spec 5/14: "the enforcement point, not a handler
-// convention"). PutSecretRow is the exact call handleMeEnvCreate makes.
+// env page's writes go through (SECURITY.md § "Door 1 puts the credential in
+// the environment at spawn"). PutSecretRow is the exact call handleMeEnvCreate
+// makes.
 func TestMeEnv_ScopeValidationRejectsBadScope(t *testing.T) {
 	d, _ := meSecretsTestDB(t)
 	ss := d.secretStore()

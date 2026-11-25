@@ -5,6 +5,8 @@ client. `runed` starts one per turn and stops it with the turn.
 
 The proxy checks the peer IP, destination name, and resolved address before it dials the selected address.
 It tunnels TLS without decrypting traffic. [runed](../runed/README.md) supplies the per-turn rules and network isolation.
+The proxy is `net/http` and adds no dependency. A third-party proxy would add a
+config renderer and a process supervisor to replace less code than they cost.
 
 ```text
 agent guest ──► egress --client <guest-ip> ──► permitted upstream
@@ -62,6 +64,10 @@ A bare `*` is not a list entry: allow-everything is the explicit
 elevated turn's egress grant) still means allow-all — runed translates it to
 `--allow-all` when it starts the spawn's proxy, so the magic string never
 reaches a list.
+
+`network_rules` holds allow rows only. The agent tool `network_deny` removes an
+allow row. `--deny` and `EGRESS_DENY` are flags of the binary that no arizuko
+path sets.
 
 ## A refusal names its cause
 

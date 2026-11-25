@@ -197,7 +197,7 @@ func TestSmoke_ContainerHealth(t *testing.T) {
 
 // TestSmoke_EgressImage proves the instance can still start a spawn's egress
 // proxy. There is no long-lived proxy container to probe any more — runed
-// starts one per spawn and stops it with the turn (spec 6/24) — so the
+// starts one per spawn and stops it with the turn (egress/README.md) — so the
 // post-deploy question is whether the image it starts them FROM is present.
 // A missing image fails every spawn, which is exactly the outage a redeploy
 // that forgot `make images` would cause. Skips when the instance configures

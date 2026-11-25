@@ -166,7 +166,7 @@ func buildMounts(
 	// layering. No os.Stat — HOST paths are resolved by the substrate at spawn time.
 	//
 	// The group dir mounts UNCONDITIONALLY: it holds the rollouts `codex exec resume`
-	// reads (spec 5/P-runed § "The container model"). Gating it on HostCodexDir
+	// reads (runed/README.md § Mounts). Gating it on HostCodexDir
 	// silently broke resume for anyone authenticating with OPENAI_API_KEY —
 	// codex wrote its rollout to a guest-local path and every resume
 	// afterwards found nothing.

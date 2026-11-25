@@ -34,9 +34,9 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 
 // TestSerializationNoConcurrentDoubleSpawn: many concurrent Run for ONE idle
 // folder never run two containers at once in the shared workspace — the
-// steer-check + spawn-row claim are one locked critical section (spec 5/P-runed §
-// per-folder serialization, folder-exclusivity). Without steer wired, the
-// losers are rejected busy (no internal queue); at most one runs at a time.
+// steer-check + spawn-row claim are one locked critical section
+// (runed/README.md § "Admission is claim or reject"). Without steer wired,
+// the losers are rejected busy (no internal queue); at most one runs at a time.
 func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	var live, peak int32
 	var mu sync.Mutex
@@ -105,8 +105,8 @@ func TestFollowupWaitsForActiveRun(t *testing.T) {
 }
 
 // TestConcurrencyCap: with MaxConcurrent=2 and 3 distinct busy folders, at
-// most 2 containers run at once; the 3rd is rejected busy (spec 5/P-runed §
-// MAX_CONCURRENT cap — no wait, no internal queue).
+// most 2 containers run at once; the 3rd is rejected busy
+// (runed/README.md § "Admission is claim or reject").
 func TestConcurrencyCap(t *testing.T) {
 	var live, peak int32
 	release := make(chan struct{})
@@ -233,7 +233,7 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 
 // TestTerminalOnWire: Manager.spawn copies RunResult.Terminal onto the
 // pinned RunOutcome, so routd receives the retry decision, not the raw
-// exit code (spec 5/12, BUGS F73).
+// exit code (runed/README.md § "How a turn ends", BUGS F73).
 func TestTerminalOnWire(t *testing.T) {
 	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		return RunResult{

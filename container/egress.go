@@ -44,7 +44,7 @@ func gatewayHost(raw string) string {
 // Both producers of "allow everything" — a folder's `*` network_rules row and
 // the renderer's egress-grant append — spell it as a `*` list entry, and the
 // egress binary takes an explicit --allow-all mode instead of a magic string in
-// a list (spec 6/25 1b), so this is where that becomes a flag.
+// a list (egress/README.md § Validation), so this is where that becomes a flag.
 //
 // The gateway is the model endpoint for this deployment, so it is allowed by
 // construction. Without it the proxy denies the gateway and EVERY turn fails

@@ -120,7 +120,7 @@ Both must close before Mode A ships to a tenant that isn't the operator.
 
 **The turn is socket-credentialed, not token-credentialed.** The
 `SO_PEERCRED`-gated socket is created at spawn and routd holds the other end
-([`P-runed.md`](P-runed.md) § Capability brokering — REMOVED), so identity
+(`auth/README.md` § "Authorization is one row and one question"), so identity
 is established by construction: Hermes authenticates by **being** the
 spawned process and presents no credential. **Do not reintroduce a bearer
 for Hermes** — a string handed to an agent with a shell and egress can be

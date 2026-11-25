@@ -58,7 +58,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 
 	case networkActionAllow:
 		folder := networkTargetFolder(x.Args, x.Caller.Folder)
-		// One rule grammar for every write path (match.ValidEntry, spec 6/25 1b).
+		// One rule grammar for every write path (match.ValidEntry, egress/README.md § Validation).
 		// Bare * is rejected BEFORE the shared grammar: opening all egress is an
 		// operator decision, not an agent grant.
 		raw := argString(x.Args, "host")

@@ -135,7 +135,7 @@ func TestNetworkRulesMCP_BadHostRejected(t *testing.T) {
 	}
 
 	// The classes the old validHostname let THROUGH (it allowed ':' and IPs) —
-	// rules that read as protection and never match (spec 6/25 1b). The full
+	// rules that read as protection and never match (egress/README.md § Validation). The full
 	// grammar table lives in egress/match; these pin the tool's wiring to it.
 	for _, host := range []string{"example.com:443", "10.0.0.8", "user@example.com"} {
 		if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": host}); e == "" {

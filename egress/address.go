@@ -23,8 +23,7 @@ var errBlockedAddress = errors.New("blocked address")
 // address class check closes the rest.
 //
 // Nothing here decrypts or inspects anything. This is address hygiene, not
-// interception; MITM stays declined (2026-08-18) and spec 6/25 decision 1 is
-// what this implements.
+// interception; MITM stays declined (egress/README.md § The address check).
 
 // blockedIP reports whether ip is a class the proxy must never reach on a
 // sandbox's behalf, whatever the allowlist says.

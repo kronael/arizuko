@@ -155,7 +155,7 @@ func (s *Store) deleteSecret(ctx context.Context, scope SecretScope, scopeID, ke
 }
 
 // secretV2Prefix marks an AES-256-GCM value: "v2:" + base64(nonce||ciphertext)
-// (spec 5/14). A value without it is legacy plaintext from before BUGS S2: the
+// (SECURITY.md § "SECRETS_KEY seals every row"). A value without it is legacy plaintext from before BUGS S2: the
 // read path opens it, no write path creates one.
 const secretV2Prefix = "v2:"
 
@@ -222,7 +222,7 @@ func (s *Store) storeValue(plaintext string) (string, error) {
 }
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub (specs/5/14-credentials.md).
+// or an auth user sub (SECURITY.md).
 type SecretScope string
 
 // SecretScopeFolder is the `scope_kind` of a folder-scoped secret, as a plain
@@ -489,7 +489,7 @@ func (s *Store) CountPlaintextSecrets(ctx context.Context) (int, error) {
 	return len(items), nil
 }
 
-// EncryptPlaintextSecrets seals every legacy-plaintext row in place (spec 5/14)
+// EncryptPlaintextSecrets seals every legacy-plaintext row in place (SECURITY.md)
 // and returns how many it sealed. Idempotent, chunked, never deletes. It
 // refuses without a key rather than reporting zero: a silent zero hid that it
 // ran nowhere until 2026-08-15 (BUGS L16).

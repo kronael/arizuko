@@ -10,7 +10,7 @@
 // The allowlist is fixed at construction, so there is no registry. There is
 // no DNS filter case: a single-tenant proxy already sees every destination in
 // the CONNECT line, and a rule expressed twice can disagree with itself
-// (spec 6/24).
+// (egress/README.md).
 package test
 
 import (
@@ -190,11 +190,11 @@ func TestE2E_Case4_HTTPSDenied(t *testing.T) {
 // ---- case 5: raw TCP socket.connect to allowlisted host:port -----------
 
 // This proxy speaks HTTP/CONNECT. Raw TCP cannot transit it at all — it is
-// not a SOCKS daemon, and with transparent mode deleted (spec 6/24) there
+// not a SOCKS daemon, and with no transparent mode there
 // is no interception path either. In production the sandbox sits on a
 // docker --internal network: raw TCP has nowhere to go.
 func TestE2E_Case5_RawTCPAllowed(t *testing.T) {
-	t.Skip("no transparent mode by design (6/24): raw TCP has no path through " +
+	t.Skip("no transparent mode by design: raw TCP has no path through " +
 		"a forward proxy, and the sandbox's internal network gives it no path around")
 }
 

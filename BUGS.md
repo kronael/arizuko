@@ -218,8 +218,8 @@ status (`FinishControlledTurn`, `RecordControlledStatus`).
 886 lines. No test — design.
 **Options:** (a) delete the breaker for run failures: `complete` stops writing
 `turn_control` unless the failure is a provider refusal, and the status write
-and the restart recovery lose their control guard; `specs/5/12-turn-retry.md`
-§"One breaker per instance" and `6/60` change; (b) also replace the provider
+and the restart recovery lose their control guard; `routd/README.md` § "The
+turn in routd" (the instance breaker and the model pause) changes; (b) also replace the provider
 hold with the reporting folder's `model_pauses` row as the gate, and delete the
 `turn_control` entity; (c) keep the folder hold.
 **Default if nothing is decided:** (c).
@@ -325,7 +325,7 @@ stopped." (`routd/turns.go:155-159`) and opens neither the instance breaker nor 
 model pause (`routd/turn_budget_test.go`). `6d9ad04c03924913e54fb919c01f1a8221c27104`
 adds the tests for `specs/7/57-group-handler.md` acceptance 2 and 3.
 **Facts the fix rests on:** any failed execution opens the instance breaker
-(`specs/5/12-turn-retry.md` § "One breaker per instance"), so a budget refusal must
+(`routd/README.md` § "The turn in routd", "Instance breaker"), so a budget refusal must
 end as a result and not as a failure. LiteLLM answers `budget_exceeded` with HTTP 422
 by default (`litellm/__init__.py:393` at BerriAI/litellm
 `923162a4e7c2c59583afe82c6bc357db30e0c9aa`) and with 429 when configured; ant matches
@@ -3062,7 +3062,7 @@ into a live run does not exist: since `3b028871` (2026-10-19) `runed` answers
 `busy=true` for a live folder (`runed/manager.go:208`; `Steered` is set by
 nothing in production), routd keeps the cursor (`routd/dispatch.go:138,444`;
 `TestBusyOutcomeRetriesWithoutAdvanceOrBreaker`) and the follow-up "starts with
-its own turn context" after the run ends (`specs/5/P-runed.md` § WHY reject).
+its own turn context" after the run ends (`runed/README.md` § "Admission is claim or reject").
 Row 3385 was above the cursor the whole time, so the second turn is the
 contract, not a missed advance. The 6-minute guest boot (`L522`) is what made
 the window long enough for the agent to look.

@@ -157,7 +157,7 @@ func TestPinnedPeerPasses(t *testing.T) {
 }
 
 // TestAllowAllAllowsEverything — the explicit mode the elevated egress grant
-// rides. It replaced the magic "*" list entry (spec 6/25 1b): a bare "*" in a
+// rides. It replaced the magic "*" list entry (egress/README.md § Validation): a bare "*" in a
 // list is a construction error now (TestNewRefusesInvalidRules).
 func TestAllowAllAllowsEverything(t *testing.T) {
 	up := upstream(t)

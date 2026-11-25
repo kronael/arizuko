@@ -6,7 +6,7 @@ import (
 )
 
 // Host test table: AllowAll is an explicit mode on Allowed, not a "*" list
-// entry (spec 6/25 1b).
+// entry (egress/README.md § Validation).
 
 func TestHost(t *testing.T) {
 	tests := []struct {

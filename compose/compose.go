@@ -751,7 +751,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	const app = "arizuko"
 	// ARIZUKO_INSTANCE is the OTLP service.instance.id (obs/README.md).
 	env["ARIZUKO_INSTANCE"] = instance
-	// Service-key provisioning (ARCHITECTURE.md + 5/P-runed): each daemon authenticates to
+	// Service-key provisioning (ARCHITECTURE.md): each daemon authenticates to
 	// authd with its own AUTHD_SERVICE_KEY, which authd recognises via
 	// AUTHD_SERVICE_KEYS (hashed at compare time). Keys persist in the
 	// per-daemon env files so a redeploy keeps the same identity.
@@ -863,7 +863,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 		}
 	}
 	b.WriteString("services:\n")
-	// authd + routd + runed are the only topology (ARCHITECTURE.md + 5/P-runed), so they
+	// authd + routd + runed are the only topology (ARCHITECTURE.md), so they
 	// carry no profile.
 	b.WriteString(authdService(app, instance))
 	b.WriteString(routdService(app, instance, dataDir, env))

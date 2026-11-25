@@ -1,7 +1,7 @@
 DAEMONS = authd routd runed onbod dashd proxyd webd teled discd emaid slakd gitd googd ttsd
 # COMPONENTS are sibling pieces with their own Makefile and README. They live
 # in this monorepo but are orthogonal: their code does not import
-# arizuko-internal packages. egress is what runed starts per spawn (spec 6/24).
+# arizuko-internal packages. egress is what runed starts per spawn (egress/README.md).
 COMPONENTS = egress anteval
 
 # DOCKER may be overridden by the caller for hosts where the invoking user is

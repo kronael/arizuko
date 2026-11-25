@@ -1,13 +1,6 @@
 ---
 status: partial
-depends:
-  [
-    ../6/24-crackbox-lightest,
-    ../6/25-qm-adoptions,
-    ../5/P-runed,
-    ../5/14-credentials,
-    ../5/33-paths-roles,
-  ]
+depends: [../5/33-paths-roles]
 ---
 
 # specs/8/41 — the QEMU substrate: one turn, one guest kernel
@@ -29,7 +22,7 @@ host boot timer (§"The image and the guest kernel"). The day estimate is
 accepted only after step 0 reports. **Signed off 2026-11-24:** the port
 carries no steer; nothing writes into a live guest (§"Busy and stop").
 
-The turn model of [`5/A`](../5/A-primitives-framing.md) holds unchanged: the guest is
+The turn model of `ARCHITECTURE.md` § "Message Flow" holds unchanged: the guest is
 stateless, the folder and the database carry every fact across turns, and the
 container mount table in `runed/README.md` § Mounts is the
 contract the agent sees — the same left column, delivered by a different
@@ -152,7 +145,7 @@ The deadline is `ctx`. `Manager.spawn` arms it from `RunTTL`, and the group's
 `RUNED_RUN_TIMEOUT` is that one deadline, never a
 substrate's timer. A substrate with a timer of its own reads `ctx.Deadline()`.
 A run that reaches the deadline returns `RunResult.Terminal`: routd does not
-spend a retry on an exhausted deadline (`specs/5/12-turn-retry.md`). Preparation and control failures use the common retry policy before their causes become text.
+spend a retry on an exhausted deadline (`routd/README.md` § "The turn in routd"). Preparation and control failures use the common retry policy before their causes become text.
 
 **The renderer.** The envelope half of `container.Run` — `prepareInput`,
 `buildMounts`, `seedSettings`, `spawnSecrets`, `pickOutputStyle`, the
@@ -505,7 +498,7 @@ either.
 
 ## Egress by name, sealed below the kernel
 
-[`6/24`](../6/24-crackbox-lightest.md) §"Two substrates, one design" states the VM
+`egress/README.md` § "This proxy is half the enforcement" states the VM
 case: put the proxy on the host side of the tap and the guest's only route is
 through it. This spec builds exactly that.
 
@@ -527,7 +520,7 @@ through it. This spec builds exactly that.
   reaches netfilter, and the proxy is the one matcher for names and addresses
   alike.
 - runed's substrate profile delivers `domain`, and `Effective` says so from
-  the same one named function shape `6/25` §2 requires: the proxy binary
+  the same one named function shape `substrate/README.md` requires: the proxy binary
   missing is an error at runed start, never a quiet open spawn.
 
 Cost accepted: a tool inside the guest that resolves a name itself before
@@ -829,7 +822,7 @@ a guest, a tap or a pid. Six files hold it, one concern each.
   names every value it expects. `qemuProfile` is the substrate declaration —
   `KVM`, `MountedHome`, `Sessions: false`, `EgressDomain` — and `Delivered`
   equals `Declared` or runed does not start, so there is no half configuration
-  to report (`6/25` §2).
+  to report (`substrate/README.md`).
 
 ## Order
 
@@ -1036,10 +1029,10 @@ step 8), which splits what the guest holds into page cache (`Cached`), tmpfs
 ## Ties
 
 `ARCHITECTURE.md` § Decided, and why (no warm pool: the trigger and the pool's
-consequences) · [`6/24`](../6/24-crackbox-lightest.md) (the VM case of the
+consequences) · `egress/README.md` (the VM case of the
 proxy, and the docker-only egress env vars step 4 deletes) ·
-[`6/25`](../6/25-qm-adoptions.md) §2 (the declared substrate) ·
-[`5/P`](../5/P-runed.md) (the envelope) · [`5/14`](../5/14-credentials.md)
+`substrate/README.md` (the declared substrate) ·
+`runed/README.md` (the envelope) · `SECURITY.md`
 (env-profile keys are the only credential in the `{env}` frame; capability
 credentials stay brokered) · [`5/33`](../5/33-paths-roles.md) (the grant
 decisions the tree renders) · BUGS `L136`, `L137`, `L189`.

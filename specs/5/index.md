@@ -34,23 +34,19 @@ surfaces, identity, and tenancy. The directory `../9/` closes and minimizes:
 
 ## Routing and messaging
 
-| Spec                                 | Status  | Hook                                                                                                                                                                                                                                                                         |
-| ------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [12-turn-retry.md](12-turn-retry.md) | shipped | Retry a failed turn from its saved input three times on a schedule (chat 30 s/2 min/5 min, cron 15/45/180 min) behind one instance breaker; timeouts and terminal failures never retry.; facts in `routd/README.md` § The turn in routd, `runed/README.md` § How a turn ends |
+| Spec | Status | Hook |
+| ---- | ------ | ---- |
 
 ## Runtime — the turn and the container
 
 | Spec | Status | Hook |
 | -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| [P-runed.md](P-runed.md) | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token.; facts in `runed/README.md` § Admission is claim or reject |
-| [A-primitives-framing.md](A-primitives-framing.md) | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system. | ; facts in `concepts/routing.html`, `template/web/CLAUDE.md` § Voice |
 | [9-agent-capability-eval.md](9-agent-capability-eval.md) | defected | `anteval` — a black-box capability gate driving real tasks through the public surfaces. **DEFECTED `L72`**: § "Approach" says teardown is best-effort, and the driver has no teardown; facts in `anteval/README.md`, `howto/build-a-product.html` |
 
 ## Tenancy, onboarding, credentials
 
 | Spec | Status | Hook |
 | ---------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| [14-credentials.md](14-credentials.md) | shipped | The credential model: env-profile versus capability versus infra. Only env-profile keys reach container env; capability credentials are broker-only (`X1`, 2026-08-09). | ; facts in `SECURITY.md` § Secret injection, `concepts/secrets.html`, `reference/env.html` § SECRETS_KEY |
 | [25-integration-catalog.md](25-integration-catalog.md) | reference | The integration surface: arizuko as the gated, audited fabric an agent operates. |
 | [26-integration-usecases.md](26-integration-usecases.md) | reference | The use-case corpus grounding `5/25`. |
 

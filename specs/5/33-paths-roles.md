@@ -4,7 +4,6 @@ status: defected
 # L538: § "Where the axis deliberately does NOT reach" says the container
 # capabilities refuse the action lattice; routd reads them through it
 defects: [L538]
-depends: [5/A-primitives-framing]
 ---
 
 # specs/5/33 — paths, roles, and grant-option (tiers removed)

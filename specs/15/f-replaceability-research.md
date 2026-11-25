@@ -36,7 +36,7 @@ count, and is exactly how a component gets rebuilt anyway.
 ## Components, and the honest starting point
 
 - **egred** (per-source-IP egress allowlist, shipped under
-  [6/24-crackbox-lightest](../6/24-crackbox-lightest.md)). squid does
+  [egress](../../egress/README.md)). squid does
   per-source ACL + CONNECT tunneling out of the box and reloads ACLs via an
   `external_acl` helper; mitmproxy is scriptable and would matter if we ever
   want credential injection (`EXTENDING.md`); envoy

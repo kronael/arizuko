@@ -305,7 +305,7 @@ codex grant (removed)       group .codex rollouts ─► guest .codex
 ```
 
 Model credentials belong to the env-profile class in
-`specs/5/14-credentials.md`; the operator fallback is host infrastructure.
+`SECURITY.md` § "A credential reaches work through one of two doors"; the operator fallback is host infrastructure.
 They are not broker-only capability credentials. `store/secrets.go:248-255`
 already lists `OPENAI_API_KEY` and `CODEX_API_KEY` beside
 `CLAUDE_CODE_OAUTH_TOKEN`. `routd/dispatch.go:858` supplies caller credentials;

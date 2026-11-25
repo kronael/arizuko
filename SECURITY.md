@@ -531,6 +531,10 @@ authorization principal, which is `folder:<path>`. A scheduled task therefore
 finds no row of a person. A cron task that needs a capability credential needs
 a key at folder scope.
 
+A stored key grants nothing, and a grant does not move a key to another owner.
+An `acl` row decides who may call the tool. The key still resolves from the
+`callerSub` of that call.
+
 Each resolved key writes one `secret_use_log` row and the `audit_log` row that
 reports it, in one write, see `LogSecretUse` in `store/secret_use_log.go`. The row
 holds the key, the scope, the status and the latency, and never the value. The

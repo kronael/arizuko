@@ -11,7 +11,7 @@ import (
 )
 
 // The dashboard states what the substrate delivers and why less when less: the
-// operator's surface for an egress downgrade (spec 6/25 §3). Under the one
+// operator's surface for an egress downgrade (substrate/README.md). Under the one
 // substrate a downgrade cannot happen — NewQemuRuntime refuses to start instead
 // of delivering less — so what this pins is that the page renders the delivered
 // profile at all, and the Reason line when one is set.

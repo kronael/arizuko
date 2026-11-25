@@ -81,7 +81,7 @@ func rel(p string) string { return strings.TrimPrefix(p, root+"/") }
 //
 // Four forms are in use: a bare stem in the same phase (`42-dynamo-over-postgres`), a
 // phase-qualified stem (`5/33-paths-roles`), a repo-rooted one
-// (`specs/5/9-agent-capability-eval`) and a relative one (`../5/14-credentials`).
+// (`specs/5/9-agent-capability-eval`) and a relative one (`../5/33-paths-roles`).
 func TestEveryDependsEntryResolves(t *testing.T) {
 	dependsRe := regexp.MustCompile(`(?m)^depends:\s*\[([^\]]*)\]`)
 	specDir := filepath.Join(root, "specs") + string(filepath.Separator)
@@ -124,7 +124,7 @@ func TestEveryDependsEntryResolves(t *testing.T) {
 	}
 }
 
-// specIDRe matches a spec ID written as prose in backticks — `8/42`, `5/A`,
+// specIDRe matches a spec ID written as prose in backticks — `8/42`, `8/E`,
 // `specs/5/33`. That is how most of the corpus cites a spec, and it is the form
 // no other check sees: a link check reads `](path.md)` and the depends check
 // reads frontmatter, so a prose ID can name a retired number while the build
@@ -279,7 +279,7 @@ var numberedBefore = regexp.MustCompile(`[1-9][0-9]?/[0-9A-Z][0-9A-Za-z-]*[\s\x6
 // TestEveryBareSectionCitationResolves is the other half of the same hole.
 // sectionRe requires the word "spec" and a number, so a pointer written as a
 // bare §"Heading" is unread, and a renamed heading takes every pointer to it in
-// silence. `6/24`'s §"Two parts" became §"What is left" in one refine pass, and
+// silence. One spec's §"Two parts" became §"What is left" in one refine pass, and
 // no test could say what cited it.
 //
 // It does NOT assume the pointer means the containing file. Measured: a bare §

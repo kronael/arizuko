@@ -5,7 +5,7 @@ status: not planned
 # Company brain — positioning, and the one real gap
 
 A flagship use case in the grand message
-([5/A-primitives-framing](../5/A-primitives-framing.md)). Unlike the shipped
+(`concepts/primitives.html` of the operator docs). Unlike the shipped
 products it is **not** a `packages/` template and should not become
 one yet: its single genuine gap is connector ingestion + retrieval, which is
 an integration, not a primitive arizuko is missing.

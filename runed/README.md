@@ -24,7 +24,7 @@ runed does these jobs:
 - It serves `POST /v1/holds`. A hold claims the run slot of a folder for an external job that needs the folder alone. Examples are a filesystem restore, a vacuum and a migration. No agent turn starts in that folder until the hold ends.
 - It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A ctl frame over vsock carries the stop. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
 - It enforces `RUNED_RUN_TIMEOUT` per run. An hourly timer deletes only expiry keys older than seven days. Create and teardown maintain expiry and live pointers atomically. Startup migrates these pointers once before orphan recovery.
-- On graceful shutdown it drains HTTP handlers for RUNED_SHUTDOWN_GRACE. Request cancellation can end a guest; disk records support startup reaping.
+- On SIGTERM it stops accepting `POST /v1/runs` and drains the running handlers for `RUNED_SHUTDOWN_GRACE`. The run context is the context of the request, so when routd drops the request, runed stops the guest. A deploy that stops routd therefore ends the turn, and routd feeds the batch again: a turn is delivered at least once across a deploy. A guest cannot outlive routd, because the MCP socket of the turn lives in the routd process. Disk records support startup reaping.
 
 ## Entities runed owns
 

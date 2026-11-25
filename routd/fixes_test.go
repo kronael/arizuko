@@ -523,7 +523,7 @@ func TestRunErrorNotifiesEveryChatTheRunOwned(t *testing.T) {
 }
 
 // TestTurnRetry_SchedulesRetryOnError verifies that a failed turn without a
-// reply schedules a retry (spec 5/12).
+// reply schedules a retry (routd/README.md).
 func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -582,7 +582,7 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 // TestTurnRetry_TerminalNotRetried: a failure runed marked Terminal (bad
 // image, failed docker start) is never retried, and the notice carries
 // runed's error text so the user sees the real cause, not the generic
-// failure text (spec 5/12, BUGS F73). Contrast
+// failure text (routd/README.md, BUGS F73). Contrast
 // TestTurnRetry_SchedulesRetryOnError: the same OutcomeError WITHOUT
 // Terminal still schedules a retry — the zero value must stay retryable.
 func TestTurnRetry_TerminalNotRetried(t *testing.T) {
@@ -628,7 +628,7 @@ func TestTurnRetry_TerminalNotRetried(t *testing.T) {
 }
 
 // TestTurnRetry_ExhaustsAndNotifies verifies that after ten failures
-// without a reply, the user gets the exhausted notice (spec 5/12).
+// without a reply, the user gets the exhausted notice (routd/README.md).
 func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

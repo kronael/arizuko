@@ -10,7 +10,7 @@
 // stays in core/ or in the daemon that owns the semantics. types/ is the
 // boundary, not the implementation.
 //
-// Spec: specs/5/A-primitives-framing.md § "Identity".
+// auth/README.md § "Authorization is one row and one question".
 package types
 
 // UserSub is an OAuth subject: the stable per-user identifier minted by

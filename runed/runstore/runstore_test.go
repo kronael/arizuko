@@ -128,8 +128,9 @@ func TestAKillDoesNotRelabelARunThatFinishedFirst(t *testing.T) {
 	}
 }
 
-// A teardown arriving after a deliberate kill must not overwrite it (spec 5/P-runed §
-// DELETE). It is the guard the other way round from the test above.
+// A teardown arriving after a deliberate kill must not overwrite it
+// (runed/README.md § Endpoints). It is the guard the other way round from the
+// test above.
 func TestATeardownDoesNotOverwriteAKill(t *testing.T) {
 	st := newStore(t)
 	ctx := t.Context()

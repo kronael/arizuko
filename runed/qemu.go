@@ -64,7 +64,7 @@ func NewQemuRuntime(cfg *core.Config, folders *groupfolder.Resolver) (Runtime, s
 	// Delivered equals Declared or runed does not start: there is no half
 	// configuration to report here. A missing proxy binary or an unclampable
 	// virtiofsd is a refusal above, never a spawn that quietly gets less than
-	// the declaration says (spec 6/25 §3).
+	// the declaration says (substrate/README.md).
 	eff := substrate.Effective{Declared: qemuProfile, Delivered: qemuProfile}
 	q := &qemuRuntime{
 		cfg: cfg, folders: folders, paths: paths,
@@ -644,7 +644,7 @@ type turnEnd struct {
 // repair the turn. Only EX_CONFIG counts, from the agent or from guest-init
 // for a handler that cannot start: Docker's reserved 125-127 are the CLI's
 // invocation failures, and on this substrate those three are just exit codes
-// the agent may return (spec 5/12, BUGS F73).
+// the agent may return (runed/README.md § "How a turn ends", BUGS F73).
 func guestTerminalExit(code int) bool { return code == agentTerminalExit }
 
 // guestPeak carries QEMU's peak resident set (touched guest pages included) out

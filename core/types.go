@@ -14,7 +14,7 @@ import (
 )
 
 // Cross-boundary identity types live in the top-level types/ package
-// (types.UserSub / Folder / Tier / Scope) — see specs/5/A-primitives-framing.md.
+// (types.UserSub / Folder / Tier / Scope) — see auth/README.md.
 
 type Message struct {
 	StatusPhase    string

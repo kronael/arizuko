@@ -109,7 +109,7 @@ type Config struct {
 	// not gain a field here: a second default nothing reads is what the
 	// operator docs quoted for months (BUGS F12).
 
-	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 5/14).
+	// SecretsKey is the AES-256-GCM keyring for the secrets table (SECURITY.md § "SECRETS_KEY seals every row").
 	// Required by routd — secrets are encrypted at rest, with no plaintext mode and
 	// no AUTH_SECRET fallback. Comma-separate to rotate: the first key seals new
 	// writes, the rest decrypt-only. Parse with SecretKeyring.

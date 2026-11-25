@@ -3,7 +3,7 @@
 //
 // The package owns the rule grammar: every boundary that accepts a rule validates with
 // ValidEntry/ValidateLists, so a rule that can never match is refused where it is
-// written, not silently carried to match time (spec 6/25 1b).
+// written, not silently carried to match time (egress/README.md § Validation).
 package match
 
 import (
@@ -75,7 +75,7 @@ func Allowed(allow, deny []string, allowAll bool, host string) bool {
 // rule that works. Valid: a bare domain or single label, optionally with one leading
 // "*." glob. Everything an operator habitually writes that would silently never match
 // — a URL, a host:port, a path, credentials, an IP — names its defect instead of
-// reading as protection (spec 6/25 1b).
+// reading as protection (egress/README.md § Validation).
 func ValidEntry(entry string) error {
 	if entry == "" {
 		return fmt.Errorf("empty entry")

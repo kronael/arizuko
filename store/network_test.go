@@ -42,7 +42,7 @@ func TestNetworkRulesAddRemoveList(t *testing.T) {
 }
 
 // TestAddNetworkRuleValidates: the CLI write path had NO validation — a URL,
-// a host:port or an IP was stored and silently never matched (spec 6/25 1b).
+// a host:port or an IP was stored and silently never matched (egress/README.md § Validation).
 // Now the rule is refused where the operator writes it, with the reason; `*`
 // stays writable as the folder's allow-all row (live rows exist on krons and
 // marinade), and a *.glob lands normalized so deny-by-same-syntax works.

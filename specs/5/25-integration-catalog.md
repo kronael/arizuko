@@ -1,6 +1,5 @@
 ---
 status: reference
-depends: [14-credentials]
 ---
 
 # specs/5/25 — integration catalog: the surface, derived from use cases
@@ -129,7 +128,7 @@ new machinery.
 
 ## Ties
 
-`EXTENDING.md` (the dispatch mechanism this catalogs) · `5/14` (credentials) ·
+`EXTENDING.md` (the dispatch mechanism this catalogs) · `SECURITY.md` (credentials) ·
 `SECURITY.md` (OAuth broker — the auth wall) · `resreg/README.md` (two-face; arizuko's OWN
 resources are the reflexive case) · `template/web/pub/arizuko/reference/grants.html` (HITL hold) · `mcpfw` (MCP
 firewall) · `8/A` (openapi2mcp) ·

@@ -4,7 +4,7 @@
 // is no TLS termination, no CA, no SNI peek and no interception.
 //
 // One proxy serves one sandbox. There is no registry and no admin API —
-// the allowlist is fixed when the process starts (spec 6/24).
+// the allowlist is fixed when the process starts (egress/README.md).
 package egress
 
 import (
@@ -49,7 +49,7 @@ type Proxy struct {
 	// deny FIRST, so a deny entry carves an exception out of a broad allow
 	// ("all of example.com except internal.example.com"). Both are validated
 	// by New: a rule that can never match is refused at construction, not
-	// silently carried (spec 6/25 1b).
+	// silently carried (egress/README.md § Validation).
 	allow []string
 	deny  []string
 	// allowAll permits every host NAME — the explicit mode that replaced the
@@ -212,7 +212,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 
 	// Dial the ADDRESS the check resolved, never the name again: dialling the
 	// name here would resolve a second time and the answer that passed would
-	// not be the answer reached (spec 6/25 decision 1).
+	// not be the answer reached (egress/README.md § The address check).
 	upstream, err := p.dialAllowed(r.Context(), "tcp", hostPort(r.Host))
 	if err != nil {
 		writeDialError(w, src, host, err)

@@ -60,8 +60,8 @@ func TestDistinctFoldersRunConcurrently(t *testing.T) {
 // TestConcurrencyCapNoOverAdmit: with cap=K and N>K concurrent Runs on distinct
 // folders, exactly K are admitted and every other caller gets a retryable busy
 // outcome — never a block, never an over-admit. The atomic count-and-claim under
-// the lock is what holds the cap (spec 5/P-runed § Run state — pure claim-or-reject,
-// no internal queue). This is the race-hard proof the queue removal is safe.
+// the lock is what holds the cap (runed/README.md § "Admission is claim or
+// reject"). This is the race-hard proof the queue removal is safe.
 func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 	const cap, callers = 3, 12
 	var live, peak, admitted, busy int32

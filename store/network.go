@@ -94,7 +94,7 @@ func collectNetworkRules(items []objstore.Item) ([]NetworkRule, error) {
 
 // AddNetworkRule validates target where the operator writes it: a rule that
 // can never match (a URL, a host:port, an IP) is refused with the reason, not
-// stored to read as protection (spec 6/25 1b). `*` is a folder's allow-all
+// stored to read as protection (egress/README.md § Validation). `*` is a folder's allow-all
 // marker, the operator CLI's to write; the agent's network_allow rejects it.
 // Targets are stored normalized (lowercase, `*.` folded onto its apex), so a
 // rule added as *.example.com is removed as example.com. The write is

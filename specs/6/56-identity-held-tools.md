@@ -1,7 +1,6 @@
 ---
 status: queued
-depends:
-  [55-identity-held-credentials, ../5/14-credentials, ../5/33-paths-roles]
+depends: [55-identity-held-credentials, ../5/33-paths-roles]
 ---
 
 # specs/6/56 — tools bound to an identity, and whose account they act as

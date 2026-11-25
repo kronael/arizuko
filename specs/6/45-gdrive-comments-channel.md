@@ -1,6 +1,5 @@
 ---
 status: partial
-depends: [../5/14-credentials]
 ---
 
 # specs/6/45 — googd: Google Drive comment threads as a channel
@@ -135,7 +134,7 @@ Latency is at most one interval plus the sweep.
 `https://www.googleapis.com/auth/drive`. The operator shares each document
 with the account's address as Commenter; that share is the precondition of a
 binding and is Google's own authorization. The key is an infra credential
-(`specs/5/14-credentials.md` §"3. Infra / operator credentials"): host `.env`,
+(`SECURITY.md` § "A credential reaches work through one of two doors"): host `.env`,
 read at boot, never in the `secrets` table.
 
 | Point                      | Service account (chosen)                                                                                     | Per-user OAuth (`auth/surrogate/providers/google.toml`)                                                                      |

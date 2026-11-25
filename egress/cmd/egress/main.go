@@ -4,10 +4,10 @@
 //	egress --listen :3128 --allow api.anthropic.com,github.com --client 10.99.4.7
 //
 // The rules are fixed for the life of the process. There is no admin
-// API and no registry: to change the rules, start a new proxy (spec 6/24).
+// API and no registry: to change the rules, start a new proxy (egress/README.md).
 // A rule that can never match — a URL, a host:port, an IP, a stray
 // wildcard, a duplicate, a host in both lists — refuses to start rather
-// than reading as protection (spec 6/25 1b).
+// than reading as protection (egress/README.md § Validation).
 package main
 
 import (
@@ -59,7 +59,7 @@ func main() {
 	// GET /health answers 200, so the sandbox cannot make a request that
 	// arrives before this proxy is serving with its allowlist loaded.
 	// New validates both lists: a rule that can never match refuses to
-	// start, loudly, instead of reading as protection (spec 6/25 1b).
+	// start, loudly, instead of reading as protection (egress/README.md § Validation).
 	p, err := egress.New(allowlist, denylist, *client)
 	if err != nil {
 		slog.Error("invalid rule list", "err", err)

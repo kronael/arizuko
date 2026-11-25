@@ -2,7 +2,7 @@
 // substrate, in the substrate's own package. The declaration is a CEILING;
 // Effective is what a configuration delivers against it, and computing an
 // Effective is the one place a capability may be found missing. A feature that
-// quietly does not happen is the failure this package ends (spec 6/25 §3).
+// quietly does not happen is the failure this package ends (substrate/README.md).
 //
 // Every Profile field is a bool or an enum and the package imports nothing: a
 // field holding a folder, a grant or an allowlist could carry policy, and

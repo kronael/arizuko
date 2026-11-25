@@ -76,7 +76,7 @@ contracts differ from the filing in these places:
   it must not create another principal map.
 
 `SECURITY.md` supplies OAuth storage and the
-exchange engine. [Credentials](../5/14-credentials.md) owns credential tiers.
+exchange engine. `SECURITY.md` § "A credential reaches work through one of two doors" owns credential tiers.
 `SECURITY.md` owns consent and its edges.
 `auth/README.md` and
 [paths and roles](../5/33-paths-roles.md) own authorization.

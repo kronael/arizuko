@@ -7,8 +7,8 @@ status: research
 Competitive research. The _message_ is not decided here — the canonical
 framing (primitives → components → daemons → products, identity as the
 coordinate system) is signed off in
-[5/A-primitives-framing](../5/A-primitives-framing.md). This file holds
-only what 5/A does not: who else is in the market, and what not to say.
+`concepts/primitives.html` of the operator docs. This file holds
+only what that page does not: who else is in the market, and what not to say.
 
 ## The market
 
