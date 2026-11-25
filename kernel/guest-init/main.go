@@ -50,14 +50,12 @@ type sockaddrVM struct {
 const hostCID = 2
 
 // frame is the ctl protocol, one JSON object per line in both directions.
-// The host sends env+stdin once, then steer or stop; the guest answers with
-// steer_ack, log lines and one exit.
+// The host sends env+stdin once, then stop; the guest answers with log lines
+// and one exit.
 type frame struct {
 	Kind  string            `json:"kind"`
 	Env   map[string]string `json:"env,omitempty"`
 	Stdin []byte            `json:"stdin,omitempty"`
-	Batch string            `json:"batch,omitempty"`
-	ID    string            `json:"id,omitempty"`
 	Line  string            `json:"line,omitempty"`
 	Code  int               `json:"code,omitempty"`
 	// Probe carries step 0's measurements. It is the only field the production
@@ -65,16 +63,14 @@ type frame struct {
 	Probe map[string]string `json:"probe,omitempty"`
 }
 
-// The frame kinds. The host sends turn, steer and stop; the guest answers with
-// ready, log, steer_ack and exactly one exit. Same names as runed/vmctl.go.
+// The frame kinds. The host sends turn and stop; the guest answers with ready,
+// log and exactly one exit. Same names as runed/vmctl.go.
 const (
-	kindTurn     = "turn"
-	kindSteer    = "steer"
-	kindStop     = "stop"
-	kindReady    = "ready"
-	kindLog      = "log"
-	kindSteerAck = "steer_ack"
-	kindExit     = "exit"
+	kindTurn  = "turn"
+	kindStop  = "stop"
+	kindReady = "ready"
+	kindLog   = "log"
+	kindExit  = "exit"
 )
 
 // maxFrame bounds one frame, and it is runed's maxCtlLine: the turn frame
@@ -110,7 +106,7 @@ const (
 	// RUNED_GUEST_MEM default leaves the agent its RSS and /dev/shm its gigabyte.
 	upperSize = "size=512m"
 	// tmpfsSize bounds each guest-local tmpfs the manifest names — today the ipc
-	// dir, which holds one steered batch at a time — for the same reason.
+	// dir, which holds the MCP socket — for the same reason.
 	tmpfsSize = "size=16m"
 )
 
@@ -132,9 +128,6 @@ const (
 	// because a unix socket does not cross virtio-fs — a bind-mounted socket
 	// answers "Operation not supported" (spec §"The mechanisms").
 	mcpSocket = "/run/ipc/gated.sock"
-	// ipcInput is where a steered batch lands and what the agent drains
-	// (ant/src/index.ts IPC_INPUT_DIR).
-	ipcInput = "/run/ipc/input"
 )
 
 // The three waits this guest holds, each bounded because a guest that waits
@@ -155,7 +148,7 @@ const (
 	// is already gone.
 	ctlSettle = 3 * time.Second
 	// stopGrace is how long the agent gets after {stop}'s SIGTERM before the
-	// guest powers off regardless (spec §"Steer and stop"). It is the 10 s docker
+	// guest powers off regardless (spec §"Busy and stop"). It is the 10 s docker
 	// used to give a stopping container, which is the grace the agent had before
 	// the substrate changed, so its wrap-up window did not move. The host stops waiting
 	// for the exit frame after RUNED_REAP_GRACE (5 s default) and SIGKILLs QEMU,
@@ -247,14 +240,10 @@ func main() {
 	if err := assembleRoot(); err != nil {
 		c.fail("guest-init: %v", err)
 	}
-	if err := prepareIPC(); err != nil {
-		c.fail("guest-init: %v", err)
-	}
 
 	// The frame loop runs for the rest of the turn: it hands main the turn frame
-	// and serves steer and stop beside the running agent.
-	t := &turn{c: c, input: guestRoot + ipcInput}
-	t.wake = t.signalAgent
+	// and serves stop beside the running agent.
+	t := &turn{c: c}
 	first := make(chan frame, 1)
 	go t.read(fd, first)
 
@@ -605,24 +594,10 @@ func ensureTarget(op mountOp) error {
 	return nil
 }
 
-// prepareIPC makes the agent's input dir, which is where a steered batch lands
-// and where the agent unlinks it from — so the agent needs write on the DIR, not
-// on the file (ant/src/index.ts drainIpcInput).
-func prepareIPC() error {
-	dir := guestRoot + ipcInput
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("the agent's input dir: %w", err)
-	}
-	if err := os.Chown(dir, agentUID, agentGID); err != nil {
-		return fmt.Errorf("chown the agent's input dir: %w", err)
-	}
-	return nil
-}
-
 // ctl is the guest's end of the control channel.
 //
-// The mutex serializes writes: the agent's stderr streams while a steer ack or
-// the exit frame is sent, and half a frame interleaved with another is a frame
+// The mutex serializes writes: the agent's stderr streams while the exit frame
+// is sent, and half a frame interleaved with another is a frame
 // the host cannot parse (runed's ctlSession holds one for the same reason). The
 // Once is the turn's ONE exit frame — a stop whose grace expires and an agent
 // that ends at the same moment must not put two on the wire.
@@ -695,20 +670,9 @@ func (c *ctl) fail(format string, a ...any) {
 // turn is the running turn: what a ctl frame acts on while the agent runs.
 type turn struct {
 	c *ctl
-	// input is the agent's input dir as PID 1 sees it — outside the agent's
-	// chroot, so it carries the root prefix.
-	input string
 	// pid is the agent's, 0 until it starts.
-	pid atomic.Int32
-	// wake signals the agent. It is a field because it is the one step of the
-	// steer path that needs a live process, and the ack contract is what a test
-	// must be able to drive.
-	wake func(syscall.Signal) error
-	// steers names each batch file. The guest's own counter, never the frame's
-	// id: the id is what the ack must carry, and a name taken off the wire is a
-	// path the host chooses.
-	steers atomic.Int64
-	stops  sync.Once
+	pid   atomic.Int32
+	stops sync.Once
 }
 
 // read serves the host's frames for the rest of the turn, handing main the one
@@ -724,8 +688,6 @@ func (t *turn) read(r io.Reader, first chan<- frame) {
 			default:
 				logf("guest-init: a second turn frame on a live turn, ignored")
 			}
-		case kindSteer:
-			t.steer(f)
 		case kindStop:
 			t.stop()
 		default:
@@ -738,38 +700,13 @@ func (t *turn) read(r io.Reader, first chan<- frame) {
 	}
 }
 
-// steer delivers one batch into the live agent and acks it.
-//
-// The ack is the whole point, and it comes LAST. The host's steer returns true
-// only on it and routd marks the turn done the moment a steer is accepted, so an
-// ack that only proved the frame arrived would make a user's message vanish with
-// the guest tmpfs at power-off. No ack is the documented fall-through to a fresh
-// spawn, which re-feeds the batch (spec §"Steer and stop").
-func (t *turn) steer(f frame) {
-	if f.Batch == "" {
-		t.c.logf("guest-init: an empty steer batch, not acked")
-		return
-	}
-	if err := writeInput(t.input, f.Batch, t.steers.Add(1)); err != nil {
-		t.c.logf("guest-init: steer write failed, not acked: %v", err)
-		return
-	}
-	if err := t.wake(syscall.SIGUSR1); err != nil {
-		t.c.logf("guest-init: steer signal failed, not acked: %v", err)
-		return
-	}
-	if err := t.c.send(frame{Kind: kindSteerAck, ID: f.ID}); err != nil {
-		t.c.logf("guest-init: steer ack failed: %v", err)
-	}
-}
-
 // stop is the host ending the turn: the agent gets SIGTERM, and the guest powers
-// off when the grace expires whether or not it went (spec §"Steer and stop").
+// off when the grace expires whether or not it went (spec §"Busy and stop").
 // Once, so a second {stop} arms no second timer.
 func (t *turn) stop() {
 	t.stops.Do(func() {
 		t.c.logf("guest-init: stop frame; SIGTERM to the agent")
-		if err := t.wake(syscall.SIGTERM); err != nil {
+		if err := t.signalAgent(syscall.SIGTERM); err != nil {
 			t.c.logf("guest-init: stop signal failed: %v", err)
 		}
 		time.AfterFunc(stopGrace, func() {
@@ -780,33 +717,12 @@ func (t *turn) stop() {
 	})
 }
 
-// signalAgent is wake's production half.
 func (t *turn) signalAgent(sig syscall.Signal) error {
 	pid := int(t.pid.Load())
 	if pid == 0 {
 		return fmt.Errorf("the agent is not running")
 	}
 	return syscall.Kill(pid, sig)
-}
-
-func writeInput(dir, batch string, seq int64) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	payload, err := json.Marshal(map[string]string{"type": "message", "text": batch})
-	if err != nil {
-		return err
-	}
-	name := strconv.FormatInt(time.Now().UnixMilli(), 10) + "-" + strconv.FormatInt(seq, 10) + ".json"
-	fp := filepath.Join(dir, name)
-	if err := os.WriteFile(fp+".tmp", payload, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(fp+".tmp", fp); err != nil {
-		_ = os.Remove(fp + ".tmp")
-		return err
-	}
-	return nil
 }
 
 // startBridge starts the guest's half of the MCP path: one socat serving the

@@ -352,8 +352,6 @@ Three discriminators on the response, each meaning something different:
   circuit breaker, leave `turn_context` running so the re-dispatch is
   live. The queue wakes the chat again after the busy backoff (4 s,
   doubling to 60 s).
-- **`steered`** — a guest-input acknowledgement discriminator. Fresh
-  inbound admission returns `busy` for an active folder.
 
 `terminal` rides only on `outcome:error`: runed decided that a retry
 cannot repair the failure (the container invocation itself failed — a

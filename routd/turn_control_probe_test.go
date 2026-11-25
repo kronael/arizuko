@@ -58,7 +58,7 @@ func TestTurnControlProbeFence(t *testing.T) {
 			})
 			launchFresh := func() {
 				t.Helper()
-				if _, _, _, _, err := loop.runTurn("other", "", fresh.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil {
+				if _, _, _, err := loop.runTurn("other", "", fresh.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -129,11 +129,11 @@ func TestTurnControlProbeFence(t *testing.T) {
 		if err := db.PutMessage(fresh); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 10 {
+		if _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 10 {
 			t.Fatalf("early successor: launches=%d err=%v", launches, err)
 		}
 		now = control.NextProbeAt
-		if _, _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 11 {
+		if _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 11 {
 			t.Fatalf("due successor: launches=%d err=%v", launches, err)
 		}
 		control, _, _ = db.store().ReadTurnControl(context.Background())

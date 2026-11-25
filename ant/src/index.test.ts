@@ -5,12 +5,12 @@ import { beforeEach, describe, test, expect } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, failureExitCode, runTurn, statusBlocks } from './index.js';
+import { DEADLINE_TEXT, buildSystemPrompt, failureExitCode, runTurn, statusBlocks } from './index.js';
 import { HarnessConfigError } from './backend.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
 import { piHarness } from './pi.js';
-import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
+import { NUDGE_TEXT, STEER_SPOOL, drainLines } from './spool.js';
 
 test('statusBlocks: extracts each trimmed block in order', () => {
   expect(statusBlocks('a <status>reading files…</status> b <status> two </status>'))
@@ -130,24 +130,6 @@ test('runTurn: a normal result is delivered exactly once', async () => {
     'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('success');
-});
-
-// Steering drained from IPC into the spool is delivered by the steering policy
-// only when a tool call follows. A turn that stopped calling tools stranded those
-// messages: the loop read only the IPC dir, saw nothing, and exited.
-test('checkIpcMessage: leftover steering becomes the next turn prompt', () => {
-  drainLines(STEER_SPOOL);
-  appendLines(STEER_SPOOL, ['left over']);
-  expect(checkIpcMessage()).toBe('left over');
-  expect(checkIpcMessage()).toBeNull();
-});
-
-// A nudge steers a RUNNING turn; one stranded in the spool when the turn ends
-// must never start a new one (the pre-spool discardNudges rule, kept).
-test('checkIpcMessage: a stale progress nudge never starts a turn', () => {
-  drainLines(STEER_SPOOL);
-  appendLines(STEER_SPOOL, [NUDGE_TEXT]);
-  expect(checkIpcMessage()).toBeNull();
 });
 
 
@@ -404,14 +386,7 @@ test('runTurn: completion before halfway queues no note', async () => {
   expect(drainLines(STEER_SPOOL)).toEqual([]);
 });
 
-/** A checkpoint note left in the spool cannot start another round in the same process. */
-test('checkIpcMessage: a stale checkpoint note is discarded', () => {
-  drainLines(STEER_SPOOL);
-  appendLines(STEER_SPOOL, [DEADLINE_TEXT]);
-  expect(checkIpcMessage()).toBeNull();
-});
-
-/** A submission nudge continues the same turn and latest token, before the next IPC turn. */
+/** A submission nudge continues the same turn and latest token. */
 test('runTurn resumes a delivery nudge on the same turn and transcript', async () => {
   const turns: Array<{ id: string; prompt: string; continuity: string | undefined }> = [];
   const harness: Harness = {

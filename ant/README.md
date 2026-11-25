@@ -175,12 +175,6 @@ another round in the same guest.
 After eight continuations without a new non-bot message in that topic,
 routd posts a stop notice. A new message resumes the work.
 
-## Ending the agent loop
-
-ant polls `/run/ipc/input/` for steered messages between tool calls. An
-empty file named `_close` in that directory ends the loop: ant deletes it
-and stops waiting for further input (`src/index.ts:40`).
-
 ## Contracts with the Go side
 
 Where Go produces a value and TypeScript reads it, a test reads both sources
@@ -269,7 +263,7 @@ runed stdin payload ──► ant ──► Claude Code or Codex harness
 ```
 
 ant is a per-turn process, not an HTTP daemon. It owns no store entities, resreg resources, metrics route, or health listener.
-The process reads its first JSON input from stdin and receives later input through `/run/ipc/input/`.
+The process reads its one JSON input from stdin and exits when the turn ends.
 MCP uses JSON-RPC over the routd Unix socket. `submit_turn`, `submit_status`, and `check_turn` are lifecycle calls, not delivery tools.
 Only explicit delivery tools publish a reply. Standard output and harness text do not establish successful delivery.
 runed supplies credentials and configuration; ant calls the model provider through the selected harness or gateway.
@@ -296,10 +290,9 @@ The fixed ant home is `/home/node`; changing HOME does not move its explicit pat
 
 ## Timers and failure diagnosis
 
-IPC input polling and Claude's task-wait steering polling each run every 500 ms.
+Claude's task-wait steering polling runs every 500 ms.
 The checkpoint note is scheduled at half the process ceiling, once across attempts of the turn.
 Status reminders use the `reminder_after_ms` value returned by routd, not a second fixed timer.
-A `_close` sentinel aborts the active query and stops further input waiting.
 The steering spool is the batch-file directory `/tmp/arizuko-steer`; policy logs use `/tmp/arizuko-policy`.
 Readers claim batches by rename; unclaimed batches stay for a later read.
 Transcripts and exported conversations live in the group home. runed owns the temporary guest filesystem and persistent mounts.
@@ -314,7 +307,7 @@ terminal. A model call that the gateway refuses over a spent cap (`budget_exceed
 429) is none of these: every backend ends the turn as a result refused as `budget`
 (`isBudgetRefusal` in `src/backend.ts`), and the chassis submits `submit_turn` status `budget`.
 Malformed harness JSON fails before a backend starts. Pi uses the same MCP boundary through its native mcp.json configuration.
-Grep `submit_status failed`, `Query timeout: process deadline reached, aborting`, and `Close sentinel detected during query`.
+Grep `submit_status failed` and `Query timeout: process deadline reached, aborting`.
 There is no obs.Setup or OTLP exporter in ant; runed captures per-turn logs and routd records lifecycle results.
 Model credentials remain readable inside a direct-mode guest ([BUGS L131](../BUGS.md)).
 Codex and pi shell tools inherit the turn's model credentials for nested

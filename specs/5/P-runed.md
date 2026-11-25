@@ -9,7 +9,7 @@ depends: [1-auth-standalone, 17-openapi-mcp]
 **Decided.** `runed` is the **execution plane** — the daemon that runs
 the agent container per turn. It owns the **container execution
 envelope**: per-topic serialization, the per-spawn container lifecycle
-(spawn/steer/runTTL/teardown), and the run record in `runed.db`. It holds
+(spawn/runTTL/teardown), and the run record in `runed.db`. It holds
 `docker.sock` and the crackbox egress attach; nothing else in the
 platform spawns a container.
 
@@ -254,8 +254,7 @@ the runner. The published wire contract (`runed/api/v1/`) depends only on
 
 ## Code pointers
 
-- `runed/manager.go` — DB-stateless admission + lifecycle. The only
-  in-memory state is the container-lifetime steer callbacks.
+- `runed/manager.go` — DB-stateless admission + lifecycle.
 - `runed/docker.go` — `dockerRuntime`: the per-turn Docker runner.
 - `runed/runtimes.go` — `FakeRuntime` + the `Runtime` seam.
 - `runed/db.go` — `runed.db` access (`CreateSpawn`, `RecordSession`,

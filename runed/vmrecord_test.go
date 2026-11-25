@@ -201,8 +201,7 @@ func crashProofRun(t *testing.T, root string) {
 			{Host: filepath.Join(root, "home"), Container: core.ContainerHome},
 			{Host: filepath.Join(root, "app", "entrypoint.sh"), Container: "/app/entrypoint.sh", RO: true},
 		},
-		Env:           map[string]string{"HOME": core.ContainerHome},
-		RegisterSteer: func(func(string) bool) {},
+		Env: map[string]string{"HOME": core.ContainerHome},
 	}
 	result := runtime.Run(context.Background(), turn)
 	t.Fatalf("turn ended before SIGKILL: %+v", result)

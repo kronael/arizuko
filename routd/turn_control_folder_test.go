@@ -59,7 +59,7 @@ func TestBreakerHoldsOnlyTheFailedFolder(t *testing.T) {
 		launches++
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeSilent}, nil
 	})
-	if _, _, _, _, err := loop.runTurn("other", "", fresh.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil {
+	if _, _, _, err := loop.runTurn("other", "", fresh.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if launches != 1 {
@@ -89,7 +89,7 @@ func TestBreakerStaysOnItsFolderWhenASecondFolderFails(t *testing.T) {
 	loop.runner = runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil
 	})
-	if _, _, _, _, err := loop.runTurn("other", "", fresh.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil {
+	if _, _, _, err := loop.runTurn("other", "", fresh.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil {
 		t.Fatal(err)
 	}
 	after, _, _ := db.store().ReadTurnControl(t.Context())
@@ -128,7 +128,7 @@ func TestBreakerHoldsThirtySecondsAfterAFailureThatIsNotRetried(t *testing.T) {
 		launches++
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Terminal: true}, nil
 	})
-	if _, _, _, _, err := loop.runTurn("demo", "", first.ChatJID, first.ID, false, []core.Message{first}, nil); err != nil {
+	if _, _, _, err := loop.runTurn("demo", "", first.ChatJID, first.ID, false, []core.Message{first}, nil); err != nil {
 		t.Fatal(err)
 	}
 	control, _, _ := db.store().ReadTurnControl(t.Context())
@@ -149,7 +149,7 @@ func TestBreakerHoldsThirtySecondsAfterAFailureThatIsNotRetried(t *testing.T) {
 	})
 	runSecond := func() {
 		t.Helper()
-		if _, _, _, _, err := loop.runTurn("demo", "", second.ChatJID, second.ID, false, []core.Message{second}, nil); err != nil {
+		if _, _, _, err := loop.runTurn("demo", "", second.ChatJID, second.ID, false, []core.Message{second}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

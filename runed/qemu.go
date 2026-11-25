@@ -430,7 +430,6 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	if err := sess.send(ctlFrame{Kind: ctlTurn, Env: env, Stdin: t.Stdin}); err != nil {
 		return fail(fmt.Errorf("send turn frame: %w", err))
 	}
-	t.RegisterSteer(func(batch string) bool { return sess.steer(batch, q.paths.Grace) })
 
 	end, awaitErr := q.await(ctx, sess, qemuDone, served, t)
 	code, timedOut := end.code, end.timedOut

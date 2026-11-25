@@ -779,15 +779,12 @@ Bot:  "Sure, what's up?"       (reply_to=100, sent_id=201)
 Bot:  "I can help with..."     (reply_to=201, sent_id=202)
 ```
 
-`store.LastReplyID(jid, topic)` gives the anchor for the next reply. Three
+`store.LastReplyID(jid, topic)` gives the anchor for the next reply. Two
 events update it:
 
 1. **The bot sends a chunk.** `SetLastReply` stores the sent message id.
-2. **A steering message arrives.** When `routd` steers a follow-up into a live
-   turn, it sets `lastReplyID` to the id of the steering message.
-3. **A new agent run starts.** `SetLastReply` stores the last user message of
-   the batch. `routd` reads `GetLastReplyID` again before each chunk, to pick
-   up steering updates during the run.
+2. **A new agent run starts.** `SetLastReply` stores the last user message of
+   the batch.
 
 A topic that `fork_topic` creates inherits the last-reply context of its parent
 as the first anchor. After that it advances its own `lastReplyID`

@@ -610,8 +610,7 @@ them:
 
 - **Exclusion.** No agent turn can start while the restore holds the folder —
   the same mechanism that already stops two agent turns from overlapping.
-- **Backpressure.** A message arriving mid-restore finds the slot taken and
-  no steer callback registered (a containerless run registers none), so `Run`
+- **Backpressure.** A message arriving mid-restore finds the slot taken, so `Run`
   returns `Busy` and routd re-feeds from its own DB-backed dispatch queue —
   nothing lost, no new queueing logic.
 - **Wedge protection.** `spawn` (`runed/manager.go:298`) wraps `ctx` with the
@@ -638,9 +637,8 @@ additionally needs `runs:kill`, which that route already demands.
 
 Non-agent kinds are scoped out of four agent-only sites — the breaker update,
 the reset-on-new-inbound at admission, the `MaxConcurrent` container cap (a
-containerless kind consumes no container), and `session_log` bookkeeping —
-and the busy-branch steer attempt skips them, otherwise a hold request would
-inject an empty batch into whatever turn is live. `spawns.state`/`outcome`/
+containerless kind consumes no container), and `session_log` bookkeeping.
+`spawns.state`/`outcome`/
 `exit_code` still record a hold's own success or failure; only the breaker's
 interpretation changes.
 

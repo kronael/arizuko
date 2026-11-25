@@ -22,12 +22,12 @@ Docker leaves the turn path: no `docker run`, no per-folder docker network, no
 proxy container, no `docker.sock` in runed. The daemon fleet's packaging
 (compose) is outside this spec.
 
-**Signed off 2026-09-23** for build, after a review that changed five
-mechanisms: the uid clamp on `virtiofsd` (§"The peer credential"), the guest ack
-on a steer (§"Steer and stop"), `-no-reboot` plus a confirmed pid in the reap
-(§"The turn" step 9), the host boot timer (§"The image and the guest
-kernel"), and `Turn.RegisterSteer` kept rather than shed (§"Order" step 4). The
-day estimate is accepted only after step 0 reports.
+**Signed off 2026-09-23** for build, after a review that changed three
+mechanisms: the uid clamp on `virtiofsd` (§"The peer credential"),
+`-no-reboot` plus a confirmed pid in the reap (§"The turn" step 9) and the
+host boot timer (§"The image and the guest kernel"). The day estimate is
+accepted only after step 0 reports. **Signed off 2026-11-24:** the port
+carries no steer; nothing writes into a live guest (§"Busy and stop").
 
 The turn model of [`5/A`](../5/A-primitives-framing.md) holds unchanged: the guest is
 stateless, the folder and the database carry every fact across turns, and the
@@ -36,7 +36,7 @@ contract the agent sees — the same left column, delivered by a different
 right-hand side. `ant/` changes by zero lines.
 
 Native boot and turn tests cover the UID clamp, read-only exports, MCP,
-proxy policy, two-guest CID isolation, the startup sweep after SIGKILL, steering, normal poweroff, Kill and cancellation in
+proxy policy, two-guest CID isolation, the startup sweep after SIGKILL, normal poweroff, Kill and cancellation in
 `runed/qemu_boot_test.go`, `runed/qemu_turn_boot_test.go` and `runed/vmrecord_test.go`.
 
 ## Remaining
@@ -128,26 +128,25 @@ type Runtime interface {
 // Turn is the envelope: one guest, rendered. A substrate delivers every
 // field and interprets none.
 type Turn struct {
-	Handle        string            // the substrate starts, steers and kills by it
-	Folder        string            // the one path the substrate resolves
-	Mounts        []core.Mount      // the mount table's right-hand side; Container is the guest path
-	Env           map[string]string // the agent's process environment
-	Stdin         []byte            // the agent payload: ant/src/index.ts ContainerInput
-	Egress        []string          // the proxy allowlist, grants applied
-	RegisterSteer func(steer func(batch string) bool)
+	Handle string            // the substrate starts and kills by it
+	Folder string            // the one path the substrate resolves
+	Mounts []core.Mount      // the mount table's right-hand side; Container is the guest path
+	Env    map[string]string // the agent's process environment
+	Stdin  []byte            // the agent payload: ant/src/index.ts ContainerInput
+	Egress []string          // the proxy allowlist, grants applied
 }
 ```
 
-`RunResult` does not change. `Handle` is what `steerInto`, `armCancel`,
+`RunResult` does not change. `Handle` is what `armCancel`,
 `Kill` and `holdRuntime`'s slot act on, and what step 1 of §"The turn"
-records the VM under. `Folder` is read for paths only: the ipc dir of the
-Docker steer, the `logs/` dir of the turn log, the name of the Docker egress
+records the VM under. `Folder` is read for paths only: the `logs/` dir of
+the turn log, the name of the Docker egress
 network. `Mounts`, `Env`, `Stdin` and `Egress` reach Docker as `-v`, `-e`,
 the stdin pipe and the proxy container, and QEMU as the staging tree, the
 `{env, stdin}` frame on `ctl` and the proxy on the tap; a substrate adds the
 proxy variables (`HTTP_PROXY` and its five companions) because their value
-is its own address. `RegisterSteer`'s closure is what each substrate makes of
-it (§"Steer and stop").
+is its own address. The port carries no steer: a `Turn` is delivered once,
+and nothing writes into a live guest (§"Busy and stop").
 
 The deadline is `ctx`. `Manager.spawn` arms it from `RunTTL`, and the group's
 `RUNED_RUN_TIMEOUT` is that one deadline, never a
@@ -175,8 +174,8 @@ routd's format, not the port's.
 
 **What leaves the port, and who takes it.**
 
-- `RunID`, `Kind`, `Isolated` → the manager: `SetSteer(runID, …)`,
-  `executor(kind)`, the session-log decision in `spawn`. No runtime reads them.
+- `RunID`, `Kind`, `Isolated` → the manager: `executor(kind)`, the
+  session-log decision in `spawn`. No runtime reads them.
 - `RunTTL` → `ctx`; the renderer writes `ARIZUKO_QUERY_TIMEOUT_MS` into
   `Env` from the deadline.
 - `ContainerName` → `Handle`. `ContainerConfig.Mounts` → `Mounts`, through
@@ -272,7 +271,7 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    with the environment and the envelope on stdin. `settings.json`'s MCP
    entry (`runner.go:912-915`) and `ant/src/mcp.ts:3` see the same path.
 8. Tool calls: ant → `gated.sock` → socat → vsock → runed's `mcp` bridge →
-   routd's `gated.sock`. Steer and stop arrive on `ctl` (§"Steer and stop").
+   routd's `gated.sock`. Stop arrives on `ctl` (§"Busy and stop").
    ant's stderr streams over `ctl` as `{log}` frames into the turn log.
 9. ant exits; `guest-init` sends `{exit: code}` on `ctl` and powers the
    guest off; QEMU exits; runed reaps in order: QEMU first and alone, then the
@@ -318,7 +317,7 @@ arrive by `submit_turn` over MCP, unchanged.
 | `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` runs in a single-id user namespace, so every ownership the guest asks for lands as host uid 1000 or fails (§"The peer credential")                                                                                                       |
 | routd's socket visible through the bind-mounted `ipc/` dir (`ipc/ipc.go:361-363`, `runner.go:912-915`)   | vsock, CID-pinned, bridged by runed (§"The peer credential"); a unix socket does not cross virtio-fs — a bind-mounted socket answers "Operation not supported" (github.com/abiosoft/colima/issues/997)                                                                                   |
 | SO_PEERCRED uid check (`ipc/ipc.go:397-410`)                                                             | unchanged in routd; the bridge child runs as uid 1000 and the guest is bound by CID (§"The peer credential")                                                                                                                                                                             |
-| `docker kill --signal=SIGUSR1` (`runed/docker.go:47-49`, `runner.go:378`)                                | a `{steer}` frame on `ctl` (§"Steer and stop")                                                                                                                                                                                                                                           |
+| `docker kill --signal=SIGUSR1` (`runed/docker.go:47-49`, `runner.go:378`)                                | none: nothing writes into a live guest (§"Busy and stop")                                                                                                                                                                                                                                |
 | stop → `docker kill` → `rm -f` (`runner.go:288-299`, `runed/docker.go:56-58`)                            | `{stop}` frame → `SIGTERM` to ant → power-off; `SIGKILL` QEMU on the deadline; reap                                                                                                                                                                                                      |
 | `docker network create --internal` + `--ip` (`container/network.go:157-163`, `runner.go:724-725`)        | one tap per turn; the guest's only route is the host side of its tap (§"Egress")                                                                                                                                                                                                         |
 | the egress proxy as a sidecar container on two networks (`container/egress.go:238-274`)                  | the `egress` binary as a process on the tap's host side, `--client <guest ip>`; `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX/_SUBNET` retire                                                                                                                          |
@@ -482,22 +481,21 @@ port**: a silent retry is what would turn a denial into a guest talking to
 whoever answered. The residual is a neighbour on the operator's own host
 denying turns, which is the trust that host already carries.
 
-## Steer and stop
+## Busy and stop
 
 A follow-up for a folder with a live guest is refused: `Manager.Run` answers
 `busy`, routd keeps the batch and feeds it again after the run ends, with its
 own turn context and MCP binding. runed never writes a follow-up into a live
 guest.
 
-The `{steer}` frame on `ctl` remains for one use, the deadline warning: runed
-sends `{steer: batch}`; `guest-init` writes the batch into the guest's
-`/run/ipc/input/` and sends `SIGUSR1` to ant's pid. The frame is acknowledged by
-the guest, never by the socket write: `guest-init` answers with `{steer_ack: id}`
-AFTER it writes the batch and delivers `SIGUSR1`, and the closure
-`RegisterSteer` hands back returns true ONLY on that ack, inside the grace runed
-already waits. An ack that arrives after the guest starts power-off counts as no
-ack. A write to `ctl` that returns no error proves only that the host queued
-bytes.
+Nothing steers a live guest. The host sends two frames on `ctl`, `{turn}` and
+`{stop}`, and the guest answers with `{ready}`, `{log}` and one `{exit}`.
+`Turn` carries no steer hook, `RunOutcome` carries no `steered` flag, and ant
+reads one stdin payload and exits when the turn ends. The deadline warning
+runs inside the guest: at half the run ceiling ant queues the checkpoint note
+on its own steer spool (`ant/src/spool.ts`), and no host frame carries it. A
+message that must reach a running turn is a new verb on the runed boundary
+and needs an approved plan first (BUGS `L570`).
 
 `{stop}` sends ant `SIGTERM`; after the grace runed already uses for
 `docker stop`, `guest-init` powers off regardless. The deadline kill is
@@ -573,9 +571,7 @@ ValidateAdditionalMounts` runs where it runs today; the tree adds no path
 it did not validate. The `--sandbox=chroot` mode of `virtiofsd` is "intended
 for container environments where the container runtime has already set up
 the namespaces" (gitlab.com/virtio-fs/virtiofsd README), which is runed's
-situation. Host-side changes reach the guest as they happen — the
-`RegisterSteer` contract ("once the container + IPC dir are up") is satisfied
-by the `ctl` handshake, not by a mount becoming visible.
+situation. Host-side changes reach the guest as they happen.
 
 `Persistence` stays `mounted_home`: the guest's own filesystem is a tmpfs
 overlay discarded at power-off; what the folder keeps, it keeps because it is
@@ -791,8 +787,7 @@ a guest, a tap or a pid. Six files hold it, one concern each.
   not create — a recursive delete over a live bind would delete the group's own
   files (§"The files: one staging tree, one share").
 - **`runed/vmctl.go` — the control channel.** The frame codec, the host-side
-  vsock bind, the MCP bridge, and `steer`, which returns false unless the GUEST
-  acknowledged the batch (§"Steer and stop"). A bind failure fails the turn:
+  vsock bind and the MCP bridge. A bind failure fails the turn:
   runed never moves to another port, because a silent retry turns a denial into
   a guest talking to whoever answered.
 - **`runed/qemuhost.go` — what this host can run.** `qemuPreconditions` refuses
@@ -893,20 +888,12 @@ bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
    substrates on purpose. One substrate leaves each item below with one
    reader or none, and an unread field on a port is read by the next author
    as a contract:
-   - **`Turn.RegisterSteer` stays, and this is a stated trade, not an
-     oversight.** It is a function-typed field, which the code baseline calls
-     a jump rather than an abstraction, and shedding it looks free because it
-     has one assignment (`runed/manager.go:329`) and one call site
-     (`runed/docker.go:66-68`). It is not free. Steering is a third operation
-     whatever carries it: as a method on `Runtime` it widens the port, which
-     needs the maintainer's approval first; as a concrete `steer(handle,
-batch)` the manager calls, it makes the manager depend on the production
-     type, so `FakeRuntime` and `holdRuntime` stop serving the contract and
-     the port stops being a port. The field is the only shape that keeps
-     `Runtime` at two methods AND keeps every implementation substitutable.
-     What the field costs — one assignment a reader must search for — is
-     paid down by naming it here and keeping the assignment count at one:
-     a second assignment is a review-blocker.
+   - **`Turn.RegisterSteer` goes.** The manager stored the closure a
+     substrate registered and no code called it, so the field had a writer
+     and no reader (§"Busy and stop"). Steering is a third operation whatever
+     carries it: a method on `Runtime` widens the port, and a field on `Turn`
+     is a hook the substrate must interpret. Either needs the maintainer's
+     approval first.
    - **`Turn.Egress` stays.** The tap rule set names no host, so the
      allowlist is the proxy's argument, and the substrate starts the proxy
      because the listen address is the tap's host side — substrate state

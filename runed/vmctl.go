@@ -26,23 +26,19 @@ type ctlFrame struct {
 	Kind  string            `json:"kind"`
 	Env   map[string]string `json:"env,omitempty"`
 	Stdin []byte            `json:"stdin,omitempty"`
-	Batch string            `json:"batch,omitempty"`
-	ID    string            `json:"id,omitempty"`
 	Line  string            `json:"line,omitempty"`
 	Code  int               `json:"code,omitempty"`
 	Probe map[string]string `json:"probe,omitempty"`
 }
 
-// The frame kinds. The host sends turn, steer and stop; the guest answers with
-// ready, log, steer_ack and exactly one exit.
+// The frame kinds. The host sends turn and stop; the guest answers with ready,
+// log and exactly one exit.
 const (
-	ctlTurn     = "turn"
-	ctlSteer    = "steer"
-	ctlStop     = "stop"
-	ctlReady    = "ready"
-	ctlLog      = "log"
-	ctlSteerAck = "steer_ack"
-	ctlExit     = "exit"
+	ctlTurn  = "turn"
+	ctlStop  = "stop"
+	ctlReady = "ready"
+	ctlLog   = "log"
+	ctlExit  = "exit"
 )
 
 // maxCtlLine bounds one frame. The turn frame carries the whole agent payload,
@@ -141,27 +137,19 @@ func vsockAccept(l *os.File, deadline time.Time) (*os.File, uint32, error) {
 
 // ctlSession is the host end of one guest's control channel. conn is an
 // io.ReadWriteCloser rather than the accepted vsock file, so the frame protocol
-// and the steer contract are testable over any pair of pipes.
+// is testable over any pair of pipes.
 type ctlSession struct {
 	conn io.ReadWriteCloser
-	// wmu serializes writes: a steer and a stop can race, and half a frame
-	// interleaved with another is a frame the guest cannot parse.
-	wmu  sync.Mutex
-	amu  sync.Mutex
-	acks map[string]chan struct{}
+	// wmu serializes writes: half a frame interleaved with another is a frame
+	// the guest cannot parse.
+	wmu sync.Mutex
 	// exit carries the guest's one exit frame.
 	exit chan int
-	// done closes when the read loop ends, which is the ONLY other way a steer
-	// stops waiting for its ack. A closed ack channel therefore means an ack and
-	// nothing else — the alternative, one channel closed for both an ack and a
-	// dead guest, cost a lost steer that read as delivered.
-	done chan struct{}
 	// log receives each {log} line the guest sends: the agent's stderr.
 	log  func(string)
 	boot *bootLog
-	seq  atomic.Int64
-	// closed is set once the read loop ends, so a steer after the guest is gone
-	// returns false instead of blocking for its ack.
+	// closed is set once the read loop ends, so a stop after the guest is gone
+	// writes nothing.
 	closed atomic.Bool
 }
 
@@ -175,9 +163,7 @@ type bootLog struct {
 func newCtlSession(conn io.ReadWriteCloser, logf func(string), boot *bootLog) *ctlSession {
 	return &ctlSession{
 		conn: conn,
-		acks: map[string]chan struct{}{},
 		exit: make(chan int, 1),
-		done: make(chan struct{}),
 		log:  logf,
 		boot: boot,
 	}
@@ -199,11 +185,7 @@ func (s *ctlSession) send(f ctlFrame) error {
 // error, if any; a clean EOF is nil.
 func (s *ctlSession) serve() error {
 	err := s.read()
-	// Ordered, not deferred: the flag is what stop() and steer() read, and
-	// every waiter is released by done. A steer whose ack can no longer arrive
-	// must return false now rather than at its grace.
 	s.closed.Store(true)
-	close(s.done)
 	return err
 }
 
@@ -214,13 +196,6 @@ func (s *ctlSession) read() error {
 			if s.log != nil {
 				s.log(f.Line)
 			}
-		case ctlSteerAck:
-			s.amu.Lock()
-			if ch, ok := s.acks[f.ID]; ok {
-				close(ch)
-				delete(s.acks, f.ID)
-			}
-			s.amu.Unlock()
 		case ctlExit:
 			select {
 			case s.exit <- f.Code:
@@ -237,51 +212,6 @@ func (s *ctlSession) read() error {
 		}
 		return nil
 	})
-}
-
-// steer delivers one batch into the live guest and reports whether the GUEST
-// acknowledged it.
-//
-// The ack is the whole point. routd marks a turn done the moment a steer is
-// accepted (routd/dispatch.go), so a write that only proves the host queued
-// bytes would make a user's message vanish while the turn read as delivered:
-// the guest tmpfs holding the pending batch is discarded at power-off. No ack is
-// a false return, which is the documented fall-through to a fresh spawn, so the
-// batch is re-fed rather than lost (spec 6/41 §"Steer and stop").
-func (s *ctlSession) steer(batch string, grace time.Duration) bool {
-	// The closed check only spares a write to a dead channel and its error log:
-	// the GUARANTEE is the done case below, which answers false for a session
-	// that ends at any point after this line.
-	if batch == "" || s.closed.Load() {
-		return false
-	}
-	id := strconv.FormatInt(s.seq.Add(1), 10)
-	ch := make(chan struct{})
-	s.amu.Lock()
-	s.acks[id] = ch
-	s.amu.Unlock()
-	defer func() {
-		s.amu.Lock()
-		delete(s.acks, id)
-		s.amu.Unlock()
-	}()
-	if err := s.send(ctlFrame{Kind: ctlSteer, Batch: batch, ID: id}); err != nil {
-		slog.Error("ctl: steer write failed; falling through to a fresh spawn", "err", err)
-		return false
-	}
-	select {
-	case <-ch:
-		return true
-	case <-s.done:
-		// The guest went away holding the batch. The tmpfs it was written to is
-		// discarded at power-off, so this is a batch that must be re-fed.
-		slog.Warn("ctl: guest ended before acking a steer; falling through to a fresh spawn")
-		return false
-	case <-time.After(grace):
-		slog.Warn("ctl: no steer ack within grace; falling through to a fresh spawn",
-			"grace", grace)
-		return false
-	}
 }
 
 // stop asks the guest to end the turn: guest-init sends the agent SIGTERM and

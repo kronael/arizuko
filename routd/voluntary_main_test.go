@@ -46,8 +46,7 @@ func runVoluntaryMainFixture(t *testing.T) (*DB, *recDeliverer, []string, string
 		}
 	}
 	root := t.TempDir()
-	input := filepath.Join(root, "run/ipc/input")
-	if err := os.MkdirAll(input, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "run/ipc"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	bound := turnMCP{folder: "demo", chatJID: "tg:1", turnID: "first", trigger: "u1"}
@@ -153,7 +152,6 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var ids, outputs []string
-	var steers int
 	runtime := runed.FakeRuntime{Fn: func(ctx context.Context, turn runed.Turn) runed.RunResult {
 		var frame struct {
 			MessageID string `json:"messageId"`
@@ -162,15 +160,6 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error(), Terminal: true}
 		}
 		ids = append(ids, frame.MessageID)
-		input := filepath.Join(root, "run/ipc/input")
-		if err := os.MkdirAll(input, 0o700); err != nil {
-			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error(), Terminal: true}
-		}
-		turn.RegisterSteer(func(batch string) bool {
-			steers++
-			raw, _ := json.Marshal(map[string]string{"type": "message", "text": batch})
-			return os.WriteFile(filepath.Join(input, "followup.json"), raw, 0o600) == nil
-		})
 		if frame.MessageID == "first" {
 			close(started)
 			select {
@@ -242,8 +231,8 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 	if firstErr := <-done; firstErr != nil {
 		t.Fatal(firstErr)
 	}
-	if err != nil || !busy.Busy || busy.Steered || steers != 0 {
-		t.Fatalf("fresh turn entered the active run: out=%+v err=%v steers=%d\n%s", busy, err, steers, outputs)
+	if err != nil || !busy.Busy {
+		t.Fatalf("fresh turn entered the active run: out=%+v err=%v\n%s", busy, err, outputs)
 	}
 	if !db.TurnResultRecorded("demo", "first") || db.TurnResultRecorded("demo", "second") {
 		t.Fatalf("follow-up completed before refeed\n%s", outputs)
@@ -272,8 +261,5 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 	}
 	if len(dl.sends) != 2 || dl.sends[0].text != "first answer" || dl.sends[1].text != "second answer" {
 		t.Fatalf("deliveries=%+v\n%s", dl.sends, outputs)
-	}
-	if strings.Contains(strings.Join(outputs, "\n"), "first:1") {
-		t.Fatalf("guest synthesized a follow-up identity\n%s", outputs)
 	}
 }

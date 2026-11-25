@@ -480,28 +480,6 @@ func TestQemuPreparationFailureIsTransient(t *testing.T) {
 	}
 }
 
-func TestAwaitDoesNotSendDeadlineWarning(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		host, guest := net.Pipe()
-		defer host.Close()
-		defer guest.Close()
-		sess := newCtlSession(host, nil, nil)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
-		done := make(chan turnEnd, 1)
-		go func() { end, _ := q.await(ctx, sess, nil, nil, Turn{}); done <- end }()
-		time.Sleep(2 * time.Minute)
-		synctest.Wait()
-		got := sess.seq.Load()
-		sess.exit <- 0
-		<-done
-		if got != 0 {
-			t.Errorf("sent %d steering frames before deadline", got)
-		}
-	})
-}
-
 func TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment(t *testing.T) {
 	q := &qemuRuntime{paths: qemuPaths{Grace: 50 * time.Millisecond}}
 	for i := range 50 {
@@ -564,7 +542,8 @@ func TestReadyIsMeasuredOnceBeforeExit(t *testing.T) {
 				folder: "solo/inbox", handle: "boot-test",
 			})
 			served := make(chan error, 1)
-			go func() { served <- sess.serve() }()
+			readEnded := make(chan struct{})
+			go func() { served <- sess.serve(); close(readEnded) }()
 			for _, f := range tc.kinds {
 				b, err := encodeCtlFrame(f)
 				if err != nil {
@@ -581,7 +560,7 @@ func TestReadyIsMeasuredOnceBeforeExit(t *testing.T) {
 			if err != nil || !end.framed || end.code != 78 {
 				t.Fatalf("await = %+v, want guest exit 78", end)
 			}
-			<-sess.done
+			<-readEnded
 			logs := strings.TrimSpace(output.String())
 			if tc.want == 0 {
 				if logs != "" {
@@ -1200,13 +1179,14 @@ func TestAwaitExitFramePrecedesControlError(t *testing.T) {
 		defer guest.Close()
 		sess := newCtlSession(host, nil, nil)
 		served := make(chan error, 1)
-		go func() { served <- sess.serve() }()
+		readEnded := make(chan struct{})
+		go func() { served <- sess.serve(); close(readEnded) }()
 		frame, err := encodeCtlFrame(ctlFrame{Kind: ctlExit, Code: 78})
 		if err != nil {
 			t.Fatal(err)
 		}
 		go func() { _, _ = guest.Write(append(frame, []byte("{invalid}\n")...)); guest.Close() }()
-		<-sess.done
+		<-readEnded
 		q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
 		end, err := q.await(context.Background(), sess, nil, served, Turn{})
 		if err != nil || !end.framed || end.code != 78 {

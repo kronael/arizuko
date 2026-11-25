@@ -68,7 +68,7 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 		t.Fatalf("Folder=%q want acme/eng", turn.Folder)
 	}
 	if turn.Handle == "" {
-		t.Fatal("Handle empty — the substrate has nothing to start, steer or kill by")
+		t.Fatal("Handle empty — the substrate has nothing to start or kill by")
 	}
 
 	// The stdin frame: the fields ant reads, plus the topic annotation the

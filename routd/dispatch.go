@@ -291,7 +291,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, r
 				return hadAny, store.ErrRefused
 			}
 		}
-		had, steered, busy, mark, derr := l.runBoundTurn(folder, topic, chatJID, turnID, owed, batch, ambient, nil, wakeCursor)
+		had, busy, mark, derr := l.runBoundTurn(folder, topic, chatJID, turnID, owed, batch, ambient, nil, wakeCursor)
 		if errors.Is(derr, errModelInputOrder) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
@@ -327,10 +327,6 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, r
 					"senders", lostSenders(batch))
 			}
 			return hadAny || steerConsumed, nil
-		}
-		if steered {
-
-			return true, nil
 		}
 		if mark != "" {
 			marks = append(marks, observedAdvance{topic: topic, ts: mark})
@@ -444,7 +440,7 @@ func (l *Loop) isolateElevated(groups [][]core.Message) [][]core.Message {
 	return out
 }
 
-func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message, saved *TurnContext, wakeCursor string) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message, saved *TurnContext, wakeCursor string) (hadOutput, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 
 	elevated := false
@@ -465,32 +461,32 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if !l.db.GroupExists(folder) {
 		slog.Error("dispatch refused: unregistered group", "folder", folder, "jid", chatJID, "turn_id", turnID)
 		if err := l.publishStatus(TurnContext{TurnID: turnID, Folder: folder, ChatJID: chatJID, ReturnTo: last.ForwardedFrom, Topic: topic}, turnStatus{phase: "setup"}); err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
-		return true, false, false, "", nil
+		return true, false, "", nil
 	}
 	inputKeys, err := turnMessageKeys(trigger)
 	if err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	oldest, err := l.oldestModelInput(folder, trigger[0])
 	if err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	if oldest.ID != "" && modelInputBefore(oldest, trigger[0]) {
-		return false, false, false, "", errModelInputOrder
+		return false, false, "", errModelInputOrder
 	}
 	workKey := chatJID
 	if saved != nil {
 		workKey = deferredWorkPrefix + turnID
 	}
 	if !l.q.reserve(workKey, folder, topic, core.IsScheduledSender(last.Sender), turnID) {
-		return false, false, true, "", nil
+		return false, true, "", nil
 	}
 	defer l.q.release(workKey)
 	ambientKeys, err := turnMessageKeys(ambient)
 	if err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	admission := store.TurnAdmission{AttemptID: randHex(16),
 		InputLast: store.MessageCursor(last), InputKeys: inputKeys, AmbientKeys: ambientKeys}
@@ -499,7 +495,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			if err := l.enrichAttachments(ctx, &trigger[i], folder, true); err != nil {
 				var deferred *attachmentDeferred
 				if !errors.As(err, &deferred) {
-					return false, false, false, "", err
+					return false, false, "", err
 				}
 				if saved != nil {
 					due := deferred.at
@@ -507,10 +503,10 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 						due = saved.NextAttemptAt
 					}
 					if _, err := l.db.store().RequeueDeferredTurn(ctx, *saved, due, ""); err != nil {
-						return false, false, false, "", err
+						return false, false, "", err
 					}
 				}
-				return false, false, true, "", nil
+				return false, true, "", nil
 			}
 		}
 	}
@@ -524,10 +520,10 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		l.q.mu.Lock()
 		l.q.getGroup(workKey).refused = true
 		l.q.mu.Unlock()
-		return false, false, true, "", nil
+		return false, true, "", nil
 	}
 	if err != nil || !live {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	launched := false
 	requeueAt := l.q.now()
@@ -576,7 +572,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 
 	if err := l.db.SetTurnAddressed(turnID, addressed); err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 
 	triggerMsgID := last.ID
@@ -589,7 +585,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if l.srv != nil {
 		ipcDir, err := l.folders.IpcPath(folder)
 		if err != nil {
-			return false, false, false, "", fmt.Errorf("%w: resolve turn mcp path: %w", ErrDependencyDown, err)
+			return false, false, "", fmt.Errorf("%w: resolve turn mcp path: %w", ErrDependencyDown, err)
 		}
 		turnDir := groupfolder.TurnIpcDir(ipcDir, turnID)
 		stop, err := l.srv.ServeTurnMCP(turnMCP{
@@ -597,7 +593,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			attempt: tc.AttemptID,
 		}, turnDir)
 		if err != nil {
-			return false, false, false, "", fmt.Errorf("%w: serve turn mcp: %w", ErrDependencyDown, err)
+			return false, false, "", fmt.Errorf("%w: serve turn mcp: %w", ErrDependencyDown, err)
 		}
 		defer func() {
 			stop()
@@ -629,7 +625,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if err := l.reconcileCaps(ctx, folder, turnCallerSub(last.Sender)); err != nil {
 		slog.Error("model gateway did not answer the cap reconcile; no spawn",
 			"folder", folder, "turn_id", turnID, "err", err)
-		return false, false, false, "", fmt.Errorf("%w: model gateway cap reconcile: %w",
+		return false, false, "", fmt.Errorf("%w: model gateway cap reconcile: %w",
 			ErrDependencyDown, err)
 	}
 	var gwKey turnKey
@@ -639,7 +635,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		if gerr != nil {
 			slog.Error("model gateway refused to mint this turn's key; no spawn",
 				"folder", folder, "turn_id", turnID, "err", gerr)
-			return false, false, false, "", fmt.Errorf("%w: model gateway mint: %w",
+			return false, false, "", fmt.Errorf("%w: model gateway mint: %w",
 				ErrDependencyDown, gerr)
 		}
 		gwKey = k
@@ -666,15 +662,15 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	progress := addressed && canShowProgress(l.deliver, replyJID)
 	currentStatus, _ := l.db.GetTurnContext(turnID)
 	if err := l.publishOwedStatus(currentStatus); err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	started = true
 	launched = true
 	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
 	closed, closedOK := l.db.GetTurnContext(turnID)
 	if closedOK && closed.State == store.TurnDone && closed.RunReturned {
-		finishTurn(l.db, l.deliver, turnID, endSteered)
-		return false, false, false, "", nil
+		finishTurn(l.db, l.deliver, turnID, endClosed)
+		return false, false, "", nil
 	}
 	tc.RunID = out.RunID
 	if out.RunID != "" {
@@ -683,58 +679,58 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if derr != nil {
 		l.pauseProgress(replyJID, topic, out.RunID)
 		if err := l.db.SetRunReturned(turnID); err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
 		current, _ := l.db.GetTurnContext(turnID)
 		result, err := l.db.store().GetTurnResult(folder, turnID)
 		if err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
 		checkpoint := result.Status == "checkpoint"
 		if !errors.Is(derr, context.Canceled) && !errors.Is(derr, context.DeadlineExceeded) && !checkpoint {
 			if _, err := l.q.interrupt(l, current); err != nil {
-				return false, false, false, "", err
+				return false, false, "", err
 			}
 			var apiErr *runedv1.APIError
 			if current.ProviderFailureAttempt == tc.AttemptID ||
 				(!runedUnreachable(derr) && !errors.As(derr, &apiErr)) {
 				if err := l.stopModelProbe(current); err != nil {
-					return false, false, false, "", err
+					return false, false, "", err
 				}
 			}
 		}
 		deferred, err := l.q.complete(l, current, out, derr, work)
 		if err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
 		if deferred && (checkpoint || errors.Is(derr, context.DeadlineExceeded)) {
-			return false, false, false, "", nil
+			return false, false, "", nil
 		}
 		if errors.Is(derr, context.Canceled) || errors.Is(derr, context.DeadlineExceeded) {
 			finishTurn(l.db, l.deliver, turnID, endFailed)
-			return false, false, false, "", nil
+			return false, false, "", nil
 		}
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
 			derr = fmt.Errorf("%w: %w", ErrDependencyDown, derr)
 		}
-		return false, false, false, "", derr
+		return false, false, "", derr
 	}
 	if out.Busy {
 		current, ok, err := l.db.store().ReadTurnContext(ctx, turnID)
 		if err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
 		if !ok || current.AttemptID != admission.AttemptID {
-			return false, false, false, "", store.ErrRefused
+			return false, false, "", store.ErrRefused
 		}
 		decision := retry.Next(current.CapacityFailures, retry.Failure{Kind: "transient"}, l.q.now(), time.Time{})
 		committed, err := l.db.store().RecordCapacityFailure(ctx, current, l.db.GetAgentCursor(chatJID), wakeCursor, decision)
 		if err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
 		if !committed {
-			return false, false, false, "", store.ErrRefused
+			return false, false, "", store.ErrRefused
 		}
 		// A capacity wait that will re-feed keeps typing on (BUGS L897); a
 		// stop or a saved replay clears it.
@@ -746,36 +742,30 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		if decision.Stop {
 			current, _, err = l.db.store().ReadTurnContext(ctx, turnID)
 			if err != nil {
-				return false, false, false, "", err
+				return false, false, "", err
 			}
 			if err := l.publishOwedStatus(current); err != nil {
-				return false, false, false, "", err
+				return false, false, "", err
 			}
 		}
-		return false, false, true, "", nil
-	}
-	if out.Steered {
-
-		finishTurn(l.db, l.deliver, turnID, endSteered)
-		_ = l.db.SetRunReturned(turnID)
-		return true, true, false, "", nil
+		return false, true, "", nil
 	}
 
 	_ = l.db.SetRunReturned(turnID)
 	current, exists, err := l.db.store().ReadTurnContext(ctx, turnID)
 	if err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	if !exists {
-		return false, false, false, "", fmt.Errorf("claimed turn %s disappeared", turnID)
+		return false, false, "", fmt.Errorf("claimed turn %s disappeared", turnID)
 	}
 	deferred, err := l.q.complete(l, current, out, nil, work)
 	if err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	if deferred {
 		l.pauseProgress(replyJID, topic, out.RunID)
-		return false, false, false, "", nil
+		return false, false, "", nil
 	}
 	if out.Outcome == runedv1.OutcomeError {
 		tc, _ := l.db.GetTurnContext(turnID)
@@ -789,12 +779,12 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			}
 		}
 		finishTurn(l.db, l.deliver, turnID, endFailed)
-		return false, false, false, "", nil
+		return false, false, "", nil
 	}
 	end := endDone
 	result, err := l.db.store().GetTurnResult(folder, turnID)
 	if err != nil {
-		return false, false, false, "", err
+		return false, false, "", err
 	}
 	switch result.Status {
 	case "error":
@@ -813,11 +803,11 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		end = endFailed
 		current, _ := l.db.GetTurnContext(turnID)
 		if err := l.publishStatus(current, turnStatus{phase: "silent"}); err != nil {
-			return false, false, false, "", err
+			return false, false, "", err
 		}
 	}
 	finishTurn(l.db, l.deliver, turnID, end)
-	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
+	return out.Outcome != runedv1.OutcomeSilent, false, observedMark, nil
 }
 
 func turnMessageKeys(messages []core.Message) ([]objstore.Key, error) {

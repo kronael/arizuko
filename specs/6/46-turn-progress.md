@@ -92,7 +92,7 @@ ant checklist renderer and independent text suppression (removed)
   remove: whole-turn text-set deduplication and repeating status timer
 - path: ant/src/spool.ts (changed)
   job: carries the single checklist reminder through the existing steering spool
-  names: [NUDGE_TEXT, STEER_SPOOL, drainSteering, nudgeProgress]
+  names: [NUDGE_TEXT, STEER_SPOOL, nudgeProgress]
   never: starts a turn from a stale reminder
   remove: the request for a standalone status
 - path: ant/src/codex.ts (changed)
@@ -437,11 +437,11 @@ The call count and reminder state survive attempts of the same turn.
 
 Reuse `nudgeProgress`, `STEER_SPOOL`, and the existing steering hook.
 Use the existing timer as the one-shot time limit. Do not add another timer,
-Python hook, blocking guard, or reminder path. Only between turns does
-`drainSteering` discard stale reminders. During live background-agent waiting,
+Python hook, blocking guard, or reminder path. A reminder left in the spool
+when the turn ends is discarded with the guest. During live background-agent waiting,
 the existing poll delivers the current reminder through the same spool and
 `renderSteering`, even without another parent tool call.
-The live waiting poll reads `drainLines(STEER_SPOOL)` without the stale filter.
+The live waiting poll reads `drainLines(STEER_SPOOL)`.
 `solve_nudge.py` remains the solve entry nudge.
 
 At turn start, `runTurn` checks `submit_status` for a reminder or its remaining

@@ -1,16 +1,15 @@
 #!/usr/local/bin/bun
 // index.ts — the chassis runtime half every occupant shares: stdin envelope
-// parse, IPC steering + close sentinel, the <status> pipeline, idempotent
-// submit_turn, the inner turn loop. The harness half lives behind backend.ts.
+// parse, the <status> pipeline, idempotent submit_turn, the nudge rounds of one
+// turn. The harness half lives behind backend.ts.
 
 import { httpFailure } from '../../retry/retry.mjs';
 import fs from 'fs';
-import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type ModelUsage, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, HarnessConfigError, HarnessProfile, Turn, addUsage, parseHarness, selectHarness } from './backend.js';
-import { DEADLINE_TEXT, STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
+import { DEADLINE_TEXT, STEER_SPOOL, appendLines, nudgeProgress } from './spool.js';
 export { DEADLINE_TEXT } from './spool.js';
 
 interface ContainerInput {
@@ -39,14 +38,11 @@ interface ContainerOutput {
 }
 
 const HOME = '/home/node';
-const IPC_INPUT_DIR = '/run/ipc/input';
-const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
-const IPC_POLL_MS = 500;
 const MAX_STDIN_BYTES = 1024 * 1024;
 
 // runed hands the guest ARIZUKO_QUERY_TIMEOUT_MS from its run ceiling. The
 // guest's clock starts with this process, so one deadline covers every harness
-// run in it, the nudge round and the next IPC turn included.
+// run in it, the nudge round included.
 const PROCESS_STARTED = Date.now();
 const PROCESS_DEADLINE = PROCESS_STARTED + (Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || Infinity);
 let processCheckpointed = false;
@@ -83,9 +79,6 @@ function readHomeManual(): string | null {
     return null;
   }
 }
-
-let wakeup: (() => void) | null = null;
-process.on('SIGUSR1', () => { if (wakeup) wakeup(); });
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -163,58 +156,11 @@ async function streamStatuses(
   }
 }
 
-function shouldClose(): boolean {
-  if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
-    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
-    return true;
-  }
-  return false;
-}
-
-function drainIpcInput(): string[] {
-  try {
-    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-    const files = fs.readdirSync(IPC_INPUT_DIR)
-      .filter(f => f.endsWith('.json'))
-      .sort();
-
-    const messages: string[] = [];
-    for (const file of files) {
-      const filePath = path.join(IPC_INPUT_DIR, file);
-      try {
-        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        fs.unlinkSync(filePath);
-        if (data.source === 'self') continue;
-        if (data.type === 'message' && typeof data.text === 'string') {
-          messages.push(data.text);
-        }
-      } catch (err) {
-        log(`Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`);
-        try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-      }
-    }
-    return messages;
-  } catch (err) {
-    log(`IPC drain error: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
-  }
-}
-
-// checkIpcMessage assembles the next inner-loop prompt from both queues — the
-// IPC dir AND the steer spool. A turn that stopped calling tools would otherwise
-// strand spooled steering here and the loop would exit "input empty".
-export function checkIpcMessage(): string | null {
-  if (shouldClose()) return null;
-  const messages = [...drainSteering(), ...drainIpcInput()];
-  return messages.length > 0 ? messages.join('\n') : null;
-}
-
 interface TurnResult {
   // token is the harness's latest continuity token, opaque to us.
   token?: string;
   // sessionId is the harness-native session id for routd's lineage row.
   sessionId?: string;
-  closedDuringQuery: boolean;
   retryFresh: boolean;
   // failed says the turn produced no answer, and whether a retry could. The
   // container's exit code carries it to runed, which is what puts the turn on
@@ -252,7 +198,6 @@ async function runAttempt(
   deadline = PROCESS_DEADLINE,
   checkpointAt = (PROCESS_STARTED + deadline) / 2,
 ): Promise<TurnResult> {
-  const controller = new AbortController();
   const turn: Turn = {
     prompt,
     cwd: HOME,
@@ -263,34 +208,11 @@ async function runAttempt(
     systemPrompt: buildSystemPrompt(containerInput, harness.profile),
     tools: injectMcpEnv(env),
     env,
-    signal: controller.signal,
     deadline,
     checkpointAt,
   };
 
-  let ipcPolling = true;
-  let closedDuringQuery = false;
-  const pollIpcDuringQuery = () => {
-    if (!ipcPolling) return;
-    // The chassis owns the IPC mechanism; the `steering` policy owns delivery.
-    // Queueing here rather than inside a hook is what lets codex reach it — its
-    // hooks are separate processes and cannot be handed a closure.
-    appendLines(STEER_SPOOL, drainIpcInput());
-    if (shouldClose()) {
-      log('Close sentinel detected during query, winding the turn down');
-      closedDuringQuery = true;
-      controller.abort();
-      ipcPolling = false;
-      wakeup = null;
-      return;
-    }
-    let timer: ReturnType<typeof setTimeout>;
-    wakeup = () => { clearTimeout(timer); pollIpcDuringQuery(); };
-    timer = setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
-  };
-  setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
-
-  const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
+  const out: TurnResult = { retryFresh: false };
   let frameCount = 0;
   let resultCount = 0;
   let delivering = false;
@@ -346,7 +268,7 @@ async function runAttempt(
     // The seam's first requirement is exactly one terminal frame per turn, never
     // silence. Enforced here, at the one consumer, rather than trusting every
     // occupant.
-    if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
+    if (resultCount === 0 && !out.retryFresh) {
       log('Harness produced no result frame, delivering an error turn');
       out.failed = 'retryable';
       resultCount++;
@@ -367,13 +289,9 @@ async function runAttempt(
     } else {
       throw err;
     }
-  } finally {
-    ipcPolling = false;
-    wakeup = null;
   }
 
-  out.closedDuringQuery = closedDuringQuery;
-  log(`Turn done. Frames: ${frameCount}, results: ${resultCount}, sessionId: ${out.sessionId || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
+  log(`Turn done. Frames: ${frameCount}, results: ${resultCount}, sessionId: ${out.sessionId || 'none'}`);
   return out;
 }
 
@@ -434,7 +352,7 @@ export async function runTurn(
       const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliverTurnTotal, sendStatus, deadline, checkpointAt);
       continuity = result.token ?? continuity;
       sessionId = result.sessionId ?? sessionId;
-      if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {
+      if (!result.nudge || result.failed || result.retryFresh) {
         return { ...result, token: continuity, sessionId, checkpoint: checkpointed };
       }
       prompt = result.nudge;
@@ -469,28 +387,16 @@ async function main(): Promise<void> {
     env[key] = value;
   }
 
-  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
-
   let prompt = containerInput.prompt;
   if (containerInput.isScheduledTask) {
     prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
-  }
-  // Both queues: what IPC holds now, plus anything the steering policy never
-  // got to deliver because the last turn stopped calling tools.
-  const pending = [...drainSteering(), ...drainIpcInput()];
-  if (pending.length > 0) {
-    log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    prompt += '\n' + pending.join('\n');
   }
 
   // The platform hands back the sessionId a continuity frame carried; it is a
   // valid token for the harness that minted it. The harness unpacks and validates
   // — a placeholder or a pruned transcript starts fresh inside run().
-  let continuity = containerInput.sessionId;
-  let lastSessionId = containerInput.sessionId;
-  const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
-  let turnIndex = 0;
+  const continuity = containerInput.sessionId;
+  const turnID = containerInput.messageId || `boot-${Date.now()}`;
   try {
     if (!Number.isFinite(PROCESS_DEADLINE) || PROCESS_DEADLINE <= PROCESS_STARTED)
       throw new HarnessConfigError('ARIZUKO_QUERY_TIMEOUT_MS must be a positive run ceiling');
@@ -503,60 +409,34 @@ async function main(): Promise<void> {
       if (selection.effort === undefined) delete env.ARIZUKO_EFFORT; else env.ARIZUKO_EFFORT = selection.effort;
     }
     log(`backend: ${harness.name}`);
-    while (true) {
-      log(`Starting turn (continuity: ${continuity || 'fresh'})...`);
+    log(`Starting turn (continuity: ${continuity || 'fresh'})...`);
+    let r = await runTurn(harness, prompt, continuity, containerInput, env, turnID);
+    if (r.retryFresh && continuity) {
+      log(`Session error on resume, retrying with fresh session (was: ${continuity})`);
+      r = await runTurn(harness, prompt, undefined, containerInput, env, turnID);
+    }
+    if (r.checkpoint) return;
 
-      const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-      const r = await runTurn(harness, prompt, continuity, containerInput, env, turnID);
-      if (r.retryFresh && continuity) {
-        log(`Session error on resume, retrying with fresh session (was: ${continuity})`);
-        continuity = undefined;
-        continue;
-      }
-      if (r.token) continuity = r.token;
-      if (r.sessionId) lastSessionId = r.sessionId;
-      if (r.checkpoint) break;
-
-      // The turn delivered no answer. Exit non-zero so runed reports the run
-      // as failed and routd's own failure path runs — the one that retries,
-      // marks the chat errored and tells the user. Staying alive for the next
-      // message would hide a model outage behind a clean-looking container.
-      if (r.failed) {
-        // The reason comes BEFORE the explanation of the exit, because runed keeps
-        // a TAIL: a reason at the end of the sentence is the first thing cut.
-        log(
-          `Turn failed (${r.failed})` +
-            (r.failedReason ? `: ${r.failedReason}` : '') +
-            '; exiting so the run is recorded as a failure',
-        );
-        process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
-      }
-
-      if (r.closedDuringQuery) {
-        log('Close sentinel consumed during query, exiting');
-        break;
-      }
-
-      log('Turn ended, checking for next IPC message...');
-
-      const nextMessage = checkIpcMessage();
-      if (nextMessage === null) {
-        log('Input empty, exiting');
-        break;
-      }
-
-      turnIndex++;
-      log(`Got new message (${nextMessage.length} chars), starting new turn (turn ${turnIndex})`);
-      prompt = nextMessage;
+    // The turn delivered no answer. Exit non-zero so runed reports the run
+    // as failed and routd's own failure path runs — the one that retries,
+    // marks the chat errored and tells the user.
+    if (r.failed) {
+      // The reason comes BEFORE the explanation of the exit, because runed keeps
+      // a TAIL: a reason at the end of the sentence is the first thing cut.
+      log(
+        `Turn failed (${r.failed})` +
+          (r.failedReason ? `: ${r.failedReason}` : '') +
+          '; exiting so the run is recorded as a failure',
+      );
+      process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log(`Agent error: ${errorMessage}`);
-    const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
     try {
       await deliverTurn(turnID, {
         status: 'error',
-        newSessionId: lastSessionId,
+        newSessionId: containerInput.sessionId,
         error: errorMessage,
       });
     } finally {

@@ -191,7 +191,7 @@ RUN npm install @anthropic-ai/claude-agent-sdk@latest
 COPY ant/ ./
 COPY retry/ /retry/
 RUN npm run build
-RUN mkdir -p /mnt /run/ipc/input /var/lib/share /var/lib/www /var/lib/groups /opt/arizuko
+RUN mkdir -p /mnt /run/ipc /var/lib/share /var/lib/www /var/lib/groups /opt/arizuko
 
 RUN ln -s /app/src/index.ts /usr/local/bin/ant
 

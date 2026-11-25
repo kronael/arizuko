@@ -42,7 +42,7 @@ func TestModelPauseKeepsRuntimePort(t *testing.T) {
 		t.Fatalf("runtime port changed: %v", port)
 	}
 	turn := reflect.TypeFor[Turn]()
-	if turn.NumField() != 7 {
+	if turn.NumField() != 6 {
 		t.Fatalf("runtime turn widened: %v", turn)
 	}
 }

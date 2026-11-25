@@ -203,7 +203,7 @@ func testTurnControlProbeRestart(t *testing.T) {
 	if err := db.PutMessage(fresh); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, busy, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || !busy || len(runner.runs) != 0 {
+	if _, busy, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || !busy || len(runner.runs) != 0 {
 		t.Fatalf("unresolved probe admitted replacement: busy=%v launches=%d err=%v", busy, len(runner.runs), err)
 	}
 	runner.stopErr = nil

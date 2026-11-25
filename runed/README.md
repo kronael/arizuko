@@ -202,7 +202,7 @@ The agent model and the query timeout travel in the process environment as `ARIZ
 
 `renderTurn` (`render.go`) is the one renderer. A wire request goes in and one `Turn` comes out: the mount table, the process environment, the stdin frame and the egress allowlist. The substrate delivers those bytes and names, and it reads no grant, persona or session id. A new per-turn fact therefore changes the renderer and never the port.
 
-The port is `Runtime` (`runtime.go`), and it has two methods: `Run` and `Kill`. The own state of the substrate hangs off `Turn.Handle`: the CID, the tap and the pids. So `Kill(handle)` finds all of it. `Turn.RegisterSteer` is the one hook beside the two methods. The substrate calls it once the guest is up, and it hands back the steer closure.
+The port is `Runtime` (`runtime.go`), and it has two methods: `Run` and `Kill`. The own state of the substrate hangs off `Turn.Handle`: the CID, the tap and the pids. So `Kill(handle)` finds all of it.
 
 The renderer also writes the per-turn files that the mounts point at:
 

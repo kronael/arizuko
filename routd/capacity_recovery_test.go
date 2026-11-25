@@ -33,7 +33,7 @@ func TestCapacityBusyRejectsNewerAttempt(t *testing.T) {
 		}
 		return runedv1.RunOutcome{Busy: true}, nil
 	})
-	_, _, _, _, err = loop.runTurn("demo", "", msg.ChatJID, msg.ID, false, []core.Message{msg}, nil)
+	_, _, _, err = loop.runTurn("demo", "", msg.ChatJID, msg.ID, false, []core.Message{msg}, nil)
 	if !errors.Is(err, store.ErrRefused) {
 		t.Fatalf("stale Busy: %v", err)
 	}

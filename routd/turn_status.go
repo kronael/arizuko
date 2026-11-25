@@ -211,7 +211,7 @@ type turnEnd int
 const (
 	endDone turnEnd = iota
 	endFailed
-	endSteered
+	endClosed
 )
 
 func (e turnEnd) mark() string {
@@ -275,7 +275,7 @@ func finishTurn(db *DB, dl Deliverer, turnID string, end turnEnd) {
 
 func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	db.progress.Delete(turnID)
-	if end == endSteered {
+	if end == endClosed {
 		if err := db.SetRunReturned(turnID); err != nil {
 			slog.Error("finish turn without status", "turn_id", turnID, "err", err)
 		}

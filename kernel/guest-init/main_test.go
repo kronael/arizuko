@@ -2,8 +2,7 @@ package main
 
 // What can be tested without a guest, is. A hypervisor is needed for the mounts
 // themselves and for a real agent, so everything that DECIDES those — the host's
-// manifest, the mount plan it produces, the frame codec, the steer ack and the
-// exit code — is a pure function or takes an io.Writer, and each test names the
+// manifest, the mount plan it produces, the frame codec and the exit code — is a pure function or takes an io.Writer, and each test names the
 // values it expects rather than deriving them from the code under test.
 //
 // Standard library only: guest-init is its own module with no go.sum, and it
@@ -203,7 +202,6 @@ func TestFrameCodecRoundTripsBothDirections(t *testing.T) {
 		{Kind: kindTurn,
 			Env:   map[string]string{"ARIZUKO_FOLDER": "solo/inbox"},
 			Stdin: []byte(`{"message":"hi"}`)},
-		{Kind: kindSteer, Batch: "a message", ID: "7"},
 		{Kind: kindStop},
 	}
 	var wire bytes.Buffer
@@ -223,7 +221,6 @@ func TestFrameCodecRoundTripsBothDirections(t *testing.T) {
 		f    frame
 		want string
 	}{
-		{frame{Kind: kindSteerAck, ID: "7"}, `{"kind":"steer_ack","id":"7"}`},
 		{frame{Kind: kindExit, Code: 42}, `{"kind":"exit","code":42}`},
 		{frame{Kind: kindLog, Line: "a line"}, `{"kind":"log","line":"a line"}`},
 	} {
@@ -244,77 +241,6 @@ func TestFrameCodecRoundTripsBothDirections(t *testing.T) {
 	if !reflect.DeepEqual(got, in) {
 		t.Errorf("a split read gave\n  %+v\nwant\n  %+v", got, in)
 	}
-}
-
-// A steer is acked with the REQUEST's id, and only after the batch is on the
-// guest tmpfs and the agent has been woken.
-//
-// The host's steer returns true on that ack and routd marks the turn done, so an
-// ack that arrived first — or under another id — would make a user's message
-// vanish with the tmpfs at power-off while the turn read as delivered
-// (spec 6/41 §"Steer and stop").
-func TestSteerIsAckedWithTheRequestsID(t *testing.T) {
-	dir := t.TempDir()
-	var wire bytes.Buffer
-	tn := &turn{c: &ctl{w: &wire}, input: dir}
-	var woke []syscall.Signal
-	var batchAtWake string
-	tn.wake = func(sig syscall.Signal) error {
-		woke = append(woke, sig)
-		batchAtWake = spooled(t, dir)
-		return nil
-	}
-
-	tn.steer(frame{Kind: kindSteer, Batch: "a message", ID: "7"})
-
-	frames := decodeAll(t, bytes.NewReader(wire.Bytes()))
-	if len(frames) != 1 {
-		t.Fatalf("a steer put %d frames on the wire, want one ack: %+v", len(frames), frames)
-	}
-	if frames[0].Kind != kindSteerAck {
-		t.Errorf("answered a steer with %q, want %q", frames[0].Kind, kindSteerAck)
-	}
-	if frames[0].ID != "7" {
-		t.Errorf("acked id %q, want the request's %q", frames[0].ID, "7")
-	}
-	if !reflect.DeepEqual(woke, []syscall.Signal{syscall.SIGUSR1}) {
-		t.Errorf("woke the agent with %v, want one SIGUSR1", woke)
-	}
-	// The ack means the GUEST took it: at the moment the agent was woken the
-	// batch was already spooled, in the shape the agent drains.
-	const want = `{"text":"a message","type":"message"}`
-	if batchAtWake != want {
-		t.Errorf("the spool held %q when the agent was woken, want %q", batchAtWake, want)
-	}
-
-	t.Run("the batch file is one the agent reads", func(t *testing.T) {
-		names, err := filepath.Glob(filepath.Join(dir, "*"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(names) != 1 {
-			t.Fatalf("the spool holds %v, want one file", names)
-		}
-		base := filepath.Base(names[0])
-		// ant filters on .json and sorts; the temp name must not match that
-		// filter, and the counter is the guest's own.
-		if !strings.HasSuffix(base, "-1.json") {
-			t.Errorf("the batch file is %q, want a <millis>-<seq>.json name", base)
-		}
-	})
-
-	t.Run("no ack when the agent could not be woken", func(t *testing.T) {
-		var wire bytes.Buffer
-		tn := &turn{c: &ctl{w: &wire}, input: t.TempDir()}
-		tn.wake = func(syscall.Signal) error { return io.ErrClosedPipe }
-		tn.steer(frame{Kind: kindSteer, Batch: "a message", ID: "9"})
-		for _, f := range decodeAll(t, bytes.NewReader(wire.Bytes())) {
-			if f.Kind == kindSteerAck {
-				t.Fatal("acked a steer the agent was never woken for; " +
-					"the host would mark the turn done and drop the message")
-			}
-		}
-	})
 }
 
 // The exit frame carries the agent's own code, whichever way the agent ended.
@@ -547,23 +473,6 @@ func decodeAll(t *testing.T, r io.Reader) []frame {
 		t.Fatalf("readFrames: %v", err)
 	}
 	return out
-}
-
-// spooled reads the one batch file in a spool dir, the way the agent does.
-func spooled(t *testing.T, dir string) string {
-	t.Helper()
-	names, err := filepath.Glob(filepath.Join(dir, "*.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(names) != 1 {
-		return ""
-	}
-	b, err := os.ReadFile(names[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }
 
 // chunks hands out its parts one Read at a time, so a frame split across two

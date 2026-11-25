@@ -87,23 +87,6 @@ func (d *typingDeliverer) offs() int {
 	return n
 }
 
-// steeringRunner returns Steered=true immediately. When deliverContent is true
-// it also calls the reply tool first, simulating the running container replying.
-type steeringRunner struct {
-	t              *testing.T
-	srv            *Server
-	deliverContent bool
-}
-
-func (r *steeringRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-	if r.deliverContent {
-		r.srv.replyForTest(r.t, req.TurnID, req.ChatJID, "hello steered")
-		_, _ = r.srv.recordTurnResult(req.TurnID, apiv1.TurnResult{
-			TurnID: req.TurnID, SessionID: "sess-steered", Status: "success"})
-	}
-	return runedv1.RunOutcome{RunID: "run-steered", Steered: true}, nil
-}
-
 func newTypingRoutd(t *testing.T, runner Runner, dl Deliverer) (*DB, *Server) {
 	t.Helper()
 	db, err := OpenMem()
@@ -176,60 +159,6 @@ func TestTyping_Normal(t *testing.T) {
 	}
 	if dl.offs() == 0 {
 		t.Fatal("Typing(false) never fired after non-steered run with content")
-	}
-}
-
-// TestTyping_Steered_NoImmediateOff verifies that when dispatchRun returns
-// Steered=true without delivering content, Typing(false) is NOT called.
-// Typing stays alive until the agent eventually replies (maxTTL safety net in
-// TypingRefresher covers the case it never does).
-func TestTyping_Steered_NoImmediateOff(t *testing.T) {
-	dl := &typingDeliverer{}
-	runner := &steeringRunner{t: t, deliverContent: false}
-	db, srv := newTypingRoutd(t, runner, dl)
-	runner.srv = srv
-	const jid = "slack:T/C/U2"
-	seedTypingMsg(t, db, srv, jid)
-
-	if _, err := srv.loop.processGroupMessages(jid); err != nil {
-		t.Fatalf("process: %v", err)
-	}
-
-	if dl.offs() > 0 {
-		t.Fatalf("Typing(false) called %d times on steered turn without content, want 0", dl.offs())
-	}
-	if dl.ons() == 0 {
-		t.Fatal("Typing(true) was not called before steered run")
-	}
-}
-
-// TestTyping_Steered_ClearsOnContent verifies that when a steered run delivers
-// content and records its result, Typing(false) fires when the turn ends
-// (finishTurn), not from the dispatch path.
-func TestTyping_Steered_ClearsOnContent(t *testing.T) {
-	dl := &typingDeliverer{}
-	runner := &steeringRunner{t: t, deliverContent: true}
-	db, srv := newTypingRoutd(t, runner, dl)
-	runner.srv = srv
-	const jid = "slack:T/C/U3"
-	seedTypingMsg(t, db, srv, jid)
-
-	if _, err := srv.loop.processGroupMessages(jid); err != nil {
-		t.Fatalf("process: %v", err)
-	}
-
-	if dl.offs() == 0 {
-		t.Fatal("Typing(false) not called after steered run delivered content")
-	}
-	// The off must follow the on.
-	sawOn := false
-	for _, e := range dl.snapshot() {
-		if e.on {
-			sawOn = true
-		}
-		if !e.on && !sawOn {
-			t.Fatal("Typing(false) fired before Typing(true)")
-		}
 	}
 }
 

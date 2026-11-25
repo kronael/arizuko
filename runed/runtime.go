@@ -39,10 +39,10 @@ type Runtime interface {
 // and interprets none. renderTurn is the one producer (spec 6/41
 // §"The renderer"); the substrates and the fake are the only consumers.
 type Turn struct {
-	// Handle is what the substrate starts, steers and kills by.
+	// Handle is what the substrate starts and kills by.
 	Handle string
-	// Folder is the one path the substrate resolves: the ipc dir of the steer,
-	// the logs/ dir of the turn log, the name of the egress network.
+	// Folder is the one path the substrate resolves: the logs/ dir of the turn
+	// log, the name of the egress network.
 	Folder string
 	// Mounts is the mount table's right-hand side; Container is the guest path.
 	Mounts []core.Mount
@@ -54,10 +54,6 @@ type Turn struct {
 	Stdin []byte
 	// Egress is the proxy allowlist, grants applied.
 	Egress []string
-	// RegisterSteer is the Manager's hook the substrate calls ONCE the guest
-	// and its ipc dir are up. The callback returns false after the guest exits;
-	// fresh Run requests are queued by routd and do not invoke it.
-	RegisterSteer func(steer func(batch string) bool)
 }
 
 // RunResult is the harness outcome at the turn boundary. Outcome ∈ ok|error|silent.

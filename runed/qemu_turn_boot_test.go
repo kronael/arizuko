@@ -51,13 +51,12 @@ with open("/home/node/mcp", "wb") as output:
   printf 'blocked\n' > /home/node/network
 fi
 trap 'printf "terminated\n" > /home/node/terminated; exit 0' TERM
-finish() {
-  for file in /run/ipc/input/*.json; do [ -f "$file" ] && cat "$file" > /home/node/steer; done
+printf 'ready\n' > /home/node/ready
+if [ "$TURN_MODE" = normal ]; then
+  until curl --proxy "$HTTP_PROXY" -fsS --max-time 4 -o /dev/null "http://$TURN_HOST:$TURN_PORT/finish" 2>/dev/null; do sleep 0.1; done
   python3 -c 'open("/home/node/exit-write", "wb").write(b"x" * 1048576)'
   exit 0
-}
-trap finish USR1
-printf 'ready\n' > /home/node/ready
+fi
 while :; do sleep 0.1; done
 `
 
@@ -217,7 +216,6 @@ func TestGuestMCPBridgeRejectsOtherGuest(t *testing.T) {
 				"HOME": core.ContainerHome, "ROLE": role,
 				"VICTIM_PORT": strconv.FormatUint(uint64(port), 10),
 			},
-			RegisterSteer: func(func(string) bool) {},
 		}
 		go func() { result <- runtime.Run(ctx, turn) }()
 		t.Cleanup(func() {
@@ -292,7 +290,11 @@ func TestGuestTurnOverCtl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var finish atomic.Bool
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/finish" && finish.Load() {
+			return
+		}
 		if r.URL.Path != "/allow" {
 			http.NotFound(w, r)
 			return
@@ -348,7 +350,6 @@ func TestGuestTurnOverCtl(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 			defer cancel()
-			steers := make(chan func(string) bool, 1)
 			handle := "turn-proof-" + mode
 			env := turnEnv(cfg, runedv1.RunRequest{Agent: "probe"}, 0)
 			env["HOME"], env["TURN_MODE"] = core.ContainerHome, mode
@@ -361,7 +362,6 @@ func TestGuestTurnOverCtl(t *testing.T) {
 				},
 				Env:   env,
 				Stdin: []byte("turn-stdin\n"), Egress: []string{cfg.Name},
-				RegisterSteer: func(steer func(string) bool) { steers <- steer },
 			}
 			result := make(chan RunResult, 1)
 			started := time.Now()
@@ -400,15 +400,7 @@ func TestGuestTurnOverCtl(t *testing.T) {
 				case <-time.After(5 * time.Second):
 					t.Fatal("MCP bridge did not deliver a request")
 				}
-				var steer func(string) bool
-				select {
-				case steer = <-steers:
-				case <-time.After(5 * time.Second):
-					t.Fatal("runtime did not register steering")
-				}
-				if !steer("steered-through-ctl") {
-					t.Fatal("guest did not acknowledge the steer")
-				}
+				finish.Store(true)
 			case "kill":
 				if err := runtime.Kill(handle); err != nil {
 					t.Fatal(err)
@@ -431,7 +423,6 @@ func TestGuestTurnOverCtl(t *testing.T) {
 				for file, want := range map[string]string{
 					"stdin": "turn-stdin", "mcp": `"ok":true`,
 					"allowed": "allowed-through-proxy", "network": "blocked",
-					"steer": "steered-through-ctl",
 				} {
 					b, err := os.ReadFile(filepath.Join(home, file))
 					if err != nil || !strings.Contains(string(b), want) {
@@ -577,8 +568,7 @@ func TestGuestReadOnlyMountAnswersEROFS(t *testing.T) {
 			{Host: entry, Container: "/app/entrypoint.sh", RO: true},
 			{Host: shared, Container: "/mnt/ro", RO: true},
 		},
-		Env:           map[string]string{"HOME": core.ContainerHome},
-		RegisterSteer: func(func(string) bool) {},
+		Env: map[string]string{"HOME": core.ContainerHome},
 	}
 	go func() { result <- runtime.Run(ctx, turn) }()
 	ended := false
@@ -678,7 +668,7 @@ func cleanTurnProof(t *testing.T, root string) {
 	t.Helper()
 	for _, mode := range []string{"normal", "kill", "cancel"} {
 		home := filepath.Join(root, "home-"+mode)
-		for _, file := range []string{"stdin", "started", "mcp", "allowed", "network", "steer", "ready", "terminated", "exit-write", ".arizuko-probe"} {
+		for _, file := range []string{"stdin", "started", "mcp", "allowed", "network", "ready", "terminated", "exit-write", ".arizuko-probe"} {
 			_ = os.Remove(filepath.Join(home, file))
 		}
 		_ = os.Remove(home)

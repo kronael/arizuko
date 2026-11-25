@@ -13,6 +13,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Removed
+
+- The mid-turn steer chain, which no code called: `Turn.RegisterSteer`,
+  `Manager.SetSteer`, `RunOutcome.steered`, the `steer` and `steer_ack` frames
+  on `ctl`, the `/run/ipc/input` dir, its `_close` sentinel and the second
+  turn in one ant process. A message that arrives during a turn waits for the
+  next turn, as it did. The guest-init change needs a kernel rebuild.
+
 ## [v0.75.28] — 2026-11-24
 
 > arizuko v0.75.28 — a turn gives back the memory it no longer uses

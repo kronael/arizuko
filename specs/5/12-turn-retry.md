@@ -46,8 +46,7 @@ owed-status passes and the expiry sweep read only live turns. Both entities are
 keyed `(routd, turn id)`: a late frame, a delivery retry and the cost endpoint
 find a finished turn by its id. A done turn in the archive is never bound
 again; an expired one is bound afresh. A run's chats are keyed by the run in
-`run_turns`, so the run-end typing clear reaches a steered turn that already
-finished. A write to an archived turn lands where the turn is, and one that
+`run_turns`, so the run-end typing clear reads the run's own chats. A write to an archived turn lands where the turn is, and one that
 leaves a status owed again moves it back live in the same batch: a failed
 turn's final status is acknowledged before its run epilogue clears progress.
 `Open` moves the `done` and `expired` rows owing nothing of an older

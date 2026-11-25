@@ -19,10 +19,8 @@ import path from 'path';
 export const STEER_SPOOL = '/tmp/arizuko-steer';
 export const POLICY_LOG_SPOOL = '/tmp/arizuko-policy';
 
-// NUDGE_TEXT is the chassis-generated progress prompt. It goes straight onto the
-// steer spool — routed through the IPC dir it was filtered out on the way to the
-// spool, so every nudge was consumed and dropped. A read that starts a turn drops
-// a stale nudge by exact text: it steers a RUNNING turn, never starts one.
+// NUDGE_TEXT is the chassis-generated progress prompt. It goes onto the steer
+// spool and steers a RUNNING turn.
 export const NUDGE_TEXT =
   'This turn has no checklist. If meaningful work remains, invoke /progress\nand track the remaining milestones with the exposed native checklist.\nIf the answer is ready, deliver it.';
 
@@ -103,12 +101,6 @@ export function drainLines(dir: string): string[] {
     }
   }
   return out;
-}
-
-// drainSteering empties the steer spool for a read that starts a turn, dropping
-// stale progress nudges.
-export function drainSteering(): string[] {
-  return drainLines(STEER_SPOOL).filter((l) => l !== NUDGE_TEXT && l !== DEADLINE_TEXT);
 }
 
 // spoolStderr redirects console.error for the life of this process. Called only

@@ -53,8 +53,7 @@ func waitSpawnState(t *testing.T, db *DB, runID string, want ...string) Spawn {
 
 // TestHoldBlocksAgentTurn: the whole point — while a hold stands, an agent
 // turn for that folder is NOT admitted. It gets Busy (routd re-feeds from its
-// own queue) rather than being steered, because a hold registers no steer
-// callback: nothing can be written into a run that is not a container.
+// own queue).
 func TestHoldBlocksAgentTurn(t *testing.T) {
 	var ran bool
 	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
@@ -77,9 +76,6 @@ func TestHoldBlocksAgentTurn(t *testing.T) {
 	}
 	if !out.Busy {
 		t.Errorf("agent turn outcome=%+v want busy=true (folder is held)", out)
-	}
-	if out.Steered {
-		t.Error("agent turn was steered into a hold — a hold has no container to steer")
 	}
 	if ran {
 		t.Error("agent runtime ran while the folder was held")

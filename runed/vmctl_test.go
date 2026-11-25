@@ -37,13 +37,12 @@ func TestCtlFrameEncodesTheTurnAsTheGuestReadsIt(t *testing.T) {
 	}
 }
 
-// The guest's four frames, as literal lines. A decoder that silently tolerated a
+// The guest's three frames, as literal lines. A decoder that silently tolerated a
 // missing kind would read an exit as a log line and the turn would never end.
 func TestCtlFrameDecodesTheGuestsLines(t *testing.T) {
 	lines := strings.Join([]string{
 		`{"kind":"ready","probe":{"init_entry_uptime":"0.72"}}`,
 		`{"kind":"log","line":"[ant] thinking"}`,
-		`{"kind":"steer_ack","id":"3"}`,
 		`{"kind":"exit","code":7}`,
 	}, "\n") + "\n"
 	var got []ctlFrame
@@ -56,7 +55,6 @@ func TestCtlFrameDecodesTheGuestsLines(t *testing.T) {
 	want := []ctlFrame{
 		{Kind: "ready", Probe: map[string]string{"init_entry_uptime": "0.72"}},
 		{Kind: "log", Line: "[ant] thinking"},
-		{Kind: "steer_ack", ID: "3"},
 		{Kind: "exit", Code: 7},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -104,74 +102,6 @@ func sortedPairs(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// A steer is true ONLY on the guest's ack.
-//
-// routd marks the turn done the moment a steer is accepted, so a steer that
-// returned true on the socket write would make a user's message vanish while the
-// turn read as delivered: the guest tmpfs holding the pending batch is discarded
-// at power-off. False is the documented fall-through to a fresh spawn, so the
-// batch is re-fed instead (spec 6/41 §"Steer and stop").
-func TestSteerIsTrueOnlyOnTheGuestsAck(t *testing.T) {
-	t.Run("acked", func(t *testing.T) {
-		sess, guest := ctlPair(t)
-		go guestAnswering(guest, func(f ctlFrame) *ctlFrame {
-			if f.Kind == ctlSteer {
-				return &ctlFrame{Kind: ctlSteerAck, ID: f.ID}
-			}
-			return nil
-		})
-		if !sess.steer("a message", time.Second) {
-			t.Fatal("an acked steer must be true")
-		}
-	})
-	t.Run("written but never acked", func(t *testing.T) {
-		sess, guest := ctlPair(t)
-		go guestAnswering(guest, func(ctlFrame) *ctlFrame { return nil })
-		if sess.steer("a message", 50*time.Millisecond) {
-			t.Fatal("a steer the guest never acked must be false, or the message is lost silently")
-		}
-	})
-	t.Run("acked for another batch", func(t *testing.T) {
-		sess, guest := ctlPair(t)
-		go guestAnswering(guest, func(f ctlFrame) *ctlFrame {
-			if f.Kind == ctlSteer {
-				return &ctlFrame{Kind: ctlSteerAck, ID: "another"}
-			}
-			return nil
-		})
-		if sess.steer("a message", 50*time.Millisecond) {
-			t.Fatal("an ack for a different batch must not satisfy this one")
-		}
-	})
-	t.Run("guest dies holding the batch", func(t *testing.T) {
-		// The guest took the frame and ended without acking. The pending batch
-		// lives on a tmpfs the power-off discards, so the only safe answer is
-		// false: routd has already marked the turn done on a true.
-		sess, guest := ctlPair(t)
-		go guestAnswering(guest, func(f ctlFrame) *ctlFrame {
-			if f.Kind == ctlSteer {
-				guest.Close()
-			}
-			return nil
-		})
-		if sess.steer("a message", 2*time.Second) {
-			t.Fatal("a guest that died before acking must not report the steer delivered")
-		}
-	})
-	t.Run("guest already gone", func(t *testing.T) {
-		sess, guest := ctlPair(t)
-		guest.Close()
-		// The read loop ends; a steer after that is the documented race.
-		deadline := time.Now().Add(time.Second)
-		for !sess.closed.Load() && time.Now().Before(deadline) {
-			time.Sleep(time.Millisecond)
-		}
-		if sess.steer("a message", time.Second) {
-			t.Fatal("a steer into a dead guest must be false")
-		}
-	})
 }
 
 func TestExitFrameCarriesTheGuestsCode(t *testing.T) {

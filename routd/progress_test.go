@@ -447,13 +447,13 @@ func TestProgress_SecondEndDeletesOnce(t *testing.T) {
 	}
 }
 
-func TestProgress_SteeredEndOnlyMarksTheTurnDone(t *testing.T) {
+func TestProgress_ClosedEndOnlyMarksTheTurnDone(t *testing.T) {
 	dl := &recDeliverer{}
 	db, _ := progressWithRow(t, dl)
 
-	finishTurn(db, dl, "t1", endSteered)
+	finishTurn(db, dl, "t1", endClosed)
 	if len(dl.deletes) != 0 || len(dl.typings) != 0 {
-		t.Fatalf("a steered turn ended the live run's progress: deletes=%+v typings=%+v", dl.deletes, dl.typings)
+		t.Fatalf("a turn closed under its run ended the run's progress: deletes=%+v typings=%+v", dl.deletes, dl.typings)
 	}
 	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
 		t.Fatalf("turn state = %q, want done", tc.State)

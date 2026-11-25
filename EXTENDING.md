@@ -920,14 +920,11 @@ runs the turn against the socket. It delivers through an explicit delivery tool
 never a reply. A nonempty `nudge` in the `submit_turn` response continues the
 same turn ID and session, and the harness then submits again. The hidden
 `check_turn` method lets a Stop hook ask the same decision early. The broker
-hands out one nudge across both readers. The
-harness handles steering in the middle of a turn in its own way. ant drains
-`/run/ipc/input` between tool calls (`pollIpcDuringQuery` in
-`ant/src/index.ts`), and another harness maps it to whatever its protocol
-offers.
+hands out one nudge across both readers. A message that arrives during a turn
+waits for the next turn; the platform writes nothing into a running guest.
 
 A full replacement is not the only option. ant ships a harness chassis. The
-runtime half is reused: it parses stdin, steers by IPC, runs the `<status>`
+runtime half is reused: it parses stdin, runs the `<status>`
 pipeline and makes `submit_turn` idempotent. The harness half is one interface and one file for each backend. The
 interface takes a `Turn`, returns `Frame`s, and has one `run()` and a capability
 profile. The files are `ant/src/claude.ts`, the default, `codex.ts` and

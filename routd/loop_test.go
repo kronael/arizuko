@@ -524,66 +524,6 @@ func TestSweepChatsGatesCurrentChat(t *testing.T) {
 	}
 }
 
-// A completed prefix advances before a later batch steers. Only the unfinished
-// batch re-feeds, so the completed batch cannot replay its output.
-func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-
-	// First sender's turn completes (records a result, flips done); second
-	// sender's turn steers. the consecutive-run grouping yields [u1],[u2] in that order.
-	var dispatched []string
-	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		dispatched = append(dispatched, req.TurnID)
-		if req.TriggerSender == "u2" {
-			return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK, Steered: true}, nil
-		}
-		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "sess", "success", "", store.TurnUsage{})
-		_ = db.SetTurnState(req.TurnID, "done")
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
-	})
-	loop := NewLoop(db, runner, LoopConfig{})
-	loop.StopQueue()
-	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
-	now := time.Now().UTC()
-	_ = db.PutMessage(core.Message{ID: "m-u1", ChatJID: "slack:T/C/U", Sender: "u1",
-		Content: "from one", Timestamp: now, Verb: "message"})
-	_ = db.PutMessage(core.Message{ID: "m-u2", ChatJID: "slack:T/C/U", Sender: "u2",
-		Content: "from two", Timestamp: now.Add(time.Second), Verb: "message"})
-
-	// The completed prefix advances before the later turn is admitted.
-	if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
-		t.Fatalf("poll 1: %v", err)
-	}
-	if len(dispatched) != 2 || dispatched[0] != "m-u1" || dispatched[1] != "m-u2" {
-		t.Fatalf("poll 1 dispatched=%v want [m-u1 m-u2]", dispatched)
-	}
-	if db.GetAgentCursor("slack:T/C/U") != store.MessageCursor(core.Message{ID: "m-u1", Timestamp: now}) {
-		t.Fatal("poll 1 did not preserve the completed prefix before the steered batch")
-	}
-	if tc, _ := db.GetTurnContext("m-u1"); tc.State != "done" {
-		t.Fatalf("u1 turn state=%q want done", tc.State)
-	}
-
-	// Only the unfinished u2 batch re-feeds.
-	if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
-		t.Fatalf("poll 2: %v", err)
-	}
-	var redispatchedU1 int
-	for _, id := range dispatched[2:] {
-		if id == "m-u1" {
-			redispatchedU1++
-		}
-	}
-	if redispatchedU1 != 0 {
-		t.Fatalf("completed u1 batch re-dispatched on poll 2 (dispatched=%v)", dispatched)
-	}
-}
-
 // doSetRoutes replaces the whole route table through
 // store.ReplaceFolderRoutesInto, the writer the routes resource uses. routd.DB's
 // SetRoutes twin had no production caller and is gone (BUGS L14).

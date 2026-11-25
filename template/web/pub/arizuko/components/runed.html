@@ -69,7 +69,6 @@
       <li>It builds the staging tree and starts <code>virtiofsd</code> for it.</li>
       <li>It brings up the tap of the guest and its rule set, and starts the egress proxy on the host side of that tap.</li>
       <li>It enforces <code>RUNED_RUN_TIMEOUT</code>, so a runaway turn cannot run forever.</li>
-      <li>It steers a live run over the vsock <code>ctl</code> frame.</li>
       <li>It stops the guest cleanly and reaps every pid that the record of the turn names.</li>
     </ul>
     <p>runed gives the guest no token. A host kernel fact keeps a turn inside its folder, across two steps. The first step is the vsock CID of the guest, which the vhost driver of the host lets no other guest claim. The second step is a uid-1000 bridge that accepts a connection only from that CID and connects only to the folder socket of that turn. So the guest holds no credential to steal.</p>
@@ -88,7 +87,7 @@
       KVM guest   runs one turn, then powers off
         │     agent tools  ──►  routd, over vsock through the uid-1000 bridge
         │                       (MCP socket hosted in routd, not runed)
-        └── timeout / ctl steer / power off + reap every pid ──► runed</code></pre>
+        └── timeout / ctl stop / power off + reap every pid ──► runed</code></pre>
     </div>
 
     <dl>
@@ -176,7 +175,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/rootfs-a35045d89e3e
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-22">2026-11-22</time>
       </div>
     </main>
 

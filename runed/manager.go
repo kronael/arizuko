@@ -25,8 +25,7 @@ const defaultMaxConcurrent = 5
 // global concurrency cap and the Runtime envelope
 // (spec 5/P-runed). Admission is a pure claim-or-reject decision off the DB; runed
 // keeps NO internal admission queue, and a caller that cannot be admitted
-// gets a retryable busy outcome and routd re-feeds it. The only in-memory
-// state is steerFns, the live steer callbacks.
+// gets a retryable busy outcome and routd re-feeds it.
 type Manager struct {
 	db *DB
 	// executors dispatches the post-claim step by spawns.kind (spec 5/8):
@@ -42,11 +41,6 @@ type Manager struct {
 	folders *groupfolder.Resolver
 
 	mu sync.Mutex
-	// steerFns is run_id -> steer callback. Keyed by RUN, not by folder:
-	// keyed by folder, run A's exit disarmed run B for its whole life (BUGS
-	// L111). The DB's active-spawn row is the only liveness authority, so an
-	// entry for a dead run is unreachable rather than merely deleted on time.
-	steerFns map[string]func(batch string) bool
 }
 
 // ManagerConfig wires the renderer, deadline and concurrent agent cap.
@@ -76,7 +70,6 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 		maxRun:    cfg.MaxAgents,
 		cfg:       cfg.Cfg,
 		folders:   cfg.Folders,
-		steerFns:  map[string]func(batch string) bool{},
 	}
 }
 
@@ -238,10 +231,9 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 
 	// Take the claim BEFORE anything is recorded or launched. started=false
 	// means a DELETE killed this run between admit's CreateSpawn and here:
-	// launching anyway would put a second container on one folder's mount,
-	// open a session_log row nothing will close, and run endRun against the
-	// folder's NEXT run. Reported as Busy, so routd leaves the cursor
-	// un-advanced.
+	// launching anyway would put a second container on one folder's mount
+	// and open a session_log row nothing will close. Reported as Busy, so
+	// routd leaves the cursor un-advanced.
 	started, err := m.db.StartSpawn(ctx, runID, sessionID)
 	if err != nil {
 		slog.Error("runed: StartSpawn failed — launch aborted",
@@ -302,7 +294,6 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 			slog.Error("runed: CloseSession failed", "log_id", logID, "err", err)
 		}
 	}
-	m.endRun(runID)
 
 	return runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, Error: res.Error,
@@ -351,27 +342,7 @@ func (m *Manager) execute(
 			return runFailure(ctx, fmt.Errorf("render turn: %w", err))
 		}
 	}
-	// RegisterSteer wires the steer callback once the guest + IPC are up; a
-	// guestless executor never calls it. It is the Manager's hook, not a
-	// rendered fact, so it is attached here rather than by the renderer.
-	turn.RegisterSteer = func(steer func(batch string) bool) { m.SetSteer(runID, steer) }
 	return exec.Run(ctx, turn)
-}
-
-func (m *Manager) endRun(runID string) {
-	// Clear this run's steer callback (its container is gone). Deleting by
-	// run_id cannot disarm a successor that already claimed the folder.
-	m.mu.Lock()
-	delete(m.steerFns, runID)
-	m.mu.Unlock()
-}
-
-// SetSteer records the substrate's guest-input callback for the run's lifetime.
-// Fresh Run admission does not invoke it.
-func (m *Manager) SetSteer(runID string, steer func(batch string) bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.steerFns[runID] = steer
 }
 
 // Kill stops a run (DELETE /v1/runs/{id}) and frees its slot; the spawn's
@@ -394,11 +365,6 @@ func (m *Manager) Kill(ctx context.Context, runID string) error {
 			return kerr
 		}
 	}
-	// Killing an already-terminal run_id disarms only that run, never
-	// whichever run has since claimed the folder.
-	m.mu.Lock()
-	delete(m.steerFns, runID)
-	m.mu.Unlock()
 	return nil
 }
 

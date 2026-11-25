@@ -98,27 +98,19 @@ func TestLiveFolderRejectsFreshTurn(t *testing.T) {
 	_ = db
 	h := srv.Handler()
 
-	// register a steerable live run before the second call.
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "first"})
 	}()
 	<-started
-	// wire the steer callback as the production Runtime would.
-	live, err := srv.mgr.ActiveRunID(t.Context(), "demo")
-	if err != nil {
-		t.Fatalf("ActiveRunID: %v", err)
-	}
-	steered := false
-	srv.mgr.SetSteer(live, func(batch string) bool { steered = true; return true })
 
-	rec := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "steered"})
+	rec := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "second"})
 	var out runedv1.RunOutcome
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	close(release)
 	<-done
-	if rec.Code != 200 || !out.Busy || out.Steered || out.RunID != "" || steered {
-		t.Fatalf("fresh turn entered live run: status=%d out=%+v steered=%v", rec.Code, out, steered)
+	if rec.Code != 200 || !out.Busy || out.RunID != "" {
+		t.Fatalf("fresh turn entered live run: status=%d out=%+v", rec.Code, out)
 	}
 }
 

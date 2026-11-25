@@ -71,13 +71,11 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 // A fresh turn waits for the active run, then starts under its own identity.
 func TestFollowupWaitsForActiveRun(t *testing.T) {
 	var spawns atomic.Int32
-	var steers atomic.Int32
-	wired := make(chan struct{})
+	started := make(chan struct{})
 	release := make(chan struct{})
-	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, _ Turn) RunResult {
 		if spawns.Add(1) == 1 {
-			turn.RegisterSteer(func(string) bool { steers.Add(1); return true })
-			close(wired)
+			close(started)
 			select {
 			case <-release:
 			case <-ctx.Done():
@@ -92,16 +90,16 @@ func TestFollowupWaitsForActiveRun(t *testing.T) {
 		mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", TurnID: "first", MessageBatch: "first"})
 		close(done)
 	}()
-	<-wired
+	<-started
 
 	out, err := mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", TurnID: "second", MessageBatch: "second"})
 	close(release)
 	<-done
-	if err != nil || !out.Busy || out.Steered || out.RunID != "" || steers.Load() != 0 {
-		t.Fatalf("fresh turn entered the active run: out=%+v err=%v steers=%d", out, err, steers.Load())
+	if err != nil || !out.Busy || out.RunID != "" {
+		t.Fatalf("fresh turn entered the active run: out=%+v err=%v", out, err)
 	}
 	out, err = mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", TurnID: "second", MessageBatch: "second"})
-	if err != nil || out.Busy || out.Steered || out.RunID == "" || spawns.Load() != 2 {
+	if err != nil || out.Busy || out.RunID == "" || spawns.Load() != 2 {
 		t.Fatalf("follow-up did not start after release: out=%+v err=%v spawns=%d", out, err, spawns.Load())
 	}
 }

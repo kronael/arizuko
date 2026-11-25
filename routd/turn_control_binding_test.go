@@ -84,7 +84,7 @@ func TestMCPSetupFailureSettlesTurn(t *testing.T) {
 	}
 }
 
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, busy bool, observedMark string, rerr error) {
 	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil, store.MessageCursor(trigger[len(trigger)-1]))
 }
 
@@ -119,7 +119,7 @@ func TestTurnControlSavesInputBeforeRun(t *testing.T) {
 	})
 	loop := NewLoop(db, runner, LoopConfig{})
 	loop.StopQueue()
-	if _, _, _, _, err := loop.runTurn("demo", "", input.ChatJID, input.ID, false, []core.Message{input}, []core.Message{ambient}); err != nil {
+	if _, _, _, err := loop.runTurn("demo", "", input.ChatJID, input.ID, false, []core.Message{input}, []core.Message{ambient}); err != nil {
 		t.Fatal(err)
 	}
 }

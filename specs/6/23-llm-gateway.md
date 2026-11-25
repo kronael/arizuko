@@ -146,9 +146,7 @@ already carries routd-resolved `Secrets`. One `defer` closes the bracket —
 `recordGatewayCost` (`routd/dispatch.go:558`) reads what the key was
 charged, then `revoke` deletes it — so every way out of the turn books it,
 including a run whose reply never came back and which may still be
-spending. Two dispatches skip the read because they have nothing to read:
-a Busy refusal admitted no run, and a steer spent on the key of the turn
-that owns the container.
+spending. A Busy refusal skips the read because it admitted no run.
 
 `putTurnCost` (`routd/turns.go:196`) is the ONE writer of a turn's
 `cost_log` rows. Exactly one source reaches it per turn — the gateway's
@@ -249,11 +247,6 @@ disguises which client is calling.
 
 ## What this does not close
 
-- **A steered turn is metered on the run it steered into.** A steer
-  writes its batch into a container another turn already owns, so its
-  model calls are charged to that turn's key. The steering turn mints a
-  key, spends nothing on it, and deletes it. Attribution is per-run, not
-  per-batch.
 - **`cost_log` holds whole cents.** The gateway reports dollars, and
   rounding happens once over each model's total for the turn rather than
   per request, so a turn of sub-cent calls records what it cost. A turn

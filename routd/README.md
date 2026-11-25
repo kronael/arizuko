@@ -99,7 +99,6 @@ in `schedule_test.go` cover firing and retry behavior.
   | `error` with a reply, retries spent, or `terminal` | edits the turn status to the final cause, advances                                      |
   | timeout                                            | edits the turn status to "Time limit reached", never retries                            |
   | `busy`                                             | does not advance, applies the busy backoff                                              |
-  | `steered`                                          | ends this turn, because the live run owns the batch                                     |
   | a transport failure                                | does not advance; the next poll feeds the batch again                                   |
 
 - **Busy backoff.** After a busy refusal, routd parks the batch for 4 s. Each repeat refusal of the same batch doubles the wait up to 60 s (`turn_control.go`). A new user message clears the wait. The running turn's own bot rows do not clear it. Busy spends no retry.

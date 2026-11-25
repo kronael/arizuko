@@ -193,7 +193,7 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 }
 
 func classifyTurn(out runedv1.RunOutcome, err error, result store.TurnInfo, replied bool) turnDecision {
-	if out.Busy || out.Steered || errors.Is(err, context.Canceled) {
+	if out.Busy || errors.Is(err, context.Canceled) {
 		return turnDecision{}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -248,7 +248,7 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		providerOut.Outcome = runedv1.OutcomeError
 	}
 	decision := classifyTurn(providerOut, runErr, result, replied)
-	if work.probe != nil && !out.Busy && !out.Steered && runErr == nil && providerOut.Outcome == runedv1.OutcomeOK &&
+	if work.probe != nil && !out.Busy && runErr == nil && providerOut.Outcome == runedv1.OutcomeOK &&
 		result.Status == "pending" && !replied {
 		decision = turnDecision{trip: true, cause: "Agent could not complete the request"}
 	}
@@ -499,7 +499,7 @@ func (l *Loop) replay(turnID string) (bool, error) {
 	if strings.HasPrefix(tc.TurnID, core.CheckpointPrefix) {
 		last.BotMsg = false
 	}
-	had, _, _, mark, err := l.runBoundTurn(tc.Folder, tc.Topic, tc.ChatJID,
+	had, _, mark, err := l.runBoundTurn(tc.Folder, tc.Topic, tc.ChatJID,
 		tc.TurnID, tc.Addressed, trigger, ambient, &tc, tc.CapacityWakeCursor)
 	if errors.Is(err, errModelInputOrder) {
 		return false, nil
