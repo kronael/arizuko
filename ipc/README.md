@@ -139,6 +139,17 @@ that target and writes an inbound message through `store.PostGroup`. routd's
 routing hand-off uses the same writer. `ForwardedFrom` carries the calling
 folder for `send`, or the originating chat for a routing hand-off.
 
+Every message row carries `hops`, the number of agent turns between the row
+and the last person or external input. A chat message, a webhook, a scheduled
+task, `arizuko send` and a routing hand-off write `hops` 0, and an absent
+value reads as 0. A message by which a turn starts another turn, a group
+`send` or `inject_message`, gets the largest `hops` of the turn's saved input
+rows plus 1. routd refuses a message that reaches `store.MaxHops`, which is 2,
+with a tool error. So a person can ask A, A can send to B, and B answers on a
+platform chat, but B cannot start a turn in A, in C or in itself.
+`putAgentMessage` in `routd/mcp.go` is the one place that counts. It reads the
+saved input rows, so a retried turn counts the same.
+
 ## Tool surface
 
 Social verbs, served through `chanreg`: `send`, `reply`, `post`, `like`,

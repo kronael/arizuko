@@ -4,7 +4,6 @@ relates-to:
   [
     ../6/59-local-daemons,
     ../7/57-group-handler,
-    ../7/58-group-posts,
     ../7/26-single-world-deployment,
   ]
 ---
@@ -20,7 +19,7 @@ spec that owns its mechanism.
 1. An agent writes a file in its workspace, and the operator reads that file
    over `/dav/` (`davd/`).
 2. An agent sends to a granted group with `send`, and that group's handler
-   runs ([58-group-posts](../7/58-group-posts.md), [57-group-handler](../7/57-group-handler.md)).
+   runs (group `send` in `ipc/README.md`, [57-group-handler](../7/57-group-handler.md)).
    A send to an ungranted group fails.
 3. An agent adds a skill in its workspace, and its next turn uses that skill
    (`ant/skills/`, group skills take precedence).

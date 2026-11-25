@@ -323,7 +323,7 @@ runed mounts selected assets into the isolated guest (`runed/mounts.go:63`).
 The daemon socket directory never enters that guest; per-turn MCP stays separate.
 `runed.Runtime` stays `Run` and `Kill` (`runed/runtime.go:32`).
 [7/57-group-handler](../7/57-group-handler.md) owns handler selection;
-[7/58-group-posts](../7/58-group-posts.md) owns group messaging.
+`ipc/README.md` § "Who may call what" owns group messaging.
 
 ## Sockets locate services; OpenAPI describes capabilities
 
