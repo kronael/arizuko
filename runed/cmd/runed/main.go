@@ -1,8 +1,5 @@
-// Command runed runs the runed daemon: the execution plane (runed/README.md) —
-// the work queue and the per-spawn container lifecycle. runed never appends a
-// message (routd is the sole appender), holds no signing key, and mints no
-// token: it verifies its callers against authd's JWKs and spawns containers.
-// routd hosts the agent MCP socket in-process.
+// Command runed manages per-turn KVM guests. It verifies callers against
+// authd's JWKs and bridges each guest to routd's per-turn MCP socket.
 package main
 
 import (
@@ -29,11 +26,7 @@ import (
 // lives.
 const spawnRetention = 7 * 24 * time.Hour
 
-// newRunedMux builds runed's complete HTTP surface: the Server's routed mux
-// plus the two mounts main used to add inline. Extracted so a test can probe
-// the routing table runed actually builds — the doc-vs-mux guard has to compare
-// the emitted document against the real mux, and mounts made inside main are
-// unreachable (BUGS F40).
+// newRunedMux includes discovery and optional metrics in runed's HTTP surface.
 func newRunedMux(srv *runed.Server) *http.ServeMux {
 	mux := srv.Handler().(*http.ServeMux)
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", mux))
@@ -76,11 +69,8 @@ func main() {
 	slog.Info("substrate",
 		"backend", sub.Delivered.Backend, "egress", sub.Delivered.Egress,
 		"declared_egress", sub.Declared.Egress, "reason", sub.Reason)
-	// Where the model credential sits is decided at the same moment. With no
-	// gateway, spawnSecrets hands the operator anchor to every container, and
-	// inside one it is readable from the agent's shell and from /proc whatever
-	// the harness scrubs (BUGS L131). A supported deployment (SECURITY.md), so a
-	// warning, not a refusal — once, where the operator is looking.
+	// Without a model gateway, the operator's model credentials enter each
+	// guest. Guest processes can read those credentials from the shell and /proc.
 	if runed.SpawnHoldsModelCredential(cfg) {
 		slog.Warn("no model gateway: the operator model credential enters every agent container " +
 			"and is readable from the agent's shell and /proc; set MODEL_GATEWAY_URL " +
@@ -160,9 +150,6 @@ func main() {
 		}
 	}()
 
-	// Stage the release's ant/ where agent containers can bind-mount it. Must
-	// precede the first spawn — an agent with no /opt/arizuko cannot migrate.
-
 	srv := runed.NewServer(mgr, db, verify)
 	srv.SetDashKeySet(dashKeys)
 	srv.SetSubstrate(sub)
@@ -184,19 +171,9 @@ func main() {
 	}()
 
 	<-stop
-	// Graceful shutdown (runed/README.md § "What runed does"): stop accepting new
-	// POST /v1/runs and wait up to RUNED_SHUTDOWN_GRACE for the handlers
-	// already running to finish.
-	//
-	// A run only survives runed's own exit. It does NOT survive routd's: the
-	// run context is the REQUEST's (Manager.spawn, runed/manager.go), and
-	// armCancel (runed/docker.go) kills the container when that context dies
-	// — its own comment names "routd dropped the POST /v1/runs request" as
-	// one of the two causes. A deploy stops both daemons, so a live turn ends
-	// with 137 and routd re-feeds it. Detaching here alone would be worse, not
-	// better: the agent's MCP socket lives in ROUTD's process, so a container
-	// outliving routd has no socket, holds the folder's run slot, and is
-	// re-fed anyway (BUGS L161).
+	// Shutdown stops new requests and waits for active handlers up to the grace
+	// period. Agent runs retain the request context through Manager.spawn.
+	// If that context ends, qemuRuntime.await stops the guest and Run reaps it.
 	grace := core.DurOr("RUNED_SHUTDOWN_GRACE", runTTL)
 	slog.Info("runed stopping (detaching in-flight runs)", "grace", grace, "in_flight", mgr.ActiveCount(context.Background()))
 	sctx, scancel := context.WithTimeout(context.Background(), grace)

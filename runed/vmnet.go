@@ -77,9 +77,8 @@ func tapName(instance string, idx int) string {
 // Static by design. The guest's only route is the host side of its tap, and the
 // only thing it may reach there is the proxy, so a name never reaches netfilter
 // and there is nothing per-destination to render: the proxy is the one matcher
-// for names and addresses alike. UDP/53 is covered by the same drop, which is
-// what closes the resolver side channel an internal docker network leaves open
-// (spec 8/41 §"Egress by name, sealed below the kernel"; BUGS L136, L189).
+// for names and addresses alike. The same drop blocks UDP/53, so the guest
+// cannot send DNS queries through the tap.
 func tapRules(rec *vmRecord) [][]string {
 	port := strconv.Itoa(rec.ProxyPort)
 	return [][]string{
@@ -94,13 +93,8 @@ func tapRules(rec *vmRecord) [][]string {
 // tapJumps sends every packet into, out of and through the tap to its chain,
 // which is named after the tap.
 //
-// The rules sit in their own chain because a rule with a tcp match cannot be
-// found again by its spec: with three guests up, iptables-nft 1.8.10 answers
-// `-C` and `-D` for an older guest's accept with "Bad rule", while a rule
-// without a match is still found. Deleted by spec, that accept outlived its
-// guest; the next guest on the tap found it, kept it, and put its own drop above
-// it — a guest with no path to its proxy (BUGS L931). A chain is flushed and
-// removed by name, and a jump carries no match.
+// Cleanup flushes and removes the chain by name without matching individual
+// TCP rules. Each jump matches only the tap interface.
 func tapJumps(rec *vmRecord) [][]string {
 	return [][]string{
 		{"INPUT", "-i", rec.Tap, "-j", rec.Tap},
@@ -167,25 +161,11 @@ var ipv6ConfDir = "/proc/sys/net/ipv6/conf"
 
 // sealIPv6 removes the IPv6 address family from the tap, before the link comes up.
 //
-// The rule set is iptables, so it says nothing about IPv6 (`tapRules`). Without
-// this seal the guest and the host side of the tap each take a link-local address
-// and the guest reaches every IPv6 listener in runed's namespace — runed's own
-// :8080 among them, because Go's ":8080" binds the wildcard in both families. The
-// drops the guest is supposed to face are in the wrong table to see any of it.
-//
-// It is closed today only by the environment: docker sets disable_ipv6=1 in a
-// container on a v4-only network (measured in arizuko_runed_krons). An operator
-// who enables IPv6 on the compose network opens it, and a boundary that rests on
-// somebody else's default is not a boundary (BUGS `L383`).
-//
-// A kernel built without IPv6 has no knob and nothing to disable, so an absent
-// path is not an error. A knob that already reads 1 — the tap inherits
-// `default.disable_ipv6`, which docker sets on a v4-only network — needs no
-// write, and the write would not take: /proc/sys is read-only in the runed
-// container, caps or not (measured on sloth 2026-10-05, 33 turns refused in
-// two minutes, BUGS `L395`). So the write is attempted only when the family is
-// open, and then a write that fails IS an error: a turn must never run with an
-// address family its rule set cannot see.
+// The tap rules filter IPv4 only. IPv6 must stay disabled to prevent access
+// to listeners in runed's network namespace through a link-local address.
+// A missing knob or a value of 1 needs no write. A read-only /proc/sys is
+// sufficient when IPv6 is already disabled.
+// If IPv6 is enabled, a failed write prevents the turn from starting.
 func sealIPv6(tap string) error {
 	p := filepath.Join(ipv6ConfDir, tap, "disable_ipv6")
 	have, err := os.ReadFile(p)
@@ -247,11 +227,8 @@ func (q *qemuRuntime) tapDown(tap string) {
 	}
 }
 
-// egressArgs renders the proxy's argument list for one turn. The allowlist and
-// the gateway host come from container.EgressRules, which is the same
-// translation the Docker substrate's proxy gets: `*` becomes --allow-all and the
-// configured gateway is allowed by construction, in ONE place, so the two
-// substrates cannot disagree about what a folder may reach.
+// egressArgs binds the proxy to this turn's host and guest addresses.
+// container.EgressRules expands * to --allow-all and includes the model gateway.
 func egressArgs(rec *vmRecord, allowlist []string, gatewayURL string) []string {
 	names, allowAll := container.EgressRules(allowlist, gatewayURL)
 	args := []string{
@@ -296,8 +273,6 @@ func (q *qemuRuntime) startEgress(rec *vmRecord, allowlist []string) (*exec.Cmd,
 	return cmd, proxyURL, nil
 }
 
-// egressReady bounds the wait for the proxy's /health, matching the Docker
-// substrate's own bound.
 const egressReady = 15 * time.Second
 
 // proxyEnv is the variables the guest needs to use its proxy: the proxy

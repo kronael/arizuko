@@ -26,14 +26,9 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 	return db, NewServer(mgr, db, nil)
 }
 
-// TestContractRun is the standalone acceptance of runed/README.md: accept a
-// POST /v1/runs, broker a (faked) token, run the (Fake)Runtime with the
-// brokered token + decoded RunRequest, and return {run_id, outcome:ok,
-// session_id}. routd owns the MCP socket in-process now — runed is a pure
-// spawner, so the contract is the spawn outcome, not federated callbacks.
+// TestContractRun checks that POST /v1/runs renders a Turn, calls the runtime,
+// returns the outcome, and records the spawn and session.
 func TestContractRun(t *testing.T) {
-	// FakeRuntime stands in for the spawner: it sees the brokered token + the
-	// fields decoded from RunRequest and returns the run outcome.
 	var sawTurn Turn
 	rt := FakeRuntime{Fn: func(_ context.Context, turn Turn) RunResult {
 		sawTurn = turn
@@ -58,9 +53,8 @@ func TestContractRun(t *testing.T) {
 		t.Fatal("run_id empty")
 	}
 
-	// The substrate saw the request rendered into an envelope: the prompt and
-	// the chat jid in the stdin frame, the model in the process environment,
-	// the handle the claim pinned, and a mount table.
+	// The runtime receives the prompt and chat JID in stdin, plus a handle
+	// and mounts.
 	frame := turnFrame(t, sawTurn)
 	prompt, _ := frame["prompt"].(string)
 	if prompt != "rendered prompt" || frame["chatJid"] != "slack:T/C/U" {
@@ -84,7 +78,7 @@ func TestContractRun(t *testing.T) {
 	}
 }
 
-// A second POST for a live folder returns busy without feeding its guest.
+// A second POST for the same folder and topic returns busy.
 func TestLiveFolderRejectsFreshTurn(t *testing.T) {
 	// FakeRuntime that blocks until we release it, simulating a live run.
 	release := make(chan struct{})

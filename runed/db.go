@@ -1,7 +1,5 @@
-// Package runed is the execution plane (runed/README.md): the per-spawn container
-// lifecycle. It is a pure container-spawner: routd hosts the agent MCP socket
-// and is the sole message appender; authd is the sole token signer. runed
-// mounts the ipc dir into each spawn and manages spawn/kill.
+// Package runed manages per-turn KVM guests. routd hosts the per-turn MCP
+// socket and appends messages. runed bridges each guest to that socket.
 package runed
 
 // db.go is runed's composition root: the only file in the daemon that names a
@@ -21,7 +19,7 @@ var ErrNotFound = runstore.ErrNotFound
 
 // The shapes runed's handlers pass around are runstore's.
 type (
-	// Spawn is one container spawn (the execution-session envelope).
+	// Spawn records one run, including its state and outcome.
 	Spawn = runstore.Spawn
 )
 
