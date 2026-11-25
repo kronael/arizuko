@@ -97,7 +97,7 @@ Retry 1 is running.</code></pre>
                next gap, or one hour     breaker closed,
                after the last retry      pause rows cleared</code></pre>
     <p>The refusal also writes a <code>model_pauses</code> row for the folder that reported it. Operators list these rows at <code>/dash/model-pauses/</code>, through <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses</code></a>, or with <a href="../reference/mcp.html#list_model_pauses">the operator MCP tools</a>. Clear removes the row of one folder. It does not close the breaker or start the saved input: only a probe without a refusal does that.</p>
-    <p>Exit code 78 alone, assistant quotations, tool failures and unknown errors are not provider refusals. They are ordinary failures and follow the same retry schedule.</p>
+    <p>Exit code 78 alone does not identify a provider refusal. <code>runed</code> marks guest exit code 78 as terminal. Assistant quotations, tool failures and unknown errors do not identify provider refusals.</p>
 
     <h2>The agent knows that a run is a retry</h2>
     <p>Before the agent sees the prompt of a retry, <code>routd</code> adds a note at the start:</p>
@@ -114,13 +114,13 @@ did not complete.&lt;/system-note&gt;</code></pre>
       <dt>Turns that a person stopped</dt>
       <dd>An explicit <code>/stop</code> or an operator kill ends the turn. The status says <code>Turn stopped.</code></dd>
       <dt>Runs that <code>runed</code> marks terminal</dt>
-      <dd>Container exit 125, 126 or 127 and a substrate that cannot start are terminal. <code>runed</code> makes this decision and <code>routd</code> obeys it. A retry cannot repair these failures.</dd>
+      <dd>Only guest exit code 78 is terminal. Guest exit codes 125, 126 and 127 permit retries. Preparation and control failures are terminal when the context ends or the failure has an explicit permanent classification. <code>runed</code> makes this decision and <code>routd</code> obeys it.</dd>
     </dl>
 
     <p>At half of <a href="../reference/env.html#RUNED_RUN_TIMEOUT"><code>RUNED_RUN_TIMEOUT</code></a>, ant asks for a progress summary and an end to the turn. A checkpoint or ceiling stop queues a continuation behind waiting chats. The continuation resumes the same session. Eight continuations without a new non-bot message in the topic stop the work. A new message resumes it.</p>
 
     <h2>Agent capacity is instance-wide</h2>
-    <p><a href="../reference/env.html#MAX_CONCURRENT_AGENTS"><code>MAX_CONCURRENT_AGENTS</code></a>, default 5, bounds the agents that run at once. Scheduled tasks hold at most one of those slots, so a free slot still serves a chat. One folder runs one turn at a time. If turns stop because of memory and not because of content, change <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count.</p>
+    <p><a href="../reference/env.html#MAX_CONCURRENT_AGENTS"><code>MAX_CONCURRENT_AGENTS</code></a>, default 5, bounds the agents that run at once. Scheduled tasks hold at most one of those slots, so a free slot still serves a chat. Each folder and topic pair runs one turn at a time. Different topics in one folder can run at the same time. A hold blocks every topic in its folder. If turns stop because of memory and not because of content, change <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count.</p>
 
     <h2>Related pages cover the guest and the progress</h2>
     <p>The guest and its time limit belong to <a href="../components/runed.html">runed</a>. <a href="turn.html">a turn, end to end</a> shows where the retry fits in the turn. <a href="progress.html">live progress</a> shows what you see <em>while</em> a turn is still running. The code is in <a href="https://github.com/kronael/arizuko/blob/main/routd/turn_control.go">[routd/turn_control.go]</a> and <a href="https://github.com/kronael/arizuko/blob/main/routd/turn_status.go">[routd/turn_status.go]</a>.</p>
@@ -130,7 +130,7 @@ did not complete.&lt;/system-note&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/retries.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-22">2026-11-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-23">2026-11-23</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
