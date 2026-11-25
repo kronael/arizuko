@@ -77,3 +77,24 @@ func TestGroupsMCPGitHubIngressOperator(t *testing.T) {
 		t.Fatalf("failure=%q group exists=%v", failure, db.GroupExists("alice/child"))
 	}
 }
+
+// A folder that holds register_group over its subtree registers a child by the
+// child's own web chat. The gate above reads the room route `room=alice/child`
+// as one that can match a GitHub chat, so the delegated registration is refused.
+func TestGroupsMCPWebChildNeedsNoOperator(t *testing.T) {
+	t.Skip("L950: register_group refuses web:<folder>/<child> as possible GitHub ingress")
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	groupsDir := t.TempDir()
+	grantMCPTools(t, db, "alice", "register_group")
+	sock := serveGroupsMCP(t, db, "alice", "folder:alice", groupsDir)
+	_, failure := callToolText(t, sock, "register_group", map[string]any{
+		"jid": "web:alice/child", "folder": "alice/child",
+	})
+	if failure != "" || !db.GroupExists("alice/child") {
+		t.Fatalf("failure=%q group exists=%v", failure, db.GroupExists("alice/child"))
+	}
+}
