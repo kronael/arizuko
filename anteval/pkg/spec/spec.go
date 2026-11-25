@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -117,8 +119,25 @@ func Validate(c Case) error {
 	if c.Check.Kind == "http_status" && (c.Check.URL == "" || c.Check.Want == 0) {
 		return fmt.Errorf("case %s: http_status needs url+want", c.ID)
 	}
+	for _, text := range []string{c.Prompt, c.Check.URL, c.Check.Chat, c.Check.Text} {
+		rest := placeholder.ReplaceAllStringFunc(text, func(m string) string {
+			name := m[1 : len(m)-1]
+			if placeholders[name] || strings.HasPrefix(name, "cb.") {
+				return ""
+			}
+			return m
+		})
+		if strings.ContainsAny(rest, "{}") {
+			return fmt.Errorf("case %s: %q holds a brace the runner cannot expand; "+
+				"it fills {nonce}, {sink}, {target}, {chat} and {cb.<key>} only", c.ID, text)
+		}
+	}
 	return nil
 }
+
+var placeholder = regexp.MustCompile(`\{[^{}]*\}`)
+
+var placeholders = map[string]bool{"nonce": true, "sink": true, "target": true, "chat": true}
 
 // Filter selects by smoke flag and/or dimension/id; empty selectors pass all.
 func Filter(cases []Case, smoke bool, dim, id string) []Case {

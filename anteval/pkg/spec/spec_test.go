@@ -90,3 +90,22 @@ kind = "callback"
 		}
 	}
 }
+
+// The runner's expander refuses a brace it cannot fill, and the case then fails
+// before it is injected: `curl -w '%{http_code}'` did that to egress-diagnose.
+// The load refuses such a text; the placeholders the runner fills pass.
+func TestValidateRefusesABraceTheRunnerCannotExpand(t *testing.T) {
+	ok := Case{ID: "p1", Prompt: "curl {sink}/cb/{nonce} {target} {cb.url}", Check: Check{Kind: "rest_reply", Chat: "{chat}", Text: "{nonce}-x"}}
+	if err := Validate(ok); err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{"curl -w '%{http_code}' x", "json {\"a\":1}", "open { only", "close } only"} {
+		err := Validate(Case{ID: "p2", Prompt: prompt, Check: Check{Kind: "callback"}})
+		if err == nil || !strings.Contains(err.Error(), "case p2") {
+			t.Errorf("prompt %q: err = %v, want a refusal naming the case", prompt, err)
+		}
+	}
+	if err := Validate(Case{ID: "p3", Prompt: "p", Check: Check{Kind: "rest_reply", Text: "{reply}"}}); err == nil {
+		t.Error("accepted an unknown placeholder in a check")
+	}
+}

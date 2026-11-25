@@ -350,7 +350,7 @@ kind = "callback"
 [[case]]
 id = "egress-diagnose"
 dimension = "egress"
-prompt = "Probe two hosts on every path you try: `curl -s -o /dev/null -w '%{http_code}' {target}/pub/` and the same against `https://example.com/`. One host fails identically on every path. Diagnose the cause and report exactly ONE marker: if that host is refused by your OWN egress allowlist (connection blocked before reaching it), `curl -s {sink}/cb/{nonce}`; if instead it is that host's own authentication gate rejecting you, `curl -s {sink}/cb/{nonce}-auth`."
+prompt = "Probe two hosts on every path you try and read the HTTP status of each response: `curl -sI {target}/pub/` and the same against `https://example.com/`. One host fails identically on every path. Diagnose the cause and report exactly ONE marker: if that host is refused by your OWN egress allowlist (connection blocked before reaching it), `curl -s {sink}/cb/{nonce}`; if instead it is that host's own authentication gate rejecting you, `curl -s {sink}/cb/{nonce}-auth`."
 max_wall_ms = 120000
 [case.check]
 kind = "callback"
