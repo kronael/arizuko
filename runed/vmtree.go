@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"golang.org/x/sys/unix"
 )
@@ -171,13 +172,17 @@ func (t *turnTree) stageTargets(plan treeManifest) error {
 			// failure buildMounts' mkSlot exists to avoid. Refuse instead.
 			return fmt.Errorf("staging tree: mount source %s (guest %s): %w", e.Host, e.Path, err)
 		}
+		mkdir := os.MkdirAll
+		if target != t.target(e.Path) {
+			mkdir = mkdirForRunUID
+		}
 		if fi.IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := mkdir(target, 0o755); err != nil {
 				return fmt.Errorf("staging tree: target %s: %w", target, err)
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := mkdir(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("staging tree: target parent %s: %w", target, err)
 		}
 		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, 0o644)
@@ -191,6 +196,29 @@ func (t *turnTree) stageTargets(plan treeManifest) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(t.dir, treeManifestName), append(b, '\n'), 0o644)
+}
+
+// mkdirForRunUID is os.MkdirAll for a mount point inside a bound source, which
+// is a group's home: each directory it creates goes to the run uid. runed runs
+// as root, and the agent cannot add a skill to a root-owned `~/.claude/skills`.
+func mkdirForRunUID(dir string, mode os.FileMode) error {
+	var created []string
+	for p := dir; ; p = filepath.Dir(p) {
+		if _, err := os.Lstat(p); err == nil || p == filepath.Dir(p) {
+			break
+		}
+		created = append(created, p)
+	}
+	if err := os.MkdirAll(dir, mode); err != nil {
+		return err
+	}
+	uid, _ := container.RunUID()
+	for _, p := range created {
+		if err := os.Chown(p, uid, uid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // stagePath is where mount point i must exist when bindAll reaches it. Under an

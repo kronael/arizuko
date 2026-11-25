@@ -3,12 +3,15 @@ package runed
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -117,6 +120,46 @@ func TestStageTargetsMatchTheSourceKind(t *testing.T) {
 	}
 	if got.Mounts[0].Host != "" {
 		t.Error("the manifest must not name host paths: the guest has no use for them")
+	}
+}
+
+// A packaged skill is mounted at ~/.claude/skills/<name>, a point staged inside
+// the group's home. The directories staging creates there belong to the run uid:
+// the agent adds its own skills beside the packaged ones, and a root-owned
+// ~/.claude/skills answered "Permission denied" to mkdir in a new group.
+func TestStageTargetsInsideAHomeBelongToTheRunUID(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to tell the run uid from the caller")
+	}
+	root := t.TempDir()
+	for _, dir := range []string{filepath.Dir(root), root} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := filepath.Join(root, "home")
+	skill := filepath.Join(root, "skill")
+	for _, dir := range []string{home, skill} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	uid, _ := container.RunUID()
+	if err := os.Chown(home, uid, uid); err != nil {
+		t.Fatal(err)
+	}
+	tree := treeFor(filepath.Join(root, "vm"))
+	plan := treePlan([]core.Mount{
+		{Host: home, Container: "/home/node"},
+		{Host: skill, Container: "/home/node/.claude/skills/packaged", RO: true},
+	})
+	if err := tree.stageTargets(plan); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/usr/bin/mkdir", filepath.Join(home, ".claude/skills/own"))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)}}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("run uid cannot add a skill: %v: %s", err, output)
 	}
 }
 
