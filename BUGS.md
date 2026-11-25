@@ -62,27 +62,6 @@ turn shows which name the hook receives.
 without each candidate argument.
 **Type:** correctness — no test, needs a live Codex session.
 
-## L935 — a Claude turn has no checklist tool, so no checklist reaches a chat (2026-11-25, open)
-
-Claude Code leaves `TaskCreate`, `TaskUpdate`, `TaskList` and `TaskGet` out of
-a session whose model is not in its own list (`claude-opus-4-7` and older,
-`claude-sonnet-4-6` and older), unless the session opts in. ant does not opt
-in, and krons and sloth run newer models. The agent image installs the newest
-SDK at each build (`ant/Dockerfile`), so the tools left with an SDK update.
-**Measured:** the binary of the live image
-(`rootfs-2de9fa2d6b19`, Claude Code 2.1.331) with an invalid key announces 22
-tools for `claude-opus-5-5` and `claude-fable-5-2` and none of the four; with
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` it announces 26, the four included.
-The stored transcripts agree: 11,814 parent tool calls on Claude in November,
-none to a checklist tool; `tests/lab/checklist_adoption.py` finds 0 of 39 long
-Claude turns with a checklist after 2026-11-11, all 39 reminded, the progress
-skill loaded in 23 turns. The reducer, the reminder and the progress skill
-depend on these tools.
-**Fix:** the session environment of `runClaude` (`ant/src/claude.ts`) sets
-`CLAUDE_CODE_ENABLE_TODO_TOOLS`; a test reads the tools the installed CLI
-announces. The fix reaches an instance with the next agent image.
-**Type:** correctness.
-
 ## L930 — the breaker repeats what a turn's own retry already does for a failed run (2026-11-23, open — needs sign-off)
 
 After `L826` a failed run holds its own folder only, and that hold adds nothing
@@ -644,7 +623,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.
-- `L935` — a Claude turn has no checklist tool; fix queued: the session environment opts in.
 - `L903` — dashd writes a group's harness to the store; `6/53` says through `/v1`, `6/29` says the store; owner decision, default is the store.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.

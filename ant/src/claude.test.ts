@@ -4,6 +4,7 @@
 
 import { test, expect } from 'bun:test';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import type { Frame, Turn } from './backend.js';
 import type {
@@ -11,12 +12,14 @@ import type {
   PostToolUseFailureHookInput,
   PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   ClaudeTurn,
   claudeHooks,
   SessionEnd,
   runClaude,
   claudeEnv,
+  sessionEnv,
   claudeResultStatus,
   createPreCompactHook,
   isRateLimitRejected,
@@ -642,13 +645,44 @@ test('the bundled Claude Code CLI knows the session-state env key and event', ()
     .filter((p) => fs.existsSync(p));
   expect(binaries.length).toBeGreaterThan(0);
   for (const bin of binaries) {
-    for (const needle of ['CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS', 'session_state_changed']) {
+    for (const needle of ['CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS', 'session_state_changed', 'CLAUDE_CODE_ENABLE_TODO_TOOLS']) {
       const n = Number(new TextDecoder().decode(Bun.spawnSync(['grep', '-c', '-a', '-F', needle, bin]).stdout).trim());
       const label = `${path.basename(path.dirname(bin))} ${needle}`;
       expect(`${label} ${n > 0}`).toBe(`${label} true`);
     }
   }
 });
+
+/**
+ * The checklist reducer in routd reads TaskCreate and TaskUpdate calls. The
+ * installed CLI announces its tools before the first model call, so a session
+ * started with the turn's environment and an invalid key shows whether the
+ * agent gets them.
+ */
+test('sessionEnv: the installed Claude Code announces the task tools', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ant-task-tools-'));
+  const abortController = new AbortController();
+  let tools: string[] = [];
+  for await (const message of query({
+    prompt: 'hi',
+    options: {
+      abortController,
+      cwd: home,
+      env: sessionEnv({ HOME: home, PATH: process.env.PATH ?? '', ANTHROPIC_API_KEY: 'invalid' }),
+      model: 'claude-opus-5',
+      settingSources: [],
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+    },
+  })) {
+    if (message.type === 'system' && message.subtype === 'init') {
+      tools = message.tools;
+      break;
+    }
+  }
+  abortController.abort();
+  expect(tools).toEqual(expect.arrayContaining(['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']));
+}, 60_000);
 
 /** Concurrent native callbacks deliver the reminder in the triggering completion. */
 test.each(['PostToolUse', 'PostToolUseFailure'] as const)('native %s awaits status before steering', async (event) => {

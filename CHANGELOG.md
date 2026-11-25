@@ -61,6 +61,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   turn in one ant process. A message that arrives during a turn waits for the
   next turn, as it did. The guest-init change needs a kernel rebuild.
 
+### Fixed
+
+- A Claude turn gets `TaskCreate`, `TaskUpdate`, `TaskList` and `TaskGet`
+  again: the session sets `CLAUDE_CODE_ENABLE_TODO_TOOLS`, which Claude Code
+  requires for a model outside its own list. Without it no Claude turn could
+  show a checklist (L935). The `reply` and `send` tool texts name the native
+  checklist. Needs a new agent image.
+
 ## [v0.75.28] — 2026-11-24
 
 > arizuko v0.75.28 — a turn gives back the memory it no longer uses

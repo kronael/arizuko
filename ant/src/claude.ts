@@ -224,6 +224,17 @@ export function claudeEnv(env: Record<string, string>): Record<string, string> {
   return out;
 }
 
+// sessionEnv is the environment of the Claude Code process of one turn.
+// Claude Code leaves TaskCreate, TaskUpdate, TaskList and TaskGet out of a
+// session whose model is outside its own list unless the session opts in.
+export function sessionEnv(env: Record<string, string>): Record<string, string> {
+  return {
+    ...claudeEnv(env),
+    CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+  };
+}
+
 // extraDirs lists the additional context directories for one turn: the shared
 // read-only tree (skipped on an elevated /root turn) and every operator mount
 // under /mnt.
@@ -603,7 +614,7 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
         // arizuko gates side effects at routd's MCP socket and the egress proxy.
         // sandbox off for the same reason — the container IS the sandbox.
         sandbox: { enabled: false },
-        env: { ...claudeEnv(turn.env), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        env: sessionEnv(turn.env),
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],

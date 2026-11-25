@@ -293,7 +293,7 @@ runed supplies credentials and configuration; ant calls the model provider throu
 
 Pi maps `CLAUDE_CODE_OAUTH_TOKEN` to `ANTHROPIC_OAUTH_TOKEN` and `CODEX_API_KEY` to `OPENAI_API_KEY` only when the destination is absent.
 `ARIZUKO_ASSISTANT_NAME` is read from generated Claude settings for conversation export naming, not from ant's process env.
-Claude receives `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` from the adapter.
+Claude receives `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` and `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` from the adapter (`sessionEnv`, `src/claude.ts`). Claude Code leaves `TaskCreate`, `TaskUpdate`, `TaskList` and `TaskGet` out of a session whose model is outside its own list unless the session sets the second key; the progress checklist reads those calls.
 Provider SDKs can consume their own environment variables; the table covers ant's explicit reads and credential mapping.
 The fixed ant home is `/home/node`; changing HOME does not move its explicit paths.
 
