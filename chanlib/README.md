@@ -174,8 +174,7 @@ the common unavailable notice once. Observed context gets one attempt.
 - `SlackJID`, `ParseSlackJID`, `FormatSlackJID` — Slack JID parsing (format: `slack:<workspace>/<kind>/<id>`)
 - `TypingRefresher` — presence re-sender with hard TTL, keyed by an opaque string the adapter chooses (discd: the channel it types in)
 - `AckMark` — the `👀` mark for adapters with no native presence (slakd, gitd): pins the trigger message, persists the mark in `ack_marks`, removes it at turn end, backstop TTL, `Sweep` at boot; `Stop` removes no mark
-- `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd and slakd
-- `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution
+- `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution. discd and slakd record each id with `chanstore.RecordFileURL` and resolve it with `chanstore.FileURL`, a point read of `file_urls` for each request
 - `WriteJSON`, `WriteErr`, `Chunk`, `ProxyFile`, `LogMiddleware`
 - `ShortHash(s)` — 4-byte hex of sha256(s) for logging sensitive strings
 - `CopyDirNoSymlinks`, `CopyFile` — fs utilities
@@ -264,7 +263,6 @@ sorted into the wrong place (BUGS `L97`).
 - `auth.go` — `Auth` middleware (ES256 service:routd verification)
 - `typing.go` — `TypingRefresher`
 - `mark.go` — `AckMark`
-- `urlcache.go` — `URLCache`
 - `emoji.go` — `ClassifyEmoji`
 - `slack_jid.go` — `SlackJID`, `ParseSlackJID`, `FormatSlackJID`
 - `fsutil.go` — `CopyDirNoSymlinks`, `CopyFile`

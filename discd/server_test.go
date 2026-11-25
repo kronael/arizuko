@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
 type stubBot struct {
@@ -249,14 +252,23 @@ func TestServerFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	srv := newServer(config{Name: "discord"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
-	id := srv.files.Put(t.Context(), cdn.URL+"/image.png")
+	raw := dyntest.Store(t, chanstore.Entities...)
+	st := chanstore.New(raw)
+	srv := newServer(config{Name: "discord"}, &stubBot{}, st, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	id := chanstore.FileID(cdn.URL + "/image.png")
+	if err := st.RecordFileURL(t.Context(), id, cdn.URL+"/image.png"); err != nil {
+		t.Fatal(err)
+	}
 	h := srv.handler()
 
-	req := httptest.NewRequest("GET", "/files/"+id, nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	get := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/files/"+id, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+	w := get()
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -266,10 +278,24 @@ func TestServerFileProxy(t *testing.T) {
 	if w.Header().Get("Content-Type") != "image/png" {
 		t.Errorf("ct = %q", w.Header().Get("Content-Type"))
 	}
+
+	// The proxy holds no copy of a mapping: the id resolves while the store
+	// holds it and no longer.
+	ok, err := raw.GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Delete, Entity: chanstore.FileURL,
+		Key: objstore.Key{Partition: id, Sort: id},
+	}})
+	if err != nil || !ok {
+		t.Fatalf("delete the mapping: %v %v", ok, err)
+	}
+	if w := get(); w.Code != 404 {
+		t.Errorf("status after the store lost the mapping = %d, want 404", w.Code)
+	}
 }
 
 func TestServerFileProxyNotFound(t *testing.T) {
-	srv := newServer(config{Name: "discord"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	st := chanstore.New(dyntest.Store(t, chanstore.Entities...))
+	srv := newServer(config{Name: "discord"}, &stubBot{}, st, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	h := srv.handler()
 	req := httptest.NewRequest("GET", "/files/missing", nil)
 	req.Header.Set("Authorization", "Bearer secret")

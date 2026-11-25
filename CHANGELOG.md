@@ -38,6 +38,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   tick. Each read is `objstore.ReadConsistent`, so a held replace still
   answers 503. A read costs two marker reads and one table read, where the
   copy cost one marker read.
+- `chanlib.URLCache`, the 4,096-entry LRU in front of `file_urls` in discd and
+  slakd. The `/files/<id>` proxy reads `file_urls` for each download, so an id
+  resolves while the store holds it and no longer.
 
 - The mid-turn steer chain, which no code called: `Turn.RegisterSteer`,
   `Manager.SetSteer`, `RunOutcome.steered`, the `steer` and `steer_ack` frames

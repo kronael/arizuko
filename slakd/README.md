@@ -115,13 +115,13 @@ A watchdog goroutine runs on the `SLAKD_WATCHDOG_SECONDS` cadence. When inbound 
 
 ## Threat model
 
-| Surface                | Verifier                                            | Failure mode                                                 |
-| ---------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
-| `/slack/events`        | `X-Slack-Signature` HMAC (signing secret)           | proxyd re-marshals the body, the HMAC breaks, 401            |
-| `/slack/interactivity` | the same HMAC                                       | a press is chat text; the operator gate is routd's           |
-| `/send`, and others    | `chanlib.Auth` (`service:routd` ES256 token)        | a compromised router gets no further isolation               |
-| `/files/<id>`          | `chanlib.Auth` (same bearer) and an opaque cache id | the id is hex of a sha256 prefix, so it cannot be enumerated |
-| upstream fetch         | `Authorization: Bearer $SLACK_BOT_TOKEN`            | `url_private` URLs are unauthorized without the token        |
+| Surface                | Verifier                                           | Failure mode                                                 |
+| ---------------------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| `/slack/events`        | `X-Slack-Signature` HMAC (signing secret)          | proxyd re-marshals the body, the HMAC breaks, 401            |
+| `/slack/interactivity` | the same HMAC                                      | a press is chat text; the operator gate is routd's           |
+| `/send`, and others    | `chanlib.Auth` (`service:routd` ES256 token)       | a compromised router gets no further isolation               |
+| `/files/<id>`          | `chanlib.Auth` (same bearer) and an opaque file id | the id is hex of a sha256 prefix, so it cannot be enumerated |
+| upstream fetch         | `Authorization: Bearer $SLACK_BOT_TOKEN`           | `url_private` URLs are unauthorized without the token        |
 
 proxyd must forward `X-Slack-Signature`, `X-Slack-Request-Timestamp` and the raw body unmodified. Any re-marshal invalidates the HMAC.
 

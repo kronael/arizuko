@@ -10,8 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/kronael/arizuko/chanlib"
 )
 
 func TestChatNameFrom_NormalChannel(t *testing.T) {
@@ -79,7 +77,7 @@ func TestAttachmentsFor_SkipsFilesWithoutURL(t *testing.T) {
 func TestAttachmentsFor_ProxiesURLWhenListenURLSet(t *testing.T) {
 	b := &bot{
 		cfg:   config{ListenURL: "http://slakd:8080"},
-		files: chanlib.NewURLCache(10, nil),
+		files: markStore(t),
 	}
 	files := []slackFile{
 		{
@@ -96,8 +94,13 @@ func TestAttachmentsFor_ProxiesURLWhenListenURLSet(t *testing.T) {
 	if len(atts) != 1 {
 		t.Fatalf("atts = %d, want 1", len(atts))
 	}
-	if !strings.HasPrefix(atts[0].URL, "http://slakd:8080/files/") {
-		t.Errorf("URL should be proxied: %q", atts[0].URL)
+	id, proxied := strings.CutPrefix(atts[0].URL, "http://slakd:8080/files/")
+	if !proxied {
+		t.Fatalf("URL should be proxied: %q", atts[0].URL)
+	}
+	if url, held, err := b.files.FileURL(t.Context(), id); err != nil || !held ||
+		url != "https://files.slack.com/F1/doc.pdf" {
+		t.Errorf("the store holds (%q, %v, %v) for the id the envelope carries", url, held, err)
 	}
 	if atts[0].Mime != "application/pdf" {
 		t.Errorf("mime = %q", atts[0].Mime)

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 // helper: sign a body the way Slack does so handleEvents accepts it.
@@ -32,9 +34,10 @@ func newTestServer(t *testing.T, secret string) (*server, *bot) {
 		CacheTTL:      time.Minute,
 	}
 	b := newBotWithBase(cfg, "http://slack.invalid/api")
-	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
+	st := markStore(t)
+	s := newServer(cfg, b, st, b.isConnected, b.LastInboundAt)
 	s.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
-	b.files = s.files
+	b.files = st
 	return s, b
 }
 
@@ -125,7 +128,10 @@ func TestFileProxy_AddsUpstreamAuth(t *testing.T) {
 	}))
 	defer upstream.Close()
 	s, _ := newTestServer(t, "shh")
-	id := s.files.Put(t.Context(), upstream.URL+"/private")
+	id := chanstore.FileID(upstream.URL + "/private")
+	if err := s.chanStore.RecordFileURL(t.Context(), id, upstream.URL+"/private"); err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest("GET", "/files/"+id, nil)
 	req.Header.Set("Authorization", "Bearer chsec")

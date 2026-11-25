@@ -15,6 +15,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/retry"
 )
 
@@ -23,7 +24,7 @@ type bot struct {
 	cfg           config
 	rc            *chanlib.RouterClient
 	typing        *chanlib.TypingRefresher
-	files         *chanlib.URLCache
+	files         *chanstore.Store
 	lastInboundAt atomic.Int64
 }
 
@@ -137,10 +138,10 @@ func (b *bot) channelName(id string) string {
 }
 
 // buildAttachments appends attachment text to content and returns chanlib attachments.
-// Proxies through the local file cache when listenURL is set.
+// Proxies through the adapter's own `/files/<id>` path when listenURL is set.
 func buildAttachments(
 	ctx context.Context, raw []*discordgo.MessageAttachment, content, listenURL string,
-	cache *chanlib.URLCache,
+	files *chanstore.Store,
 ) (string, []chanlib.InboundAttachment) {
 	var atts []chanlib.InboundAttachment
 	for _, att := range raw {
@@ -153,8 +154,12 @@ func buildAttachments(
 		}
 		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := att.URL
-		if listenURL != "" && cache != nil {
-			id := cache.Put(ctx, att.URL)
+		if listenURL != "" && files != nil {
+			id := chanstore.FileID(att.URL)
+			// the proxy answers 404 for the id and routd renders the notice
+			if err := files.RecordFileURL(ctx, id, att.URL); err != nil {
+				slog.ErrorContext(ctx, "attachment url not recorded", "id", id, "err", err)
+			}
 			u = fmt.Sprintf("%s/files/%s", listenURL, id)
 		}
 		atts = append(atts, chanlib.InboundAttachment{

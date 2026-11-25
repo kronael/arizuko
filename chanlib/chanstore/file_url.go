@@ -21,6 +21,8 @@ package chanstore
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/kronael/arizuko/core"
@@ -37,10 +39,17 @@ const (
 
 func fileURLKey(id string) objstore.Key { return objstore.Key{Partition: id, Sort: id} }
 
+// FileID is the short opaque id an adapter's `/files/<id>` path carries for
+// url: a 12-char hex prefix of sha256(url), so one URL always has one id.
+func FileID(url string) string {
+	sum := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(sum[:6])
+}
+
 // RecordFileURL stores the platform URL an id stands for.
 //
 // The write is UNCONDITIONAL, which is safe only because the id is derived from
-// the URL — chanlib hashes the URL to get it — so a second write on an id
+// the URL — FileID hashes the URL to get it — so a second write on an id
 // carries the same URL as the first. A condition here would buy nothing and
 // would turn the re-publication of an unchanged attachment into a refusal the
 // caller has to classify.

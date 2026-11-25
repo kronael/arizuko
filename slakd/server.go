@@ -17,7 +17,6 @@ const maxEventBody = 1 << 20
 type server struct {
 	cfg           config
 	bot           *bot
-	files         *chanlib.URLCache
 	chanStore     *chanstore.Store
 	isConnected   func() bool
 	lastInboundAt func() int64
@@ -28,7 +27,6 @@ func newServer(cfg config, b *bot, chanStore *chanstore.Store, isConnected func(
 	return &server{
 		cfg:           cfg,
 		bot:           b,
-		files:         chanlib.NewURLCache(0, chanStore),
 		chanStore:     chanStore,
 		isConnected:   isConnected,
 		lastInboundAt: lastInboundAt,
@@ -44,7 +42,7 @@ func (s *server) handler() http.Handler {
 	// (form-encoded `payload=`, not JSON), so it gets its own route.
 	mux.HandleFunc("POST /slack/interactivity", s.handleInteractivity)
 	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
-		Resolve: s.files.Get,
+		Resolve: s.chanStore.FileURL,
 		Decorate: func(req *http.Request) {
 			req.Header.Set("Authorization", "Bearer "+s.cfg.BotToken)
 		},

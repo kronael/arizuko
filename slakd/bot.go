@@ -53,7 +53,7 @@ type bot struct {
 	api   string
 	http  *http.Client
 	rc    *chanlib.RouterClient
-	files *chanlib.URLCache
+	files *chanstore.Store
 	users *ttlCache
 	chans *ttlCache
 	store paneStore
@@ -825,7 +825,11 @@ func (b *bot) attachmentsFor(ctx context.Context, content string, files []slackF
 		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := f.URLPriv
 		if b.cfg.ListenURL != "" && b.files != nil {
-			id := b.files.Put(ctx, f.URLPriv)
+			id := chanstore.FileID(f.URLPriv)
+			// the proxy answers 404 for the id and routd renders the notice
+			if err := b.files.RecordFileURL(ctx, id, f.URLPriv); err != nil {
+				slog.ErrorContext(ctx, "attachment url not recorded", "id", id, "err", err)
+			}
 			u = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, id)
 		}
 		atts = append(atts, chanlib.InboundAttachment{

@@ -62,7 +62,7 @@ func main() {
 			// A mark a crash left standing: find it by its record and clear it.
 			go b.mark.Sweep(ctx)
 			srv := newServer(cfg, b, as.Chan, b.isConnected, b.LastInboundAt)
-			b.files = srv.files
+			b.files = as.Chan
 			if err := b.start(ctx, rc); err != nil {
 				slog.Error("slack auth.test failed", "err", err)
 				return nil, nil, err

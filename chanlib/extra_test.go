@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -384,10 +385,13 @@ func TestFileProxyHandler_Success(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	cache := NewURLCache(10, nil)
-	id := cache.Put(t.Context(), upstream.URL)
+	st := testStore(t)
+	id := chanstore.FileID(upstream.URL)
+	if err := st.RecordFileURL(t.Context(), id, upstream.URL); err != nil {
+		t.Fatal(err)
+	}
 
-	h := FileProxyHandler(FileProxyOpts{Resolve: cache.Get})
+	h := FileProxyHandler(FileProxyOpts{Resolve: st.FileURL})
 	req := httptest.NewRequest("GET", "/files/"+id, nil)
 	w := httptest.NewRecorder()
 	h(w, req)

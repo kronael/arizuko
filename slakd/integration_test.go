@@ -386,9 +386,7 @@ func setupBotOn(t *testing.T, mock *slackMock, st *chanstore.Store) (*bot, *rout
 	b.botUserID.Store("Ubot")
 	b.teamID.Store("T012")
 	b.connected.Store(true)
-	// Ensure srv has a files cache plumbed through (file proxy path).
-	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
-	b.files = s.files
+	b.files = st
 	return b, rm
 }
 

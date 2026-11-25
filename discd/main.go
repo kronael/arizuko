@@ -54,7 +54,7 @@ func main() {
 			// used to drop the message (BUGS L25).
 			rc.RetainInbound(ctx, as.Chan)
 			srv := newServer(cfg, b, as.Chan, b.isConnected, b.LastInboundAt)
-			b.files = srv.files
+			b.files = as.Chan
 			if err := b.start(rc); err != nil {
 				slog.Error("discord connect failed", "err", err)
 				return nil, nil, err

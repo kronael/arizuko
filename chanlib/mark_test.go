@@ -14,6 +14,8 @@ import (
 	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
+var errStoreRefused = errors.New("the store refused")
+
 // platform stands in for the two calls an adapter hands AckMark. It keeps the
 // set of marks that stand on the "platform", so a body asserts what a user of
 // the platform would see, not only which calls were made.
