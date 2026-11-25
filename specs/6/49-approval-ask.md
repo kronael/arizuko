@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # specs/6/49 — approvals: one line to ask, one rule to stop asking
@@ -12,10 +12,6 @@ that owns both, and how release defaults reach a running instance.
 The hold renderer, declared always keys, notices, verdicts, REST fields and
 binary defaults have tests in `routd/hold_always_test.go`,
 `routd/hold_e2e_test.go`, `dashd/approvals_page_test.go` and `auth/layers_test.go`.
-
-## Remaining
-
-- Audit stored skip-default copies and obsolete async/targetId rules on each instance; preserve local exceptions (`auth/defaults.go`, `cmd/arizuko/README.md`; operator data, L273).
 
 ## Approval text and standing rules describe one call
 
@@ -131,16 +127,17 @@ approved call itself (`holdGate`, `routd/pending_actions.go`).
 `auth/defaults.go` declares the skip list as default policy. `Policy.Allows`
 reads matching local rows first. Defaults decide only when no local row
 matches. The binary supplies the defaults at each deploy.
-`SeedRoutdFloor` writes no ACL rows. Stored copies remain local overrides
-until the operator removes them after an audit.
+`SeedRoutdFloor` writes no ACL rows. A stored copy of a default is a local row
+and decides before the default, so an operator removes it with
+`arizuko group ungrant` (§"The stored rows on krons and sloth").
 
 ## Decision 6 — a reaction, an edit and a delete never wait
 
 The floor lists `like`, `dislike`, `edit` and `delete`
 (`auth/defaults.go`), and Decision 5 delivers it. A folder that must hold one
 of them writes its own `hold:mcp:<verb>` row at `allow`; a local row decides
-before the skip list (`auth/README.md`). BUGS `L273` closes on an instance
-once its local copies of the skip rows are gone
+before the skip list (`auth/README.md`). A stored copy of a skip row defeats
+that local hold, so an instance must hold none
 (`reference/grants.html` of the operator docs).
 
 The platforms bind `edit` to the agent's own messages: Telegram
@@ -157,6 +154,27 @@ here. No adapter checks authorship, and the tool text says the platform does
 (`ipc/ipc.go:1469`). The default allows `delete` inside those platform bounds, and the agent
 has to be careful with it. An option to deny deleting messages the agent did not send is
 possible and not built.
+
+## The stored rows on krons and sloth
+
+Read with `arizuko group -i <instance> grants` at arizuko v0.75.28 on
+2026-11-25.
+
+| Instance | Stored rows | Copy of a default                          | Local hold rules                                                                                                           |
+| -------- | ----------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| krons    | 35          | `role:operator * **` with the grant option | `folder:rhias/nemo`: `hold:mcp:like`, `hold:mcp:dislike`, `hold:mcp:edit`, `hold:mcp:delete` at `deny`, scope `rhias/nemo` |
+| sloth    | 50          | `role:operator * **` with the grant option | none                                                                                                                       |
+
+- Neither instance stores a `role:member` row. The 23 skip rows and the
+  member verbs come from `auth/defaults.go`.
+- No stored row has the effect `async` or a `targetId` param.
+- The four `rhias/nemo` rows are a local exception. They skip approval for
+  that folder whatever role the folder holds.
+- The stored operator row is a local row with the grant option. Without it an
+  operator who also holds a narrower local row cannot delegate inside that
+  row's scope (BUGS `L937`), so it stays.
+- Each `role:member` folder, 11 on krons and 20 on sloth, answers `CheckHold`
+  false for the 23 skip tools and `Authorize` true for the member verbs.
 
 ## The hold shape
 

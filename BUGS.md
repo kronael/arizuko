@@ -32,8 +32,9 @@ local row. krons and sloth each hold that stored copy (`migration-0053`), so
 there today. An instance created after `0364e71548da3b4378bda39098eb92894b4cc704`
 holds no copy.
 **Options:** (a) `checkAuthority` collects the option-holding allows from both
-layers, and a local `deny` still refuses; (b) keep the layer rule and document
-that an operator must hold no narrower local row.
+layers, and a local `deny` still refuses; (b) keep the layer rule, which
+`template/web/pub/arizuko/reference/grants.html` states, and add there that an
+operator must hold no narrower local row.
 **Default if nothing is decided:** (b), and the stored `role:operator * **`
 row stays on krons and sloth.
 **Type:** correctness — auth evaluator change, needs sign-off.
@@ -659,8 +660,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L540` — dashd's grant form and `POST /v1/acl` write rows without
   `auth.Delegate`: run it there, or let a folder admin grant any row inside
   its subtree?
-- `L473` — how does a newer seeded acl floor reach an existing instance
-  without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 - `L592` — correct the trading report publish grant and private report placement.
 Every open entry waits on a person, not on work. Grouped by what it waits FOR,
@@ -680,7 +679,6 @@ line; none can be answered from the code.
   the run log stop calling a queued prompt a success?
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
-- `L273` — audit and remove stored copies of ACL defaults after deployment.
 - `L249`, `L159` — proposals, each costed in its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
@@ -1902,28 +1900,6 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
   any row inside its subtree, and both doors stay.
 - **Default if nothing is decided:** both doors stay as they are.
 - **Status:** open — needs sign-off (an auth change).
-
-## L473 — a change to the seeded acl floor never reaches a running instance (2026-10-20, open — needs sign-off)
-
-FOUND 2026-10-20 on krons and sloth while debugging Rhias's approvals.
-`store.SeedRoutdFloor` (`store/seed.go`) writes the floor only when the acl
-entity is empty. The skip-approval floor (`skipApprovalFloor`, the
-`hold:mcp:<verb>` deny rows for every member verb and the always-mounted reads)
-was added 2026-09-12, after both instances already had grants. So both carried
-only `hold:mcp:disengage`, and every reaction, edit, delete, reply and read
-waited for a human wherever a folder holds `hold:mcp:*`. Rhias received about
-seven long approval notices this way.
-
-The parent added the 22 missing rows by hand on both instances (owner-approved
-operator action, 2026-10-20); each now carries the seed's 23.
-
-Proposal: a floor row that is newer than the instance's acl reaches it once —
-for example a floor version recorded in the store and a start-up step that
-writes the rows added since, never re-adding a row an operator removed after
-that version. A change to which rows reach live data is an auth change.
-
-- **Status:** open — needs sign-off.
-
 
 ## L686 — four exposed creative skill names duplicate the create payload (2026-11-07, open — proposal, needs sign-off)
 
@@ -6144,20 +6120,6 @@ this; the grouping key belongs in the proposal before sign-off.
   per-(chat, topic) cursor still buy anything worth those five readers losing
   their definition?
 
-## L273 — stored copies of ACL defaults need an operator audit (2026-11-07, open — operator task)
-
-`auth/defaults.go` supplies release defaults below local `acl` rows.
-`Policy.Allows` permits a local hold to override a default skip.
-A stored skip remains local and can still defeat a local hold.
-`auth/layers_test.go` covers both cases.
-
-The operator must audit each instance's rows before removing exact default
-copies with `arizuko group ungrant`. Local exceptions stay. Current live rows
-are unverified. This task requires live data access.
-
-- **Scope:** operator data; the platform change is in `0364e71548da3b4378bda39098eb92894b4cc704`.
-- **Test:** no test — ops; compare each stored row with `auth/defaults.go` before deletion.
-- **Status:** open — operator task; the owner approved the audit and removal after deployment.
 
 ## L249 — the dump carries the config plane, not the runtime plane, so dump/apply cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 
