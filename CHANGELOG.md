@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.29] — 2026-11-25
+
+> arizuko v0.75.29 — no caches, a lighter guest, and fewer moving parts
+>
+> Search and config now read the store directly, the guest keeps its scratch on disk, and dead code is gone.
+>
+> • Memory — routd keeps no message index; search reads the store, so a large instance saves about 0.8 GB.
+> • Guest — /tmp lives on disk per turn, /dev/shm is capped, and unused steering code is removed.
+> • Logs — audit_log keeps 90 days, and unchanged channel registrations are no longer written.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Changed
 
 - `find_messages` and `GET /v1/messages/find` read the store for each search

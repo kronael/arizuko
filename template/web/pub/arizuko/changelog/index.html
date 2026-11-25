@@ -30,6 +30,15 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.75.29 <span class="dim">&mdash; 25 November 2026</span></h2>
+      <p>Search and config now read the store directly, the guest keeps its scratch on disk, and dead code is gone.</p>
+      <ul>
+        <li><strong>Memory</strong> &mdash; routd keeps no message index; search reads the store, so a large instance saves about 0.8 GB.</li>
+        <li><strong>Guest</strong> &mdash; /tmp lives on disk per turn, /dev/shm is capped, and unused steering code is removed.</li>
+        <li><strong>Logs</strong> &mdash; audit_log keeps 90 days, and unchanged channel registrations are no longer written.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v07529--2026-11-25">CHANGELOG &sect; v0.75.29</a>.</p>
+
       <h2>arizuko v0.75.28 <span class="dim">&mdash; 24 November 2026</span></h2>
       <p>The guest drops its page cache every 30 seconds, so the host gets that memory back during a long turn.</p>
       <ul>
@@ -600,7 +609,7 @@
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/changelog/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-24">2026-11-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-25">2026-11-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
