@@ -1,10 +1,10 @@
 # slack-team product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/slack-team --cases <checkout>/packages/slack-team/eval
 #
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
-# check-kind list: howto/build-a-product.html §"Ship tests with it".
+# check-kind list: anteval/README.md § "How a case proves itself".
 #
 # The cases run over REST, not over Slack — they test what the agent SAYS about
 # its rules, so they need no Slack App and no channel. facts/ ships as an

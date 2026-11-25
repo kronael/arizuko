@@ -1,10 +1,10 @@
 # personal (Fiu) product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/personal --cases <checkout>/packages/personal/eval
 #
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
-# check-kind list: howto/build-a-product.html §"Ship tests with it".
+# check-kind list: anteval/README.md § "How a case proves itself".
 #
 # facts/preferences.md ships as an operator placeholder. Memory IS this product,
 # so the case that matters is what it does when the memory is still empty.

@@ -1,10 +1,10 @@
 # socials (Phosphene) product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/socials --cases <checkout>/packages/socials/eval
 #
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
-# check-kind list: howto/build-a-product.html §"Ship tests with it".
+# check-kind list: anteval/README.md § "How a case proves itself".
 #
 # facts/voice.md ships as an operator placeholder, so there is no brand-voice
 # case — the approval gate below is what protects the operator until it is filled.

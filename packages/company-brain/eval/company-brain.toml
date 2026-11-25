@@ -1,7 +1,7 @@
 # company-brain product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/company-brain --cases <checkout>/packages/company-brain/eval
 
 [[case]]
 id = "company-brain-replies"

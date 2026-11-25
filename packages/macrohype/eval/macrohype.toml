@@ -1,10 +1,10 @@
 # macrohype product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/macrohype --cases <checkout>/packages/macrohype/eval
 #
 # These test THIS PRODUCT (the macrohype skill's rules), not arizuko. Authoring
-# guide and the check-kind list: howto/build-a-product.html §"Ship tests with it".
+# guide and the check-kind list: anteval/README.md § "How a case proves itself".
 #
 # What the script prints for a given day is proven offline by
 # tests/test_macrohype.py. These cases prove the half a script cannot: what the

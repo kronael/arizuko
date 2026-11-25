@@ -1,11 +1,11 @@
 # github (repo worker) product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/github --cases <checkout>/packages/github/eval
 #
 # These test THIS PRODUCT's rules (persona, hold discipline), not arizuko.
-# Authoring guide and the check-kind list: howto/build-a-product.html
-# §"Ship tests with it".
+# Authoring guide and the check-kind list: anteval/README.md
+# § "How a case proves itself".
 #
 # The product's whole claim is "acts on the repo, but never merges on its own".
 # Two of these cases exist to catch the two ways that claim can quietly break:

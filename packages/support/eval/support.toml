@@ -1,10 +1,10 @@
 # support product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/support --cases <checkout>/packages/support/eval
 #
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
-# check-kind list: howto/build-a-product.html §"Ship tests with it".
+# check-kind list: anteval/README.md § "How a case proves itself".
 # {nonce} is unique per run+case, so a case never matches an older reply.
 #
 # The knowledge base ships EMPTY on purpose — facts/kb.md is an operator

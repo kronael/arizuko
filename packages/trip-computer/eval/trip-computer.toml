@@ -1,10 +1,10 @@
 # trip-computer product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
-#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#   anteval run --env FILE --sink URL \
+#     --product <checkout>/packages/trip-computer --cases <checkout>/packages/trip-computer/eval
 #
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
-# check-kind list: howto/build-a-product.html §"Ship tests with it".
+# check-kind list: anteval/README.md § "How a case proves itself".
 #
 # facts/preferences.md ships as an operator placeholder, so there is no
 # traveller-profile case — the profile does not exist until the operator fills it.
