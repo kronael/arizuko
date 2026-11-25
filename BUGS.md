@@ -269,31 +269,6 @@ and mode. compose binds `HOST_CODEX_DIR` read-write into runed
 refreshed `openai-codex` record is written into `~/.codex/auth.json`
 (`refreshedCodexLogin`, `ant/src/pi.ts`); the login must be a mount point of its own.
 
-## L903 — dashd writes a group's harness to the store, and `6/53` says to write it through `/v1` (2026-11-15, open — owner decision)
-
-`dashd/groups_admin.go` renders backend, model and effort fields and a "Use instance
-defaults" control (`eef747b5ff0b749a3c234be0929ee5ec0a3db306`) and builds one document
-from the non-blank fields, as `specs/6/53-per-group-harness.md` § "One groups update
-serves the dashboard and agents" asks. The write still goes to the store:
-`d.routdStore().AsUser(sub).SetGroupSettings` (`dashd/groups_admin.go:379`; `routdStore`
-is `store.NewOver(d.routd)`, `dashd/main.go:337-342`), not through routd's
-`PATCH /v1/groups/{folder}` (`resreg/resources/groups.go:32`, `routd/groups_http.go:15`).
-Two specs disagree. `specs/6/29-dashd-hub.md` "The WRITES stay on the DB, by rule" keeps
-operator writes on the store: `Store.AsUser` puts the operator on the `audit_log` row and
-a `service:dashd` bearer cannot. `specs/6/53-per-group-harness.md` says "dashd calls the
-groups update through `/v1` with the caller's authority." and its module map gives
-`dashd/groups_admin.go` the line `never: write harness settings directly to the store`.
-The code follows `6/29`.
-**Measured:** `grep -n "SetGroupSettings" dashd/groups_admin.go` in `wharness` at
-`cc1cf9b95568c7317137f77b9e8f4fac42fb3ad4` finds the one call at line 379;
-`dashd/chat_settings_test.go` asserts the fields and the control.
-**Options:** (a) keep the write on the store and change `6/53` to say so: the audit row
-names the operator and `/v1` needs no new bearer rule; (b) send the write through
-`PATCH /v1/groups/{folder}` with the operator's authority carried to `/v1`, which changes
-`6/29`'s rule for this one write and decides who the audit row names.
-**Default if nothing is decided:** the write stays on the store.
-**Type:** design, no test — design.
-
 ## ✅ FIXED 2026-11-15 83b759360bba05b321ce45a9460a5fc15672a88a L905 — googd reads `SHEETS_API_URL` but compose did not pass it (2026-11-15)
 
 `googd/main.go:294` reads `core.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com")`
@@ -669,7 +644,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.
-- `L903` — dashd writes a group's harness to the store; `6/53` says through `/v1`, `6/29` says the store; owner decision, default is the store.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
 - `L920` — one folder runs one turn, so a repo's PRs queue in one line; per-topic admission needs sign-off.

@@ -117,7 +117,8 @@ func TestChatSettingsDashboardAuthorizationAndRoundTrip(t *testing.T) {
 // control. Saving builds ONE document from the non-blank fields and that
 // document REPLACES the stored one, so a stored key the form does not show
 // (options below) is dropped on save. That is the decision, not an accident.
-// The write stays the operator's own store write, so the audit row names them.
+// dashd writes the document to the store itself, as the operator: the save
+// sends routd no request and the audit row names the operator.
 func TestGroupHarnessDashboard(t *testing.T) {
 	db := routdDB(t)
 	seedFolder(t, db, "team")
@@ -134,7 +135,11 @@ func TestGroupHarnessDashboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	backend := routd.NewServer(routd.OpenOver(db), nil, nil, nil, 0, "").Handler()
-	server := httptest.NewServer(backend)
+	var routdRequests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routdRequests = append(routdRequests, r.Method+" "+r.URL.Path)
+		backend.ServeHTTP(w, r)
+	}))
 	t.Cleanup(server.Close)
 	d := &dash{routd: db, routdURL: server.URL, groupsDir: filepath.Join(appDir, "groups")}
 	mux := newMux(d)
@@ -194,9 +199,13 @@ func TestGroupHarnessDashboard(t *testing.T) {
 	// Saving builds one document from the form; the stored one is replaced,
 	// options is gone; settings the form does not own survive.
 	before := audits()
+	routdRequests = nil
 	w := save(url.Values{"agent": {"custom-handler"}, "open": {"1"}, "harness_backend": {"claude"}, "harness_model": {"m1"}, "harness_effort": {"low"}})
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
+	}
+	if len(routdRequests) != 0 {
+		t.Fatalf("save reached routd: %v", routdRequests)
 	}
 	g := stored()
 	if string(g.Harness) != `{"backend":"claude","effort":"low","model":"m1"}` || g.Agent != "custom-handler" || !g.Open {
@@ -207,8 +216,8 @@ func TestGroupHarnessDashboard(t *testing.T) {
 	if err != nil || len(items) != 1 || !strings.Contains(items[0].Attrs["config"], `"future_setting":7`) {
 		t.Fatalf("unrelated setting lost: %v %+v", err, items)
 	}
-	if rows := auditRowsFor(t, db, "group.settings"); len(rows) != before+1 || rows[0].ActorSub != "alice" {
-		t.Fatalf("save audit = %+v, want one new mutation by alice", rows)
+	if rows := auditRowsFor(t, db, "group.settings"); len(rows) != before+1 || rows[0].Actor != "user:alice" || rows[0].ActorSub != "alice" {
+		t.Fatalf("save audit = %+v, want one new mutation by user:alice", rows)
 	}
 
 	// Blank optional fields are omitted from the document.
