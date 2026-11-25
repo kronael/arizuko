@@ -132,8 +132,7 @@ func keep(why string) keepReason { return keepReason{why: why} }
 // folderScopeKeep names every other entity and why a group delete leaves it
 // alone. With the two purge lists it is a TOTAL classification, and the
 // completeness tests keep it total (BUGS L302 is what an untotal list costs a
-// reader). `auth_users` and `session_log` belong to other owners: the purge is
-// one batch on routd's tables and reaches no other owner.
+// reader). `auth_users` and `session_log` belong to other owners.
 var folderScopeKeep = map[string]keepReason{
 	objstore.IndexEntity: keep("shared derived keys follow primary writes; includes migration markers"),
 	RoutdWork:            keep("instance control and approval notifications survive folder retirement"),
@@ -169,11 +168,40 @@ var folderScopeKeep = map[string]keepReason{
 // folderScopeUnpurged names a table that carries a folder coordinate the delete
 // does NOT remove, and what blocks it. A row here outlives its folder and the
 // next tenant of the path sees it.
-var folderScopeUnpurged = map[string]string{
-	// The purge is one batch on routd's tables and cannot reach onbod's.
-	// Closing this needs the delete to reach onbod's /v1.
-	"invites":            "onbod owns it, in onbod.db",
-	"invite_redemptions": "onbod owns it, in onbod.db",
+var folderScopeUnpurged = map[string]string{}
+
+var inviteScopePurge = []entityScope{
+	{entity: Invites, folderOf: attrScope(attrInvTargetGlob)},
+	{entity: InviteRedemptions, folderOf: attrScope(attrRedemptionGlob)},
+}
+
+// PurgeFolderInvites removes onbod invitation authority for a subtree.
+func (s *Store) PurgeFolderInvites(ctx context.Context, folder string) (int, error) {
+	swept := 0
+	for _, scope := range inviteScopePurge {
+		var items []objstore.Item
+		var err error
+		if scope.entity == Invites {
+			items, err = s.Obj().Query(ctx, objstore.Query{Entity: scope.entity, Partition: OwnerOnbod})
+		} else {
+			items, err = objstore.IndexItems(ctx, s.Obj(), inviteRedemptionsIndex, objstore.KeyPredicate{}, 0)
+		}
+		if err != nil {
+			return swept, err
+		}
+		var writes []objstore.Write
+		for _, it := range items {
+			target, ok := scope.folderOf(it)
+			if ok && groupfolder.Contains(folder, strings.TrimSuffix(target, "/")) {
+				writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: scope.entity, Key: it.Key})
+			}
+		}
+		if _, err := s.applyInChunks(ctx, "purge "+scope.entity+" of "+folder, writes); err != nil {
+			return swept, err
+		}
+		swept += len(writes)
+	}
+	return swept, nil
 }
 
 // folderPartitionPurge names the entities a folder OWNS A WHOLE PARTITION of.

@@ -9,10 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -46,7 +52,8 @@ func runedClient(dataDir string) (*runedv1.Client, error) {
 }
 
 func runGroupRm(
-	ctx context.Context, s *store.Store, cfg *core.Config,
+	ctx context.Context, s, onbod *store.Store, migrate func(context.Context) error,
+	cfg *core.Config,
 	client *runedv1.Client, folder string, force bool, out io.Writer,
 ) error {
 	folders := []string{folder}
@@ -116,7 +123,20 @@ func runGroupRm(
 			return err
 		}
 	}
-	removed, swept, err := s.DeleteGroupStopping(ctx, folder, stop)
+	if err := migrate(ctx); err != nil {
+		return fmt.Errorf("migrate invite redemptions: %w", err)
+	}
+	purgeCompleted := false
+	stopAfterPurge := func(ctx context.Context, folder string) error {
+		purgeCompleted = true
+		return stop(ctx, folder)
+	}
+	removed, swept, err := s.DeleteGroupStopping(ctx, folder, stopAfterPurge)
+	if purgeCompleted {
+		inviteSwept, inviteErr := onbod.PurgeFolderInvites(ctx, folder)
+		swept += inviteSwept
+		err = errors.Join(err, inviteErr)
+	}
 	if removed == 0 && swept == 0 {
 		if err != nil {
 			return fmt.Errorf("remove group: %w", err)
@@ -144,4 +164,43 @@ func runGroupRm(
 		_, _ = fmt.Fprintf(out, "removed %s\n", path.path)
 	}
 	return nil
+}
+
+func migrateInviteRedemptions(
+	ctx context.Context, onbod *store.Store, client dynamodb.ScanAPIClient, table string,
+) error {
+	const marker = "invite-redemptions-v1"
+	rows, err := onbod.Obj().Query(ctx, objstore.Query{
+		Entity: objstore.IndexEntity, Partition: "migrations",
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: marker},
+	})
+	if err != nil || len(rows) != 0 {
+		return err
+	}
+	input := &dynamodb.ScanInput{
+		TableName: aws.String(table), ConsistentRead: aws.Bool(true),
+		ProjectionExpression:     aws.String("#part"),
+		ExpressionAttributeNames: map[string]string{"#part": "part"},
+		Limit:                    aws.Int32(scanPage),
+	}
+	partitions := map[string]bool{}
+	paginator := dynamodb.NewScanPaginator(client, input)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, item := range page.Items {
+			part, ok := item["part"].(*types.AttributeValueMemberS)
+			if !ok || strings.TrimSpace(part.Value) == "" {
+				return fmt.Errorf("invalid redemption partition")
+			}
+			partitions[part.Value] = true
+		}
+	}
+	queries := make([]objstore.Query, 0, len(partitions))
+	for part := range partitions {
+		queries = append(queries, objstore.Query{Entity: store.InviteRedemptions, Partition: part})
+	}
+	return objstore.Reindex(ctx, onbod.Obj(), marker, queries)
 }

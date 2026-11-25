@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -114,7 +120,7 @@ func TestGroupRmStopsEachFolderAfterThePurge(t *testing.T) {
 	client := runedv1.NewClient(runed.srv.URL, "", time.Second)
 
 	var out bytes.Buffer
-	if err := runGroupRm(context.Background(), s, cfg, client, "eval", false, &out); err != nil {
+	if err := runGroupRm(context.Background(), s, testOnbod(t), noMigration, cfg, client, "eval", false, &out); err != nil {
 		t.Fatalf("runGroupRm: %v", err)
 	}
 
@@ -165,11 +171,16 @@ func TestGroupRmRefusesWhenRunedIsUnreachable(t *testing.T) {
 	dead.Close()
 	client := runedv1.NewClient(url, "", time.Second)
 
+	migrated := false
+	migrate := func(context.Context) error { migrated = true; return nil }
 	var out bytes.Buffer
-	err := runGroupRm(context.Background(), s, cfg, client, "eval", false, &out)
+	err := runGroupRm(context.Background(), s, testOnbod(t), migrate, cfg, client, "eval", false, &out)
 
 	if err == nil {
 		t.Fatal("runGroupRm = nil, want a refusal")
+	}
+	if migrated {
+		t.Fatal("runed preflight ran migration")
 	}
 	for _, want := range []string{"RUNED_URL", "-f/--force"} {
 		if !strings.Contains(err.Error(), want) {
@@ -196,7 +207,7 @@ func TestGroupRmForceRemovesWithoutStopping(t *testing.T) {
 	client := runedv1.NewClient(runed.srv.URL, "", time.Second)
 
 	var out bytes.Buffer
-	if err := runGroupRm(context.Background(), s, cfg, client, "eval", true, &out); err != nil {
+	if err := runGroupRm(context.Background(), s, testOnbod(t), noMigration, cfg, client, "eval", true, &out); err != nil {
 		t.Fatalf("runGroupRm -f: %v", err)
 	}
 
@@ -228,7 +239,7 @@ func TestGroupRmRefusesInvalidPaths(t *testing.T) {
 			cfg := groupRmConfig(t)
 			paths := seedGroupRmPaths(t, cfg, []string{"eval", "keeper"})
 			var out bytes.Buffer
-			err := runGroupRm(context.Background(), s, cfg, nil, tc.request, true, &out)
+			err := runGroupRm(context.Background(), s, testOnbod(t), noMigration, cfg, nil, tc.request, true, &out)
 			if err == nil {
 				t.Fatal("unsafe path accepted")
 			}
@@ -268,7 +279,7 @@ func TestGroupRmRefusesOutsideSymlinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			var out bytes.Buffer
-			err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out)
+			err := runGroupRm(context.Background(), s, testOnbod(t), noMigration, cfg, nil, "eval", true, &out)
 			if err == nil {
 				t.Fatal("outside symlink accepted")
 			}
@@ -308,7 +319,7 @@ func TestGroupRmDoesNotFollowNestedSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out); err != nil {
+	if err := runGroupRm(context.Background(), s, testOnbod(t), noMigration, cfg, nil, "eval", true, &out); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(cfg.GroupsDir, "eval")); !os.IsNotExist(err) {
@@ -323,6 +334,14 @@ func TestGroupRmDoesNotFollowNestedSymlink(t *testing.T) {
 func TestGroupRmStopFailureKeepsFiles(t *testing.T) {
 	s := routdStore(t)
 	seedGroups(t, s, "eval", "eval/child")
+	onbod := testOnbod(t)
+	if err := onbod.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Put, Entity: store.Invites,
+		Key:   objstore.Key{Partition: store.OwnerOnbod, Sort: "invite"},
+		Attrs: map[string]string{"target_glob": "eval/"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	cfg := groupRmConfig(t)
 	paths := seedGroupRmPaths(t, cfg, []string{"eval", "eval/child"})
 	mux := http.NewServeMux()
@@ -336,9 +355,15 @@ func TestGroupRmStopFailureKeepsFiles(t *testing.T) {
 	defer runed.Close()
 	client := runedv1.NewClient(runed.URL, "", time.Second)
 	var out bytes.Buffer
-	err := runGroupRm(context.Background(), s, cfg, client, "eval", false, &out)
+	err := runGroupRm(context.Background(), s, onbod, noMigration, cfg, client, "eval", false, &out)
 	if err == nil || !strings.Contains(err.Error(), "rows removed, but:") {
 		t.Fatalf("stop failure = %v", err)
+	}
+	rows, readErr := onbod.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.Invites, Partition: store.OwnerOnbod,
+	})
+	if readErr != nil || len(rows) != 0 {
+		t.Fatalf("invitations after stop failure: %v, %v", rows, readErr)
 	}
 	if hasGroup(s, "eval") || hasGroup(s, "eval/child") {
 		t.Error("stop failure restored rows")
@@ -356,7 +381,7 @@ func TestGroupRmMissingDirectories(t *testing.T) {
 	seedGroups(t, s, "eval", "eval/child")
 	cfg := groupRmConfig(t)
 	var out bytes.Buffer
-	if err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out); err != nil {
+	if err := runGroupRm(context.Background(), s, testOnbod(t), noMigration, cfg, nil, "eval", true, &out); err != nil {
 		t.Fatal(err)
 	}
 	if hasGroup(s, "eval") || hasGroup(s, "eval/child") {
@@ -392,4 +417,156 @@ func TestParseGroupRm(t *testing.T) {
 				tc.args, folder, force, err, tc.folder, tc.force)
 		}
 	}
+}
+
+func TestGroupRmRemovesInvitations(t *testing.T) {
+	ctx := context.Background()
+	routd := routdStore(t)
+	cfg := dyntest.Config(t)
+	cfg.Prefix = dynstore.TestPrefix()
+	raw, err := dynstore.Dial(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PrepareOwner(ctx, raw, store.OwnerOnbod); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		entities, _ := raw.Entities(ctx)
+		for _, e := range entities {
+			_ = raw.DropEntity(ctx, e)
+		}
+	})
+	onbod := store.NewOver(raw)
+	client, err := dynstore.Client(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner := &pagedRedemptionScanner{client: client}
+	migrate := func(ctx context.Context) error {
+		return migrateInviteRedemptions(ctx, onbod, scanner, cfg.Prefix+store.InviteRedemptions)
+	}
+	seedGroups(t, routd, "a", "a/b", "a/b/child", "a/bb")
+	for _, row := range []struct{ entity, part, key, target string }{
+		{store.Invites, store.OwnerOnbod, "one", "a/b"},
+		{store.Invites, store.OwnerOnbod, "two", "a/b/child/"},
+		{store.Invites, store.OwnerOnbod, "three", "a/bb"},
+		{store.Invites, store.OwnerOnbod, "root", "/"},
+		{store.Invites, store.OwnerOnbod, "ancestor", "a"},
+		{store.InviteRedemptions, "unknown-user", "one", "a/b/"},
+		{store.InviteRedemptions, "unknown-user", "two", "a/b/child"},
+		{store.InviteRedemptions, "other-user", "one", "a/bb"},
+	} {
+		write := objstore.Write{
+			Op: objstore.Put, Entity: row.entity, Key: objstore.Key{Partition: row.part, Sort: row.key},
+			Attrs: map[string]string{"target_glob": row.target},
+		}
+		if row.entity == store.InviteRedemptions {
+			if ok, err := raw.GuardedBatch(ctx, nil, []objstore.Write{write}); err != nil || !ok {
+				t.Fatalf("seed: %v %v", ok, err)
+			}
+		} else if err := onbod.WriteEntities(ctx, nil, write); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := objstore.IndexItems(ctx, onbod.Obj(), "invite_redemptions/all", objstore.KeyPredicate{}, 0)
+	if err != nil || len(before) != 0 {
+		t.Fatalf("legacy index = %v, %v", before, err)
+	}
+	if err := onbod.WriteEntities(ctx, nil, objstore.Write{
+		Op: objstore.Put, Entity: store.InviteRedemptions,
+		Key:   objstore.Key{Partition: "indexed-user", Sort: "one"},
+		Attrs: map[string]string{"target_glob": "a/b"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err = objstore.IndexItems(ctx, onbod.Obj(), "invite_redemptions/all", objstore.KeyPredicate{}, 0)
+	if err != nil || len(before) != 1 || before[0].Key.Partition != "indexed-user" {
+		t.Fatalf("new redemption index = %v, %v", before, err)
+	}
+	var out bytes.Buffer
+	if err := runGroupRm(ctx, routd, onbod, migrate, groupRmConfig(t), nil, "a/b", true, &out); err != nil {
+		t.Fatal(err)
+	}
+	if scanner.calls < 2 {
+		t.Fatalf("scan pages = %d", scanner.calls)
+	}
+	rows, err := onbod.Obj().Query(ctx, objstore.Query{Entity: store.Invites, Partition: store.OwnerOnbod})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, row := range rows {
+		targets[row.Attrs["target_glob"]] = true
+	}
+	if len(targets) != 3 || !targets["a/bb"] || !targets["/"] || !targets["a"] {
+		t.Fatalf("remaining invitations: %v", targets)
+	}
+	rows, err = onbod.Obj().Query(ctx, objstore.Query{Entity: store.InviteRedemptions, Partition: "unknown-user"})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("legacy redemptions: %v, %v", rows, err)
+	}
+	rows, err = onbod.Obj().Query(ctx, objstore.Query{Entity: store.InviteRedemptions, Partition: "indexed-user"})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("indexed redemptions: %v, %v", rows, err)
+	}
+	rows, err = objstore.IndexItems(ctx, onbod.Obj(), "invite_redemptions/all", objstore.KeyPredicate{}, 0)
+	if err != nil || len(rows) != 1 || rows[0].Key.Partition != "other-user" {
+		t.Fatalf("remaining index: %v, %v", rows, err)
+	}
+	if err := onbod.WriteEntities(ctx, nil, objstore.Write{
+		Op: objstore.Put, Entity: store.Invites,
+		Key:   objstore.Key{Partition: store.OwnerOnbod, Sort: "orphan"},
+		Attrs: map[string]string{"target_glob": "a/b/child"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := runGroupRm(ctx, routd, onbod, migrate, groupRmConfig(t), nil, "a/b", true, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "swept 1 orphan row(s)") {
+		t.Fatalf("orphan output: %s", &out)
+	}
+	if err := migrateInviteRedemptions(ctx, onbod, nil, ""); err != nil {
+		t.Fatalf("completed migration rescanned: %v", err)
+	}
+}
+
+func TestGroupRmMigrationFailureKeepsGroup(t *testing.T) {
+	s := routdStore(t)
+	seedGroups(t, s, "a")
+	migrate := func(context.Context) error { return fmt.Errorf("scan unavailable") }
+	var out bytes.Buffer
+	err := runGroupRm(t.Context(), s, testOnbod(t), migrate, groupRmConfig(t), nil, "a", true, &out)
+	if err == nil || !strings.Contains(err.Error(), "scan unavailable") || !hasGroup(s, "a") {
+		t.Fatalf("migration failure: err=%v group remains=%t", err, hasGroup(s, "a"))
+	}
+}
+
+func noMigration(context.Context) error { return nil }
+func testOnbod(t *testing.T) *store.Store {
+	t.Helper()
+	raw := dyntest.Store(t)
+	if err := store.PrepareOwner(context.Background(), raw, store.OwnerOnbod); err != nil {
+		t.Fatal(err)
+	}
+	return store.NewOver(raw)
+}
+
+type pagedRedemptionScanner struct {
+	client *dynamodb.Client
+	calls  int
+}
+
+func (s *pagedRedemptionScanner) Scan(
+	ctx context.Context, input *dynamodb.ScanInput, options ...func(*dynamodb.Options),
+) (*dynamodb.ScanOutput, error) {
+	if aws.ToInt32(input.Limit) != scanPage {
+		return nil, fmt.Errorf("scan limit = %d", aws.ToInt32(input.Limit))
+	}
+	s.calls++
+	copy := *input
+	copy.Limit = aws.Int32(1)
+	return s.client.Scan(ctx, &copy, options...)
 }

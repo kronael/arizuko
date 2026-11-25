@@ -84,6 +84,11 @@ func TestFolderScope_ClassifiesNothingUndeclared(t *testing.T) {
 			orphans = append(orphans, e.entity)
 		}
 	}
+	for _, e := range inviteScopePurge {
+		if !declared[e.entity] {
+			orphans = append(orphans, e.entity)
+		}
+	}
 	for _, table := range folderPartitionPurge {
 		if !declared[table] {
 			orphans = append(orphans, table)
@@ -231,9 +236,11 @@ func FolderScopeClassified(table string) bool {
 	if _, ok := folderScopeUnpurged[table]; ok {
 		return true
 	}
-	for _, e := range entityScopePurge {
-		if e.entity == table {
-			return true
+	for _, scopes := range [][]entityScope{entityScopePurge, inviteScopePurge} {
+		for _, e := range scopes {
+			if e.entity == table {
+				return true
+			}
 		}
 	}
 	return slices.Contains(folderPartitionPurge, table)

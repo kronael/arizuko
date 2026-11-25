@@ -14,12 +14,13 @@ import (
 )
 
 const aclWildcardMigration = "acl-wildcard-v1"
+const inviteRedemptionsIndex = "invite_redemptions/all"
 
 type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork, Chats, TurnControl, Routes, Groups, ACL:
+	case InviteRedemptions, ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork, Chats, TurnControl, Routes, Groups, ACL:
 		return true
 	}
 	return false
@@ -27,6 +28,8 @@ func (stateIndexes) Indexed(entity string) bool {
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 	switch entity {
+	case InviteRedemptions:
+		return []objstore.Key{objstore.DueIndexKey(inviteRedemptionsIndex, "", entity, it.Key)}
 	case ACL:
 		principal, _, _ := strings.Cut(it.Key.Sort, KeySep)
 		if strings.Contains(principal, "*") {

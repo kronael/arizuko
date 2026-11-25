@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -512,7 +513,23 @@ func cmdGroup(args []string) {
 				die("Failed: %v", err)
 			}
 		}
-		if err := runGroupRm(context.Background(), s, cfg, client, folder, force, os.Stdout); err != nil {
+		onbod := mustOpen(store.OwnerOnbod)
+		defer func() { _ = onbod.Close() }()
+		env, err := view(dataDir)
+		if err != nil {
+			die("Failed: read instance store config: %v", err)
+		}
+		dbClient, err := clientOf(env, env[dynstore.EnvKeyID], env[dynstore.EnvSecret])
+		if err != nil {
+			die("Failed: connect to store: %v", err)
+		}
+		redemptionTable := dynstore.Prefix(store.OwnerOnbod) + store.InviteRedemptions
+		migrate := func(ctx context.Context) error {
+			return migrateInviteRedemptions(ctx, onbod, dbClient, redemptionTable)
+		}
+		if err := runGroupRm(
+			context.Background(), s, onbod, migrate, cfg, client, folder, force, os.Stdout,
+		); err != nil {
 			die("Failed: %v", err)
 		}
 
