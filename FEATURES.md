@@ -201,31 +201,31 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 
 ## An agent acts only through MCP tools that its grants show
 
-| Feature              | Behaviour today                                                                               | Evidence                                                                            |
-| -------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `set_observe_window` | The tool stores the caps of the group and keeps the cap that the call does not set.           | `tests/topic_lineage_test.go::TestSetObserveWindow_MCP_PersistsAndPreservesOmitted` |
-| `fork_topic`         | The tool forks a child topic, and refuses a duplicate without `force`.                        | `tests/topic_lineage_test.go::TestFork_MCP_InsertsLineageAndForceOverwrites`        |
-| `reply`              | The tool sends into the thread of the turn and returns the message id.                        | `ipc/ipc_test.go::TestServeMCP_Reply_ThreadsViaActiveTopic`                         |
-| `send`               | The tool sends a new message. After a failed delivery, the message stays pending for a retry. | `routd/outbound_deadletter_test.go::TestMCPSendFailureLeavesPendingRowForSweep`     |
-| `send_file`          | The tool sends a file from the workspace with a caption into the thread.                      | `ipc/ipc_test.go::TestServeMCP_SendFile_ThreadsViaActiveTopic`                      |
-| `send_voice`         | The tool makes speech from text and sends it as a voice message.                              | `routd/voice_test.go::TestSendVoice_SynthesizesAndDelivers`                         |
-| `like`               | The tool calls the adapter with the target message id.                                        | `tests/integration_mcp_test.go::TestMCP_SocialActions/like`                         |
-| Social audit         | Each social verb writes an audit row with its result.                                         | `ipc/social_audit_test.go::TestSocialVerbIsAudited`                                 |
-| `quote`, `repost`    | The tools record the platform ids as outbound messages.                                       | `ipc/ipc_test.go::TestServeMCP_FeedVerbs_RecordOutbound`                            |
-| `post`               | The tool sends content and refuses a media path outside the group directory.                  | `ipc/untested_tools_test.go::TestPostSendsContentAndResolvesMediaInsideTheGroup`    |
-| Task tools           | The task tools write to the routd store.                                                      | `routd/dark_tools_test.go::TestTaskWriteTools_WriteOwnDB`                           |
-| `reset_session`      | The tool clears the session of the named folder.                                              | `ipc/untested_tools_test.go::TestResetSessionClearsTheNamedFolder`                  |
-| `inspect_messages`   | The tool returns the recent messages of a chat.                                               | `tests/integration_mcp_test.go::TestMCP_MessageInspection/inspect_messages`         |
-| `inspect_routing`    | The tool lists only the routes of the caller, and the whole table for root.                   | `routd/mcp_test.go::TestScopeRoutes`                                                |
-| `inspect_session`    | The tool asks a resolver for the session.                                                     | `routd/dark_tools_test.go::TestInspectSession_Federated`                            |
-| `inspect_identity`   | The tool resolves a sub to its identity through authd.                                        | `routd/dark_tools_test.go::TestInspectIdentity_ViaAuthd`                            |
-| `find_messages`      | The tool drops hits from chats that are not routed to the folder of the caller.               | `ipc/find_messages_test.go::TestServeMCP_FindMessages_ACLDropsForeignRows`          |
-| Search rank          | The search index orders hits by BM25 score.                                                   | `routd/msgsearch/msgsearch_test.go::TestRankingOrder`                               |
-| ACL tools            | The tools add, list and remove acl rows in the subtree of the caller.                         | `routd/acl_resource_test.go::TestACLMCP_AddListRemove`                              |
-| `invite_create`      | The agent creates an invite through onbod and gets the token once.                            | `tests/integration_mcp_test.go::TestMCP_InviteTools/invite_create`                  |
-| `observe_group`      | The tool adds a watcher from the folder of the caller to a source folder.                     | `tests/integration_mcp_test.go::TestMCP_GroupObservation/observe_group`             |
-| Tool list            | `tools/list` shows a tool only to a folder that holds `mcp:<tool>`.                           | `routd/routes_resource_test.go::TestRoutesMCP_Visibility`                           |
-| Call deny            | An operator deny row on `mcp:reply` makes the call fail.                                      | `routd/acl_overlay_test.go::TestServeTurnMCP_OperatorDenyBlocksTool`                |
+| Feature              | Behaviour today                                                                               | Evidence                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `set_observe_window` | The tool stores the caps of the group and keeps the cap that the call does not set.           | `tests/topic_lineage_test.go::TestSetObserveWindow_MCP_PersistsAndPreservesOmitted`    |
+| `fork_topic`         | The tool forks a child topic, and refuses a duplicate without `force`.                        | `tests/topic_lineage_test.go::TestFork_MCP_InsertsLineageAndForceOverwrites`           |
+| `reply`              | The tool sends into the thread of the turn and returns the message id.                        | `ipc/ipc_test.go::TestServeMCP_Reply_ThreadsViaActiveTopic`                            |
+| `send`               | The tool sends a new message. After a failed delivery, the message stays pending for a retry. | `routd/outbound_deadletter_test.go::TestMCPSendFailureLeavesPendingRowForSweep`        |
+| `send_file`          | The tool sends a file from the workspace with a caption into the thread.                      | `ipc/ipc_test.go::TestServeMCP_SendFile_ThreadsViaActiveTopic`                         |
+| `send_voice`         | The tool makes speech from text and sends it as a voice message.                              | `routd/voice_test.go::TestSendVoice_SynthesizesAndDelivers`                            |
+| `like`               | The tool calls the adapter with the target message id.                                        | `tests/integration_mcp_test.go::TestMCP_SocialActions/like`                            |
+| Social audit         | Each social verb writes an audit row with its result.                                         | `ipc/social_audit_test.go::TestSocialVerbIsAudited`                                    |
+| `quote`, `repost`    | The tools record the platform ids as outbound messages.                                       | `ipc/ipc_test.go::TestServeMCP_FeedVerbs_RecordOutbound`                               |
+| `post`               | The tool sends content and refuses a media path outside the group directory.                  | `ipc/untested_tools_test.go::TestPostSendsContentAndResolvesMediaInsideTheGroup`       |
+| Task tools           | The task tools write to the routd store.                                                      | `routd/dark_tools_test.go::TestTaskWriteTools_WriteOwnDB`                              |
+| `reset_session`      | The tool clears the session of the named folder.                                              | `ipc/untested_tools_test.go::TestResetSessionClearsTheNamedFolder`                     |
+| `inspect_messages`   | The tool returns the recent messages of a chat.                                               | `tests/integration_mcp_test.go::TestMCP_MessageInspection/inspect_messages`            |
+| `inspect_routing`    | The tool lists only the routes of the caller, and the whole table for root.                   | `routd/mcp_test.go::TestScopeRoutes`                                                   |
+| `inspect_session`    | The tool asks a resolver for the session.                                                     | `routd/dark_tools_test.go::TestInspectSession_Federated`                               |
+| `inspect_identity`   | The tool resolves a sub to its identity through authd.                                        | `routd/dark_tools_test.go::TestInspectIdentity_ViaAuthd`                               |
+| `find_messages`      | The tool confines the scope to the folder of the caller before it searches.                   | `ipc/find_messages_test.go::TestServeMCP_FindMessages_ConfinesTheScopeBeforeTheSearch` |
+| Search continuation  | A search that stops at its budget says so, and its continuation reads each message one time.  | `routd/msgsearch/search_test.go::TestTheBudgetEndsASearchThatIsNotComplete`            |
+| ACL tools            | The tools add, list and remove acl rows in the subtree of the caller.                         | `routd/acl_resource_test.go::TestACLMCP_AddListRemove`                                 |
+| `invite_create`      | The agent creates an invite through onbod and gets the token once.                            | `tests/integration_mcp_test.go::TestMCP_InviteTools/invite_create`                     |
+| `observe_group`      | The tool adds a watcher from the folder of the caller to a source folder.                     | `tests/integration_mcp_test.go::TestMCP_GroupObservation/observe_group`                |
+| Tool list            | `tools/list` shows a tool only to a folder that holds `mcp:<tool>`.                           | `routd/routes_resource_test.go::TestRoutesMCP_Visibility`                              |
+| Call deny            | An operator deny row on `mcp:reply` makes the call fail.                                      | `routd/acl_overlay_test.go::TestServeTurnMCP_OperatorDenyBlocksTool`                   |
 
 ## Each turn gets the memory of its folder
 

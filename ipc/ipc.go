@@ -202,7 +202,7 @@ type StoreFns struct {
 	BumpEngagement      func(jid, topic, folder string, until time.Time) error
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
-	FindMessages        func(query, scope, sender, since string, limit int) ([]core.FoundMessage, error)
+	FindMessages        func(ctx context.Context, req routv1.FindRequest) (routv1.FindResponse, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
 	JIDRoutableToFolder func(jid, folder string) bool
 	ErroredChats        func(folder string, isRoot bool) []ErroredChat
@@ -2195,15 +2195,17 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	if db.FindMessages != nil {
 		srv.AddTool(mcp.NewTool("find_messages",
-			mcp.WithDescription("Ranked search over every message this instance has recorded. `query` is words, and ALL of them must appear: `budget review` needs both. \"In double quotes\" matches that exact phrase; a leading `-` excludes (`budget -draft`). There is no OR, no `prefix*` wildcard and no NEAR. Optional `scope` narrows to one chat_jid (contains ':') or a folder subtree (no ':'); `sender` exact-matches the sender; `since` is an RFC3339 lower bound. Returns up to `limit` hits (default 20, max 200), best match first by BM25 rank. Each row carries chat_jid, sender, timestamp, a content snippet with «» around each hit, and the rank. Use to find a past message by content. Not for whole-chat scroll (inspect_messages), single-thread slices (get_thread), or platform-truth fallback (fetch_history)."),
+			mcp.WithDescription("Search recorded messages by content, newest first. `query` is words, and ALL of them must appear: `budget review` needs both. \"In double quotes\" matches that exact phrase; a leading `-` excludes (`budget -draft`). There is no OR, no `prefix*` wildcard and no NEAR. `scope` is one chat_jid (contains ':') or a folder subtree (no ':'); without it the search covers your own folder. A message that reached no folder is found only with its chat_jid as scope. `sender` exact-matches the sender; `since` is an RFC3339 lower bound. Returns `limit` hits (default 20, max 200), each with chat_jid, sender, timestamp and a content snippet with «» around each hit. One call reads at most 20,000 messages: `complete: false` means older messages are not searched yet, so call again with `before` set to the returned `searched_to`. Say a message does not exist only after `complete: true`. Use to find a past message by content. Not for whole-chat scroll (inspect_messages), single-thread slices (get_thread), or platform-truth fallback (fetch_history)."),
 			mcp.WithString("query", mcp.Required(),
 				mcp.Description("Words to find, all required; \"quoted\" for an exact phrase; -word to exclude. No OR, no wildcard, no NEAR.")),
 			mcp.WithString("scope",
-				mcp.Description("Optional: chat_jid (contains ':') or folder subtree (no ':').")),
+				mcp.Description("Optional: chat_jid (contains ':') or folder subtree (no ':'). Default: your folder.")),
 			mcp.WithString("sender",
 				mcp.Description("Optional exact sender match.")),
 			mcp.WithString("since",
 				mcp.Description("Optional RFC3339 timestamp lower bound.")),
+			mcp.WithString("before",
+				mcp.Description("Optional RFC3339 timestamp upper bound, exclusive. Pass `searched_to` of an incomplete answer to continue it.")),
 			mcp.WithNumber("limit",
 				mcp.Description("Max rows to return (default 20, max 200).")),
 		), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -2214,26 +2216,29 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			scope := strings.TrimSpace(req.GetString("scope", ""))
 			sender := strings.TrimSpace(req.GetString("sender", ""))
 			since := strings.TrimSpace(req.GetString("since", ""))
+			before := strings.TrimSpace(req.GetString("before", ""))
 			limitVal := req.GetInt("limit", 20)
 			if limitVal <= 0 || limitVal > 200 {
 				limitVal = 20
 			}
-			hits, err := db.FindMessages(query, scope, sender, since, limitVal)
+			if !identity.IsRoot {
+				switch {
+				case scope == "":
+					scope = folder
+				case strings.Contains(scope, ":"):
+					if db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(scope, folder) {
+						return toolErr("access_denied: jid not routed to your group")
+					}
+				case !groupfolder.Contains(folder, scope):
+					return toolErr("access_denied: folder " + scope + " is not in your group's subtree")
+				}
+			}
+			found, err := db.FindMessages(ctx, routv1.FindRequest{
+				Query: query, Scope: scope, Sender: sender,
+				Since: since, Before: before, Limit: limitVal,
+			})
 			if err != nil {
 				return toolErr("find_messages: " + err.Error())
-			}
-			// Post-fetch ACL: drop rows whose chat_jid isn't routed to caller's
-			// folder. An operator grant bypasses. JIDRoutedToFolder is the same
-			// gate inspect_messages uses (spec 5/C).
-			filtered := hits[:0]
-			if !identity.IsRoot && db.JIDRoutedToFolder != nil {
-				for _, h := range hits {
-					if db.JIDRoutedToFolder(h.ChatJID, folder) {
-						filtered = append(filtered, h)
-					}
-				}
-			} else {
-				filtered = hits
 			}
 			actor := callerSub
 			if actor == "" {
@@ -2251,15 +2256,13 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 					"scope":        scope,
 					"sender":       sender,
 					"since":        since,
+					"before":       before,
 					"limit":        limitVal,
-					"result_count": len(filtered),
+					"result_count": found.Count,
+					"complete":     found.Complete,
 				},
 			})
-			return toolJSON(map[string]any{
-				"messages": filtered,
-				"count":    len(filtered),
-				"source":   "local-db",
-			})
+			return toolJSON(found)
 		})
 	}
 

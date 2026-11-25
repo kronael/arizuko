@@ -1,58 +1,49 @@
 package routd
 
-// search.go is routd's ranked message search: the in-memory index that
-// `find_messages` and `GET /v1/messages/find` answer from, the boot walk that
-// fills it, and the four writes that keep it in step (spec 6/42-dynamo-over-postgres §8). routd
-// appends every message a channel produces, so the feed is one line beside
-// each of four writes on this type rather than a reader of its own, and each
-// runs AFTER the store's write has committed: the store is the record, the
-// index follows it. A write another process makes (`arizuko send`, an archive
-// import, a group delete) is picked up by the next boot walk (msgsearch).
-
 import (
 	"context"
-	"errors"
-	"log/slog"
+	"fmt"
+	"strings"
+	"time"
 
-	"github.com/kronael/arizuko/core"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/routd/msgsearch"
 )
 
-// FoundMessage is one find_messages hit: the «»-marked snippet, the message's
-// own metadata and a BM25 rank where lower is better. An alias: a second
-// declaration of the same seven fields is a second thing to keep in step.
-type FoundMessage = core.FoundMessage
-
-// StartSearch opens the index and walks the store into it in the background.
-// Only the process that ANSWERS searches calls it (routd's main): an opener
-// that only reads or writes rows does not, because the walk's cancellation on
-// Close reported as a failed index build on every admin command (BUGS L295).
-// The walk is not waited for; until it is through a search is REFUSED
-// (msgsearch.ErrWarming) rather than answered empty — an empty hit list says
-// "no message says that", and an agent repeats that as fact.
-func (d *DB) StartSearch() {
-	d.search = msgsearch.New()
-	ctx, cancel := context.WithCancel(context.Background())
-	d.searchStop = cancel
-	d.searchDone = make(chan struct{})
-	src := d.store()
-	go func() {
-		defer close(d.searchDone)
-		if err := d.search.Build(ctx, src); err != nil {
-			// The index answers this same error to every search.
-			slog.Error("build the ranked message index", "err", err)
+// FindMessages is the one handler behind `find_messages` and `GET
+// /v1/messages/find`: a bounded newest-first scan of the store
+// (specs/6/42-dynamo-over-postgres.md). The caller has already confined
+// req.Scope to what it may read.
+func (d *DB) FindMessages(ctx context.Context, req apiv1.FindRequest) (apiv1.FindResponse, error) {
+	since, err := findInstant("since", req.Since)
+	if err != nil {
+		return apiv1.FindResponse{}, err
+	}
+	before, err := findInstant("before", req.Before)
+	if err != nil {
+		return apiv1.FindResponse{}, err
+	}
+	var pages msgsearch.Pages
+	if strings.Contains(req.Scope, ":") {
+		pages = d.store().ScanChat(req.Scope, before)
+	} else {
+		folders, err := d.store().ScanFolders(ctx, req.Scope, before)
+		if err != nil {
+			return apiv1.FindResponse{}, err
 		}
-	}()
+		pages = folders
+	}
+	return msgsearch.Search(ctx, pages, req.Query, req.Sender, since, req.Limit)
 }
 
-// FindMessages answers the ranked hits for one query. `scope` is polymorphic:
-// a value holding ':' is a chat, anything else a `routed_to` folder subtree.
-// ACL filtering is the caller's job — only the caller knows which folder asked.
-func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
-	if d.search == nil {
-		// Loud: the alternative is "no hits" from a process that never built
-		// an index.
-		return nil, errors.New("this process holds no ranked message index")
+func findInstant(name, raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Time{}, nil
 	}
-	return d.search.Search(query, scope, sender, since, limit)
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s %q is not an RFC3339 instant, so the search has "+
+			"no bound to stop at: %w", name, raw, err)
+	}
+	return t, nil
 }

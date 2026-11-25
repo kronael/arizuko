@@ -13,7 +13,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- `find_messages` and `GET /v1/messages/find` read the store for each search
+  and keep no index (spec `6/42` §8). A search is a bounded scan, newest first:
+  one call reads at most 20,000 messages and answers `searched_to` and
+  `complete`; a new optional `before` continues an incomplete search. Hits come
+  newest first and carry no `rank`; the MCP answer carries no `source`. An
+  empty `scope` is the folder of the caller on both surfaces, and a message
+  with no `routed_to` is found only with its chat as scope. Each surface
+  confines the scope before the search, so `limit` counts hits the caller can
+  read: a filter after the search could answer an empty list while the
+  caller's own matches lay below `limit` foreign ones.
+
 ### Removed
+
+- routd's in-memory BM25 message index, its boot walk, the `index_warming`
+  refusal and the feed beside each message write. On sloth the index held
+  473 MB of heap for 320,798 messages and took 56 s of boot work.
 
 - The mid-turn steer chain, which no code called: `Turn.RegisterSteer`,
   `Manager.SetSteer`, `RunOutcome.steered`, the `steer` and `steer_ack` frames

@@ -19,8 +19,11 @@ arg: <question>
      `find_messages({ query: "<terms>", scope: "<chat_jid or folder>", limit: 50 })`.
      Every term must appear; `"exact phrase"` matches adjacent words;
      `-word` excludes. There is no OR, no `prefix*` and no `NEAR`, so
-     search one wording at a time. Returns ranked snippets with `«match»`
-     highlight.
+     search one wording at a time. Returns snippets with `«match»`
+     highlight, newest first. Without `scope` it covers your own folder.
+     ALWAYS check `complete`: on `false` call again with `before` set to
+     the returned `searched_to`. NEVER say a message does not exist before
+     `complete: true`.
    - **Whole chat**: `inspect_messages({ chat_jid: "<jid>", limit: 200 })`
    - **One thread** (chat fans out to per-topic threads — Telegram forum
      topics, web-chat topics): `get_thread({ chat_jid: "<jid>", topic: "<topic>" })`

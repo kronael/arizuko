@@ -159,22 +159,39 @@ type MessagesResponse struct {
 	Count    int          `json:"count"`
 }
 
-// FoundMessage is one find_messages hit: the «»-marked snippet and its BM25
-// rank, where lower is the better match.
-type FoundMessage struct {
-	ChatJID      string  `json:"chat_jid"`
-	Sender       string  `json:"sender"`
-	Timestamp    string  `json:"timestamp"`
-	IsFromMe     bool    `json:"is_from_me"`
-	IsBotMessage bool    `json:"is_bot_message"`
-	Content      string  `json:"content"`
-	Rank         float64 `json:"rank"`
+// FindRequest is the query of GET /v1/messages/find and the arguments of the
+// find_messages tool. Scope is a chat_jid when it holds ':' and a folder
+// subtree otherwise. Since is an inclusive RFC3339 lower bound and Before an
+// exclusive RFC3339 upper bound.
+type FindRequest struct {
+	Query  string `json:"query"`
+	Scope  string `json:"scope"`
+	Sender string `json:"sender"`
+	Since  string `json:"since"`
+	Before string `json:"before"`
+	Limit  int    `json:"limit"`
 }
 
-// FindResponse is GET /v1/messages/find.
+// FoundMessage is one find_messages hit. Content is a snippet with «» around
+// each matched word.
+type FoundMessage struct {
+	ChatJID      string `json:"chat_jid"`
+	Sender       string `json:"sender"`
+	Timestamp    string `json:"timestamp"`
+	IsFromMe     bool   `json:"is_from_me"`
+	IsBotMessage bool   `json:"is_bot_message"`
+	Content      string `json:"content"`
+}
+
+// FindResponse is the answer of GET /v1/messages/find and of find_messages:
+// the hits newest first. SearchedTo is the instant of the oldest message the
+// search read. Complete false means the search stopped before the end of the
+// scope; the same request with Before = SearchedTo continues it.
 type FindResponse struct {
-	Messages []FoundMessage `json:"messages"`
-	Count    int            `json:"count"`
+	Messages   []FoundMessage `json:"messages"`
+	Count      int            `json:"count"`
+	SearchedTo string         `json:"searched_to"`
+	Complete   bool           `json:"complete"`
 }
 
 // RoutingResolveResponse is GET /v1/routing/resolve?jid[&folder]. Folder is

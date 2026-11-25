@@ -188,15 +188,17 @@ subtree; an elevated `/root` turn sees every folder.
   access the guest does not have, and that access would defeat the guest
   boundary. A mutating operator verb belongs in its own family, never in
   `inspect_*`.
-- **`find_messages`** is ranked search over routd's in-memory BM25 index:
-  terms that must all appear, `"exact phrase"`, `-exclude`; no OR,
-  wildcard or NEAR. Optional `scope` (a chat JID or a folder subtree),
-  `sender`, `since` (RFC3339), `limit` (default 20, max 200). A search made
-  while the index warms is refused, not answered empty. A hit survives only
-  when `JIDRoutedToFolder` binds its chat to the turn's folder. Each call
-  writes one `audit_log` row that stores the raw query; only the key-name
-  redaction and the 200-rune value cap apply (`audit/README.md`). The index:
-  `routd/README.md` § Ranked message search.
+- **`find_messages`** is a bounded newest-first scan of the store: terms
+  that must all appear, `"exact phrase"`, `-exclude`; no OR, wildcard or
+  NEAR. Optional `scope` (a chat JID or a folder subtree; the turn's folder
+  when empty), `sender`, `since` and `before` (RFC3339), `limit` (default 20,
+  max 200). The tool confines the scope before the search: it refuses a chat
+  that `JIDRoutedToFolder` does not bind to the turn's folder and a folder
+  outside the turn's subtree. An answer with `complete: false` continues
+  with `before` set to `searched_to`. Each call writes one `audit_log` row
+  that stores the raw query; only the key-name redaction and the 200-rune
+  value cap apply (`audit/README.md`). The scan: `routd/README.md` § Message
+  search.
 
 **Connectors.** Each `[[connector]]` block in `connectors.toml` adds tools
 named `<connector>_<tool>`. An `mcp` connector reads its catalog per folder

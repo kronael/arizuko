@@ -50,7 +50,7 @@ https://krons.fiu.wtf/pub/arizuko/.
 - An email or webhook agent. `emaid` reads IMAP and checks DMARC; any caller
   can POST to `/hook/<token>`.
 - Search over your own documents. Mount a tree over WebDAV (`davd`) and the
-  agent reads and cites it; `find_messages` ranks past conversation by
+  agent reads and cites it; `find_messages` searches past conversation by
   content.
 - Many tenants on one deployment. `corp/eng/sre` and `solo/inbox` run the
   same code at any folder depth.

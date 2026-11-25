@@ -19,9 +19,9 @@ A provider refusal atomically stores its attempt, classification and reset with 
 
 `entities.go` names every table this package holds as an objstore entity,
 read and written through objstore's two primitives, so the package issues no
-statement of its own. Ranked search is not a table: it is an in-memory BM25
-index in routd over `messages`, derived and rebuilt from it
-(`routd/README.md` § Ranked message search).
+statement of its own. Message search is not a table: `messages_scan.go` reads
+`messages` and `message_folders` newest first, a page at a time, and routd
+matches each row (`routd/README.md` § Message search).
 
 Each entity file argues its own coordinate in its header: what the partition
 costs, which reads become the reader's work, and which attribute is ordered

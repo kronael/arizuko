@@ -1,56 +1,37 @@
 package dynamo_test
 
-// search_test.go is ranked search over the ENDPOINT. The index is memory, so
-// what the server has to answer is the walk that fills it: `chats` for the
-// partition list and one PROJECTED read per partition
-// (store.MessagesToIndex) — a projection expression, over a served store, for
-// every message an instance holds.
-//
-// The second body is the one that cannot pass by accident: a routd that
-// appended nothing answers for messages another routd wrote, which it can only
-// do by reading them back off the endpoint.
+// search_test.go is message search over the ENDPOINT. A search holds nothing,
+// so what the server has to answer is the scan itself: a descending, limited,
+// PROJECTED read of a chat's partition, and for a folder scope the subtree read
+// of `message_folder_counts`, the folder feeds and the ranged read of each chat.
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
-	"github.com/kronael/arizuko/routd/msgsearch"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// searched retries the warming refusal the way a caller does, and fails loud
-// if the walk never finishes — an empty hit list must never stand in for one.
-func searched(t *testing.T, d *routd.DB, query, scope string) []routd.FoundMessage {
+func searched(t *testing.T, d *routd.DB, query, scope string) []apiv1.FoundMessage {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		hits, err := d.FindMessages(query, scope, "", "", 10)
-		switch {
-		case errors.Is(err, msgsearch.ErrWarming):
-			if time.Now().After(deadline) {
-				t.Fatal("the ranked index never finished its walk of the endpoint")
-			}
-			time.Sleep(5 * time.Millisecond)
-		case err != nil:
-			t.Fatalf("FindMessages(%q): %v", query, err)
-		default:
-			return hits
-		}
+	found, err := d.FindMessages(t.Context(), apiv1.FindRequest{Query: query, Scope: scope, Limit: 50})
+	if err != nil {
+		t.Fatalf("FindMessages(%q, %q): %v", query, scope, err)
 	}
+	if !found.Complete {
+		t.Fatalf("FindMessages(%q, %q) stopped at %s", query, scope, found.SearchedTo)
+	}
+	return found.Messages
 }
 
 // The messages a served routd appends answer a search, with the snippet its
-// callers render and the folder stamp a subtree scope reads.
+// callers render, in each of the three scopes.
 func TestSearchRunsOverDynamo(t *testing.T) {
 	rdb := routd.OpenOver(routdHandle(t))
 	defer rdb.Close() //nolint:errcheck // the test is ending
-	// The index is this process's, and OpenOver hands back a routd that answers
-	// no search until its owner starts one — the daemon's main does it, so a
-	// test that searches does it too.
-	rdb.StartSearch()
 
 	now := time.Now()
 	for i, m := range []struct{ id, jid, sender, folder, content string }{
@@ -75,6 +56,9 @@ func TestSearchRunsOverDynamo(t *testing.T) {
 			t.Errorf("hit in %s carries no mark: %q", h.ChatJID, h.Content)
 		}
 	}
+	if hits[0].ChatJID != "telegram:2" {
+		t.Errorf("the first hit is in %s, want the newest message's chat", hits[0].ChatJID)
+	}
 	if hits := searched(t, rdb, `"budget meeting"`, ""); len(hits) != 1 {
 		t.Errorf("the phrase answered %d hits, want the one message that holds it", len(hits))
 	}
@@ -86,10 +70,9 @@ func TestSearchRunsOverDynamo(t *testing.T) {
 	}
 }
 
-// The boot walk reads the endpoint. This routd appends nothing: every message
-// it answers for came back through the projected read, which is the half a
-// served store has to serve.
-func TestTheBootWalkReadsTheEndpoint(t *testing.T) {
+// This routd appends nothing: every message it answers for came back through
+// the projected read, which is the half a served store has to serve.
+func TestASearchReadsTheEndpoint(t *testing.T) {
 	h := routdHandle(t)
 	writer := routd.OpenOver(h)
 	now := time.Now()
@@ -119,12 +102,11 @@ func TestTheBootWalkReadsTheEndpoint(t *testing.T) {
 	start := time.Now()
 	reader := routd.OpenOver(h)
 	defer reader.Close() //nolint:errcheck // the test is ending
-	reader.StartSearch()
-	hits := searched(t, reader, "needle", "")
-	t.Logf("a walk of 7 chats holding 40 messages, and one search, over the endpoint: %v",
+	hits := searched(t, reader, "needle", "acme")
+	t.Logf("one folder search over 7 chats holding 40 messages, over the endpoint: %v",
 		time.Since(start))
 	if len(hits) != 10 {
-		t.Fatalf("the walk found %d of the 10 messages that say needle", len(hits))
+		t.Fatalf("the search found %d of the 10 messages that say needle", len(hits))
 	}
 	// The projection is what carries the sender and the two flags, so a
 	// projection that dropped one would answer hits with an empty sender and
@@ -144,7 +126,7 @@ func TestTheBootWalkReadsTheEndpoint(t *testing.T) {
 		t.Errorf("%d of %d hits carry is_from_me; the projection is not bringing the flag "+
 			"back, it is inventing one answer for every row", flagged, len(hits))
 	}
-	if hits := searched(t, reader, "needle", "acme"); len(hits) != 10 {
-		t.Errorf("the folder stamp did not survive the walk: %d hits", len(hits))
+	if hits := searched(t, reader, "needle", "telegram:a"); len(hits) != 2 {
+		t.Errorf("the chat scope answered %d hits, want the 2 needles of telegram:a", len(hits))
 	}
 }

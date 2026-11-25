@@ -78,10 +78,6 @@ func main() {
 		slog.Error("queue release announcements", "err", err)
 		os.Exit(1)
 	}
-	// The ranked message index is this process's: it is memory, built from the
-	// store, and only the process that answers `find_messages` needs it.
-	db.StartSearch()
-
 	// audit_log sink: routd owns audit_log (migration 0016), so its own
 	// ACL/secret/task mutations emit through the audited store variants. Init wires
 	// the instance name onto those rows, and it takes whichever handle routd was

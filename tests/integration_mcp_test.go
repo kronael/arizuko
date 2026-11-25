@@ -23,7 +23,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
-	"github.com/kronael/arizuko/routd/msgsearch"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -122,17 +122,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 		ListTasks:           s.ListTasks,
 		MessagesBefore:      s.MessagesBefore,
 		MessagesByThread:    s.MessagesByThread,
-		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
-			// The ranked index is derived from the store, so the harness builds
-			// one per search: a test seeds its messages after the wiring, and a
-			// single index built at wiring time would answer every search about
-			// an empty instance (routd walks once at boot and feeds its writes).
-			ix := msgsearch.New()
-			if err := ix.Build(context.Background(), s); err != nil {
-				return nil, err
-			}
-			return ix.Search(q, scope, sender, since, limit)
-		},
+		FindMessages:        routd.OpenOver(s.Obj()).FindMessages,
 	}
 
 	sock := filepath.Join(tmp, "mcp.sock")
@@ -328,10 +318,11 @@ func TestMCP_MessageInspection(t *testing.T) {
 
 	t.Run("find_messages", func(t *testing.T) {
 		res := h.call(t, "find_messages", map[string]any{
-			"query": "hello", "limit": float64(5),
+			"query": "hello", "scope": "telegram:42", "limit": float64(5),
 		})
-		if res.IsError {
-			t.Fatalf("find_messages errored: %v", res.Content)
+		if res.IsError || !contentContains(res, "«hello» world") ||
+			!contentContains(res, `"complete":true`) {
+			t.Fatalf("find_messages did not find the seeded row: %v", res.Content)
 		}
 	})
 }

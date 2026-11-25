@@ -22,7 +22,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/retry"
-	"github.com/kronael/arizuko/store"
 )
 
 // mediaConfig is routd's slice of the media/transcription env.
@@ -209,11 +208,6 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	if terminal == nil {
 		msg.Attachments = ""
 	}
-	row, err := store.IndexedFrom(*msg)
-	if err != nil {
-		return err
-	}
-	l.db.search.Put(row)
 	*caller = *msg
 	return nil
 }

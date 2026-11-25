@@ -138,8 +138,7 @@ func TestAttachmentTenthFailureIsTerminalOnce(t *testing.T) {
 
 func TestAttachmentFailedCommitKeepsCallerAndSearch(t *testing.T) {
 	db, loop, groups := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1024})
-	db.StartSearch()
-	msg := &core.Message{ID: "changed", ChatJID: "chat", Content: "original", Timestamp: time.Now().UTC()}
+	msg := &core.Message{ID: "changed", ChatJID: "tg:chat", Content: "original", Timestamp: time.Now().UTC()}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if err := db.store().SetMessageContent(*msg, "edited"); err != nil {
 			t.Error(err)
@@ -165,7 +164,10 @@ func TestAttachmentFailedCommitKeepsCallerAndSearch(t *testing.T) {
 	if err != nil || len(files) != 0 {
 		t.Fatalf("files: %v %v", files, err)
 	}
-	if hits := searched(t, db, "uniqueword", "", "", "", 10); len(hits) != 0 {
+	if hits := searched(t, db, "edited", "tg:chat", "", "", 10); len(hits) != 1 {
+		t.Fatalf("the edit that won is not searchable: %+v", hits)
+	}
+	if hits := searched(t, db, "uniqueword", "tg:chat", "", "", 10); len(hits) != 0 {
 		t.Fatalf("uncommitted search result: %+v", hits)
 	}
 }

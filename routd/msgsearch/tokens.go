@@ -23,8 +23,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// token is one word of a message: the term it is indexed and searched under,
-// and the bytes of the original it was folded from.
+// token is one word of a message: the term it is searched under, and the bytes
+// of the original it was folded from.
 type token struct {
 	term  string
 	start int
@@ -35,8 +35,8 @@ type token struct {
 //
 // COMBINING MARKS COUNT. Text arrives in whatever normal form its sender's
 // keyboard produced, and in NFD the accent of "úroveň" is a rune of its own
-// (category Mn) sitting between two letters. A boundary there would index four
-// terms for one word, and the same word typed in NFC would index one — the two
+// (category Mn) sitting between two letters. A boundary there would read four
+// terms for one word, and the same word typed in NFC would read one — the two
 // spellings of one message would answer different searches.
 func tokenRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Mn, r)

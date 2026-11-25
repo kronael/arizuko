@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
-	"github.com/kronael/arizuko/routd/msgsearch"
 )
 
 // reads_http.go is routd's REST read/manage surface — the REST twin of the
@@ -121,26 +119,17 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	hits, err := s.db.FindMessages(q, scope,
-		r.URL.Query().Get("sender"), r.URL.Query().Get("since"), limit)
+	found, err := s.db.FindMessages(r.Context(), apiv1.FindRequest{
+		Query: q, Scope: scope, Limit: limit,
+		Sender: r.URL.Query().Get("sender"),
+		Since:  r.URL.Query().Get("since"),
+		Before: r.URL.Query().Get("before"),
+	})
 	if err != nil {
-		// A warming index is a wait, not a fault: unavailable, not broken.
-		if errors.Is(err, msgsearch.ErrWarming) {
-			writeErr(w, 503, "index_warming", err.Error())
-			return
-		}
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	out := apiv1.FindResponse{Messages: make([]apiv1.FoundMessage, len(hits)), Count: len(hits)}
-	for i, h := range hits {
-		out.Messages[i] = apiv1.FoundMessage{
-			ChatJID: h.ChatJID, Sender: h.Sender, Content: h.Content, Rank: h.Rank,
-			IsFromMe: h.IsFromMe, IsBotMessage: h.IsBotMessage,
-			Timestamp: h.Timestamp.UTC().Format(time.RFC3339Nano),
-		}
-	}
-	writeJSON(w, 200, out)
+	writeJSON(w, 200, found)
 }
 
 func (s *Server) handleRoutingResolve(w http.ResponseWriter, r *http.Request) {

@@ -75,7 +75,7 @@
       <tr><td><code>system_messages</code></td><td>the folder, then the instant</td><td>one queued system event</td></tr>
     </table>
 
-    <p>Ranked search is not a table. routd keeps an in-memory BM25 index over the <code>messages</code> entity, walked from the store at boot and fed by its own writes; see <a href="mcp.html#find_messages"><code>find_messages</code></a>.</p>
+    <p>Message search is not a table. <code>routd</code> reads the <code>messages</code> entity newest first for each search and keeps no index; see <a href="mcp.html#find_messages"><code>find_messages</code></a>.</p>
 
     <h2 id="acl">routd owns the configuration resources</h2>
 
@@ -151,7 +151,7 @@
       <li><strong>No index but the coordinate.</strong> A selective read belongs on the sort key; a filter still reads what it filters.</li>
       <li><strong>No foreign key, so nothing cascades.</strong> Deleting a group purges every entity that confers on that folder or routes into it, explicitly, by one containment predicate &mdash; and a table in neither list fails a completeness test.</li>
       <li><strong>No autoincrement.</strong> An item has no server-minted identity; the one number arizuko hands out, <code>routes.id</code>, comes from the <code>counters</code> item through a compare-and-swap, so two concurrent adds cannot mint the same handle.</li>
-      <li><strong>No full-text index.</strong> Ranked message search is derived state in routd's memory, rebuilt from the <code>messages</code> entity at boot.</li>
+      <li><strong>No full-text index.</strong> A message search is a bounded scan of the <code>messages</code> entity, newest first. No daemon keeps an index or a copy of a message.</li>
     </ul>
 
     <p><strong>Four tables share the word &ldquo;route&rdquo; and nothing else.</strong> <code>routes</code> sends a message to a folder; <code>web_routes</code> decides who may load a URL path; <code>proxyd_routes</code> sends an HTTP path to a backend daemon; <code>route_tokens</code> holds a bearer that lets a stranger post into one chat. They answer four different questions, so they stay four tables.</p>
@@ -166,7 +166,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-23">2026-11-23</time>
       </div>
     </main>
 

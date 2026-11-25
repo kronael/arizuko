@@ -23,7 +23,7 @@ routd does these jobs:
 - It runs the orchestration loop: claim a turn, dispatch it to runed, record the result.
 - It hosts the per-turn MCP socket. It reads the capabilities of the folder from `acl` and wires `ipc.ServeMCP` to its own DB and Deliverer. It serves the conversation tools, for example `reply`, `send` and `like`.
 - It sends channel egress through the `chanreg` Deliverer. Adapters register an egress URL and the JID prefixes they own.
-- It answers ranked message search, `find_messages` and `GET /v1/messages/find`.
+- It answers message search, `find_messages` and `GET /v1/messages/find`.
 - It owns the turn's progress, as the next section shows.
 
 routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`. It limits tool visibility with `auth.EffectiveActions`. The resreg resources that routd serves reuse the same injected gate instead of the default operator gate.
@@ -198,16 +198,17 @@ The trigger drops bot rows (`dispatch.go`). The observed window keeps the folder
 
 To add a block, emit it from the builder that holds its input, keep it XML-shaped and per-turn, and add its row to the table. An autocall is the cheapest block: `EXTENDING.md` section "Adding an autocall".
 
-## Ranked message search
+## Message search
 
-The index is an in-memory BM25 index over the `messages` entity (`msgsearch/`). The store is the record, and the index is derived from it.
+A search is a bounded scan of the store, newest first (`search.go`, `msgsearch/`, `store/messages_scan.go`). routd keeps no index and no copy of a message, so a search reads what the store holds at the time of the call.
 
-- **Built at boot.** The process that answers searches, which is `main` of routd, calls `StartSearch`. It walks every chat into the index in the background. A search before the walk ends fails with `index_warming`. It never returns an empty hit list, because an agent would repeat "no message says that" as fact.
-- **Fed by message writes.** routd is the only appender, so the feed is one line beside each write that touches an indexed attribute. The writes are append, media rewrite, observe stamp and explicit message cleanup. Each runs after the store write commits. A write by another process appears at the next boot walk. Such writes are `arizuko send`, an archive import and a group delete.
+- **One handler.** `find_messages` and `GET /v1/messages/find` both call `DB.FindMessages` with an `api/v1` `FindRequest` and return its `FindResponse`. Each surface confines the scope to the caller before the call, so `limit` counts hits that the caller can read.
+- **Scope.** A `scope` that holds `:` names a chat, and the scan reads that chat's `messages` partition. Any other scope names a folder subtree: the scan merges the `message_folders` feed of each folder below it and reads the messages behind the pointers. An empty scope is every folder. A message with no `routed_to` is in no feed, so only a chat scope finds it.
+- **Budget.** One call reads at most 20,000 message rows, in pages of 1,000. The answer carries `searched_to`, the instant of the oldest message read, and `complete`. When `complete` is false, the same request with `before` set to `searched_to` continues the search. A search stops only between two instants, so the continuation reads each message one time.
+- **Order.** Hits come newest first. There is no rank. The default is 20 hits and the maximum is 200.
 - **Tokens.** A term is a run of Unicode letters and digits in lower case, with diacritics dropped after NFD. So `uroven` finds `úroveň` from a plain keyboard. Each token keeps its byte offsets, so the snippet marks the hit in the bytes that the writer wrote.
-- **Rank and snippet.** BM25 uses the constants of SQLite FTS5, `k1` 1.2 and `b` 0.75, negated as FTS5 negates them. Ascending rank therefore lists the best hit first (`parity_test.go`). A hit returns a window of at most 32 tokens around the first match, with each hit inside `«` and `»`. The default is 20 hits and the maximum is 200.
+- **Snippet.** A hit returns a window of at most 32 tokens around the first match, with each hit inside `«` and `»`.
 - **Grammar.** Terms are all required. `"phrases"` match adjacent terms in order. A `-` before a term or phrase excludes it. The grammar has no OR, no prefix and no NEAR. A malformed query is an error and never an empty list.
-- **Scope.** A `scope` that holds `:` names a chat. Any other scope names a folder subtree over `routed_to`, tested with `groupfolder.Contains` and never with `LIKE`. The caller filters the hits to the folders it may read.
 
 ## The model gateway
 
@@ -421,7 +422,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `*_resource.go` define one resreg resource each: `acl`, `audit`, `chats`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
 - `packages_store.go` implements `installed_packages` CRUD. It is the record that `arizuko package add|rm|sync` reads and writes.
 - `db.go` holds the writes of the owner, such as `PutMessage`, turn claims and routing, and the boot that dials the endpoint.
-- `search.go` and `msgsearch/` implement ranked message search: the index, its boot walk and the message writes that feed it.
+- `search.go` and `msgsearch/` implement message search: the handler, the query grammar, the match and the snippet.
 - `reads.go` holds the reads of the owner for messages. The reads of chats, sessions and reply state go through `store`.
 - `session.go`, `identity.go` and `onbod.go` federate to runed, authd and onbod.
 - `connectors.go` loads the MCP connector catalog.

@@ -76,7 +76,7 @@ func parseQuery(q string) ([]item, error) {
 	}
 	if positive == 0 {
 		return nil, fmt.Errorf("%q holds no word to search for; a search that only excludes "+
-			"has nothing to rank", q)
+			"has nothing to find", q)
 	}
 	return items, nil
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/retry"
-	"github.com/kronael/arizuko/routd/msgsearch"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -39,12 +38,6 @@ type DB struct {
 	// release drops the private namespace OpenMem reserved; nil against the
 	// instance's own tables.
 	release func() error
-
-	// All three are set by every door that builds a DB, so no door can hand
-	// back one whose search is a nil dereference (search.go).
-	search     *msgsearch.Index
-	searchStop context.CancelFunc
-	searchDone chan struct{}
 }
 
 func (d *DB) mutedGroup(folder string) bool {
@@ -139,15 +132,9 @@ func OpenMem() (*DB, error) {
 	return d, nil
 }
 
-// Close ends what the open holds. It WAITS for the boot walk: a walk still
-// reading after Close returns keeps touching a namespace its owner believes it
-// has released.
+// Close ends what the open holds.
 func (d *DB) Close() error {
 	d.verdicts.close()
-	if d.searchStop != nil {
-		d.searchStop()
-		<-d.searchDone
-	}
 	if d.release != nil {
 		return d.release()
 	}
@@ -204,54 +191,22 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 	return d.store().RemoveGroupWatcher(observer, source)
 }
 
-// PutMessage appends one message row; routd is the only writer. The ranked
-// index is fed from the row the store STORED, not the one handed in: an append
-// buried under the chat's newest row takes the next position instead
-// (store.appendInstant), and an index on the caller's instant would answer
-// "no such message" about it.
+// PutMessage appends one message row; routd is the only writer.
 func (d *DB) PutMessage(m core.Message) error {
 	unlock := lockTurn("\x00append:" + m.ChatJID)
-	stored, err := d.store().AppendMessage(m)
+	_, err := d.store().AppendMessage(m)
 	unlock()
-	if err != nil {
-		return err
-	}
-	row, err := store.IndexedFrom(stored)
-	if err != nil {
-		return err
-	}
-	d.search.Put(row)
-	return nil
+	return err
 }
 
 func (d *DB) PutOutboundFailure(m core.Message, failure retry.Failure) (retry.Decision, error) {
-	decision, err := d.store().PutOutboundFailure(context.Background(), m, failure)
-	if err != nil {
-		return decision, err
-	}
-	return decision, d.indexOutbound(m)
+	return d.store().PutOutboundFailure(context.Background(), m, failure)
 }
 
 // PutOutbound appends one outbound row and the delivery state it still owes.
 // `sent` writes no delivery item, which is what makes it the absence of one.
 func (d *DB) PutOutbound(m core.Message, status string) error {
-	if err := d.store().PutOutbound(context.Background(), m, status); err != nil {
-		return err
-	}
-	return d.indexOutbound(m)
-}
-
-func (d *DB) indexOutbound(m core.Message) error {
-	stored, ok := d.store().MessageByID(m.ChatJID, m.ID)
-	if !ok {
-		return fmt.Errorf("read stored outbound %s in %s", m.ID, m.ChatJID)
-	}
-	row, err := store.IndexedFrom(stored)
-	if err != nil {
-		return err
-	}
-	d.search.Put(row)
-	return nil
+	return d.store().PutOutbound(context.Background(), m, status)
 }
 
 // NewMessagesForChat returns one chat's rows after its watermark, oldest first.
@@ -345,18 +300,10 @@ func (d *DB) MarkMessagesErrored(msgs []core.Message) error {
 	return d.store().MarkMessagesErrored(context.Background(), msgs)
 }
 
-// DeleteErroredMessages drops a chat's errored rows and their index entries,
-// ranked index included: a deleted message that goes on answering searches
-// reports content nobody can read back.
+// DeleteErroredMessages drops a chat's errored rows and their index entries.
 func (d *DB) DeleteErroredMessages(chatJID string) error {
-	gone, err := d.store().DeleteErroredMessages(context.Background(), chatJID)
-	if err != nil {
-		return err
-	}
-	for _, sortKey := range gone {
-		d.search.Remove(chatJID, sortKey)
-	}
-	return nil
+	_, err := d.store().DeleteErroredMessages(context.Background(), chatJID)
+	return err
 }
 
 // CountErroredChats counts chats flagged errored — the /status surface.
@@ -446,22 +393,7 @@ func (d *DB) RoutedToByMessageID(chatJID, id string) string {
 // rule (target=folder?observe) ingests them into the folder's ambient context
 // without a turn.
 func (d *DB) MarkMessagesObserved(folder string, msgs []core.Message) error {
-	rows := make([]store.IndexedMessage, len(msgs))
-	for i, m := range msgs {
-		row, err := store.IndexedFrom(m)
-		if err != nil {
-			return err
-		}
-		row.RoutedTo = folder
-		rows[i] = row
-	}
-	if err := d.store().MarkMessagesObserved(context.Background(), folder, msgs); err != nil {
-		return err
-	}
-	// The folder-subtree scope of a search reads the stamp; unrouted in the
-	// index means unfindable by the folder it was ingested into.
-	d.search.Put(rows...)
-	return nil
+	return d.store().MarkMessagesObserved(context.Background(), folder, msgs)
 }
 
 // Routes returns the route table in resolve order: seq, then id. Every live
@@ -661,19 +593,10 @@ func (d *DB) LastStatusRow(chatJID, turnID string) (core.Message, bool) {
 	return d.store().LastStatusRow(chatJID, turnID)
 }
 
-// SetMessageContent rewrites a held message's content in the log and the
-// search index, so a row edited on the platform reads as the user sees it.
+// SetMessageContent rewrites a held message's content in the log, so a row
+// edited on the platform reads as the user sees it.
 func (d *DB) SetMessageContent(m core.Message, content string) error {
-	if err := d.store().SetMessageContent(m, content); err != nil {
-		return err
-	}
-	m.Content = content
-	row, err := store.IndexedFrom(m)
-	if err != nil {
-		return err
-	}
-	d.search.Put(row)
-	return nil
+	return d.store().SetMessageContent(m, content)
 }
 
 // TurnResultRecorded reports whether submit_turn already recorded an outcome
@@ -764,8 +687,7 @@ func (d *DB) LatestSource(jid string) string {
 }
 
 // OpenOver serves routd from a handle the caller owns and has made the entities
-// on; there is no chain to run. A caller that answers searches calls
-// StartSearch itself.
+// on; there is no chain to run.
 func OpenOver(obj objstore.Store) *DB {
 	return &DB{obj: obj}
 }

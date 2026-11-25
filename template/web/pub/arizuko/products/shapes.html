@@ -219,7 +219,7 @@ arizuko group -i acme add discord:123456789/987654321 main
         <dt>No connector sync</dt>
         <dd>You fill <code>facts/</code> by hand, over WebDAV, or through agents that a webhook starts. No OAuth crawler for Confluence, Notion or Google Drive exists.</dd>
         <dt>No embeddings and no vector search</dt>
-        <dd>The agent searches <code>facts/</code> with <code>grep</code>. <code>find_messages</code> is a BM25 search in memory over the stored messages, not over <code>facts/</code>. For tens of thousands of documents, the agent calls a retrieval service over MCP.</dd>
+        <dd>The agent searches <code>facts/</code> with <code>grep</code>. <code>find_messages</code> searches the stored messages, not <code>facts/</code>. For tens of thousands of documents, the agent calls a retrieval service over MCP.</dd>
         <dt>No permissions from source systems</dt>
         <dd>arizuko does not copy Jira roles, Salesforce profiles or Confluence space permissions. The two permission systems are separate, and the operator manages both.</dd>
       </dl>
@@ -291,7 +291,7 @@ arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/shapes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-11">2026-11-11</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-15">2026-11-15</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

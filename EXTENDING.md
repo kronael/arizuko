@@ -796,13 +796,14 @@ An ordinary turn sees only the subtree of its own folder. To extend the family,
 add a handler to `registerInspect` and wire a function into `ipc.StoreFns`.
 
 `find_messages` searches by content. It is registered in `ipc/ipc.go` and
-backed by `StoreFns.FindMessages` over the in-memory BM25 index of `routd`, see `routd/msgsearch`. It accepts terms that must all appear, `"phrases"` and
-`-exclusions`. It ranks by bm25, returns a snippet marked with « and », and
-applies the ACL gate `JIDRoutedToFolder` after the fetch. `routd` derives the
-index from the `messages` entity. It walks the store into the index at boot and
-feeds the index from its own writes. A search made while the walk is running
-is refused and is not answered empty. Use `find_messages` to find a message by
-what was said. Use `inspect_messages` to walk recent history by chat.
+backed by `StoreFns.FindMessages`, a bounded newest-first scan of the store
+(`routd/README.md` § Message search). It accepts terms that must all appear,
+`"phrases"` and `-exclusions`. It returns the hits newest first, each with a
+snippet marked with « and ». The tool confines the scope to the folder of the
+caller before the search. An answer with `complete: false` did not read the
+whole scope, and the same call with `before` set to `searched_to` continues it.
+Use `find_messages` to find a message by what was said. Use `inspect_messages`
+to walk recent history by chat.
 [`ipc/README.md`](ipc/README.md) § Tool surface explains why the family is a
 set of tools and not `Bash`, and why there is no `inspect_logs`.
 
