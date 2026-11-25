@@ -222,7 +222,6 @@ code enforcement of the path-claim constraint is tracked separately.
 
 ## Related
 
-- [`../3/5-tool-authorization.md`](../3/5-tool-authorization.md) — mount table
 - `../3/8-web-virtual-hosts.md` — older vhost
   spec, superseded here
 - `proxyd/README.md` — `/pub/*` and `/priv/*` handling

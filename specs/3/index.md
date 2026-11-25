@@ -4,9 +4,8 @@ status: shipped
 
 # specs/3 — features & extensions
 
-| Spec                                               | Status             | Hook                                                     |
-| -------------------------------------------------- | ------------------ | -------------------------------------------------------- |
-| [5-tool-authorization.md](5-tool-authorization.md) | superseded-in-part | tier tables kept as the source for `5/33`'s role bundles |
+No spec is open in this phase. The group `send` rule is in `ipc/README.md`
+§ "Who may call what".
 
 Merged or moved out of this phase:
 
