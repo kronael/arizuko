@@ -164,9 +164,11 @@ Why here and not in the sandbox: the sandbox has no route out, so the agent
 has nowhere to send a packet. This proxy is the one process on that path with
 an uplink, which makes it the deputy worth confusing.
 
-Private addresses are NOT refused by default — a per-spawn proxy shares the
-compose network with the daemons, so private is an ordinary neighbour here.
-`--deny-private` is for a deployment whose allowlist names nothing internal.
+Private addresses are allowed by default so permitted internal services remain
+reachable. In arizuko, each turn's proxy listens on the host side of that turn's
+own `/30` tap pair. The guest reaches only the proxy port. The proxy uses
+runed's network to reach allowed destinations.
+Set `--deny-private` when the allowlist names no internal services.
 
 The proxy applies address checks without decrypting TLS.
 

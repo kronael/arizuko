@@ -35,10 +35,8 @@ func ips(list ...string) []net.IP {
 	return out
 }
 
-// The prize an SSRF through a forward proxy is after: cloud instance metadata.
-// The agent's own network is `--internal` so it cannot reach it directly; this
-// process can, which is what makes it worth confusing. An allowlisted NAME that
-// resolves to the metadata address must not be dialled.
+// An allowed name must not permit access to cloud instance metadata through
+// the proxy. The guest's tap rules block direct access.
 func TestResolveDest_RejectsInstanceMetadata(t *testing.T) {
 	for _, addr := range []string{"169.254.169.254", "fd00:ec2::254"} {
 		p := proxyResolving(map[string][]net.IP{"metadata.example.com": ips(addr)})
@@ -82,8 +80,8 @@ func TestResolveDest_LoopbackNeedsTheOption(t *testing.T) {
 	}
 }
 
-// A private answer is ordinary here: the per-spawn proxy shares the compose
-// network with the daemons. Only a deployment that says so refuses it.
+// Private destinations can be allowed internal services. --deny-private
+// enables their refusal.
 func TestResolveDest_PrivateIsOptIn(t *testing.T) {
 	answers := map[string][]net.IP{"svc.internal": ips("10.99.15.177")}
 

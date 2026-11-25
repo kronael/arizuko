@@ -59,17 +59,13 @@ type Proxy struct {
 	// client is the only peer address allowed to use this proxy. Empty
 	// accepts any peer.
 	//
-	// A per-spawn proxy shares its network with the other spawns of the
-	// same folder, and it also sits on an uplink network with the daemons.
-	// Without this check a neighbour could send its CONNECT here and borrow
-	// an allowlist it was never granted (an elevated turn's is unrestricted).
-	// This is a bind scope for a single-tenant listener, not an identity
-	// lookup: nothing is registered, nothing is looked up, and a second
-	// client is refused rather than served from a different rule set.
+	// In arizuko, each turn's proxy listens on the host side of its own tap
+	// pair. The client check also restricts the proxy to that guest's address.
+	// The proxy refuses other peers without an identity lookup or registry.
 	client string
 	// denyPrivate additionally refuses destinations that resolve into a
-	// private range. Off by default: a per-spawn proxy shares the compose
-	// network with the daemons, so private is normal here (see address.go).
+	// private range. Off by default so allowed internal services remain
+	// reachable (see address.go).
 	denyPrivate bool
 	// allowLoopback permits destinations on this host. Off by default — a
 	// spawn's proxy has no business dialling its own container. On for local

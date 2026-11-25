@@ -14,13 +14,11 @@ var errBlockedAddress = errors.New("blocked address")
 // the proxy may go", and hands back the exact address the caller must dial.
 //
 // The two questions are separate because the answers can disagree. Checking a
-// name and then dialling that name is two independent resolutions, and the gap
-// between them is a window to rebind an allowlisted host onto an address inside
-// the deployment. The proxy is the one container on the spawn's path that HAS
-// an uplink — the sandbox network is `--internal`, so the agent has nowhere
-// else to send a packet — which makes this process the deputy worth confusing.
-// Resolving once and dialling the resolved address closes the window, and the
-// address class check closes the rest.
+// name and then dialling that name uses two independent resolutions. The second
+// resolution can return an internal address. In arizuko, each turn's proxy
+// listens on the host side of that turn's tap pair. The guest reaches only
+// the proxy port. The proxy reaches allowed destinations through runed's network.
+// Resolving once and dialling the checked address prevents DNS rebinding.
 //
 // Nothing here decrypts or inspects anything. This is address hygiene, not
 // interception; MITM stays declined (egress/README.md § The address check).
@@ -50,11 +48,8 @@ func (p *Proxy) blockedIP(ip net.IP) bool {
 	return ip.Equal(net.ParseIP("fd00:ec2::254"))
 }
 
-// privateIP reports whether ip is in a private range. Kept separate from
-// blockedIP because it is NOT unconditionally wrong here: a per-spawn proxy
-// sits on the compose network with the daemons, so private addresses are
-// ordinary neighbours rather than an escape. Denying them is an opt-in
-// (`--deny-private`) for a deployment whose allowlist names nothing internal.
+// privateIP reports whether ip is private or unspecified. Private destinations
+// can be allowed internal services, so --deny-private controls their refusal.
 func privateIP(ip net.IP) bool {
 	return ip != nil && (ip.IsPrivate() || ip.IsUnspecified())
 }
