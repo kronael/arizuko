@@ -105,9 +105,9 @@
   │ service:&lt;daemon&gt; to routd, service:routd to the adapter
   │                                      │
   │ POST /v1/channels/register           │
-  ├─────────────────────────────────────►│ origin pin: the first (IP, sub)
-  │ name, url, jid_prefixes, caps        │ owns the name; a later claim
-  │◄─────────────────────────────────────┤ from elsewhere is 409
+  ├─────────────────────────────────────►│ pin: first verified service sub
+  │ name, url, jid_prefixes, caps        │ owns the name; IP recorded only;
+  │◄─────────────────────────────────────┤ a different sub gets 409
   │ session token                        │
   │                                      │
   │ GET &lt;url&gt;/health, every 30 s         │
@@ -122,10 +122,10 @@
   │                                      │
   │ POST &lt;url&gt;/send, idempotency_key     │
   │◄─────────────────────────────────────┤ the pending bot row is the
-  │ deliverOnce: claim, post, record     │ outbox
-  ├─────────────────────────────────────►│ 200 sent; 4xx dead-letters;
-  │ 200 {id}, 400, 501 or 502            │ 5xx retries at 30 s, doubling
-  │                                      │
+  │ deliverOnce: claim, post, record     │ outbox; 200 sent; 501 dead-letters;
+  ├─────────────────────────────────────►│ other 4xx dead-letter, except
+  │ 200 {id}, 400, 501 or 503            │ 408/425/429; these and other 5xx
+  │                                      │ retry at 30 s, doubling
   │ POST &lt;url&gt;/typing, /&lt;verb&gt;           │
   │◄─────────────────────────────────────┤ only for an advertised
   │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else typing sends
@@ -184,7 +184,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-14">2026-11-14</time>
       </div>
     </main>
 

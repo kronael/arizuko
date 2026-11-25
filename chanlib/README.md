@@ -17,9 +17,9 @@ adapter, chanlib.Run                   routd
   │ service:<daemon> to routd, service:routd to the adapter
   │                                      │
   │ POST /v1/channels/register           │
-  ├─────────────────────────────────────►│ origin pin: the first (IP, sub)
-  │ name, url, jid_prefixes, caps        │ owns the name; a later claim
-  │◄─────────────────────────────────────┤ from elsewhere is 409
+  ├─────────────────────────────────────►│ pin: first verified service sub
+  │ name, url, jid_prefixes, caps        │ owns the name; IP recorded only;
+  │◄─────────────────────────────────────┤ a different sub gets 409
   │ session token                        │
   │                                      │
   │ GET <url>/health, every 30 s         │
@@ -34,10 +34,10 @@ adapter, chanlib.Run                   routd
   │                                      │
   │ POST <url>/send, idempotency_key     │
   │◄─────────────────────────────────────┤ the pending bot row is the
-  │ deliverOnce: claim, post, record     │ outbox
-  ├─────────────────────────────────────►│ 200 sent; 4xx dead-letters;
-  │ 200 {id}, 400, 501 or 502            │ 5xx retries at 30 s, doubling
-  │                                      │
+  │ deliverOnce: claim, post, record     │ outbox; 200 sent; 501 dead-letters;
+  ├─────────────────────────────────────►│ other 4xx dead-letter, except
+  │ 200 {id}, 400, 501 or 503            │ 408/425/429; these and other 5xx
+  │                                      │ retry at 30 s, doubling
   │ POST <url>/typing, /<verb>           │
   │◄─────────────────────────────────────┤ only for an advertised
   │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else typing sends
