@@ -93,9 +93,8 @@ Two of the six carry an invariant a column could not:
     lifecycle, the login families, and a per-login sign-out. Gated by the
     proxyd-stamped operator identity, not a bearer.
 
-  The sole holder of `signing_keys:read`, `sessions:read` and `sessions:write`
-  is `service:dashd`. Like `audit:read`,
-  none is reachable by a human bearer, and `signing_keys`/`sessions`
+  Like `audit:read`, these scopes are not reachable by a human bearer.
+  `signing_keys`/`sessions`
   also refuse a folder-claimed caller outright: neither table has a
   folder column, so there is no predicate that could contain one.
   `serviceGrants` (`http.go`) is the whole per-principal scope map, and

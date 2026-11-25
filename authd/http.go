@@ -53,13 +53,11 @@ var serviceGrants = map[string][]string{
 	// bearer (a user token's scope list holds folder globs), and the ceiling
 	// is exactly this set: dashd does not originate work (runs:run), speak as
 	// a channel (messages:write) or read credentials (secrets:read,
-	// grants:read); authd/service_dashd_test.go pins the set. sessions:write
-	// can END sessions, never create or extend one; routes:read's widest read
+	// grants:read); authd/service_dashd_test.go pins the set. routes:read's widest read
 	// never selects the token value; tasks:read and messages:read are
 	// read-only (BUGS L142).
 	"service:dashd": {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
-		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
 		"dead_letters:read", "dead_letters:write",
 		"model_pauses:read", "model_pauses:write",

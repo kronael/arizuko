@@ -54,7 +54,6 @@ func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 	}
 	want := []string{
 		"runs:kill", "routes:read", "routes:write", "audit:read",
-		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
 		"dead_letters:read", "dead_letters:write",
 		"model_pauses:read", "model_pauses:write",

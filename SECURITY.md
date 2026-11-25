@@ -787,7 +787,6 @@ of `authd`:
 - `DELETE /v1/sessions/{family_id}` needs `sessions:write`.
 
 These scopes have the form resource and verb. No human bearer can hold them.
-Only `service:dashd` holds them, for its operator-gated `/dash/authd/` page.
 Read and kill are separate scopes. A surface that shows the session table does
 not gain the ability to end a session. Both tables also refuse a caller that
 has a folder claim. A signing key is global to the instance, and a session is
