@@ -328,6 +328,9 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 		if process != nil {
 			err = errors.Join(err, process.Stop())
 		}
+		if _, statErr := os.Lstat(filepath.Join(private, "arizuko_"+name)); errors.Is(statErr, os.ErrNotExist) {
+			return
+		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		_, removeErr := command(cleanupCtx, "rm")

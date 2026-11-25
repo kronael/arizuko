@@ -67,8 +67,8 @@ create → store enroll → run → package add → restart run
        → group / grants / network / tokens → cases → stop child → rm
 ```
 
-The runner always calls `arizuko rm -i NAME` after an attempted creation,
-including setup failure, case failure and SIGINT or SIGTERM. Removal errors
+The runner calls `arizuko rm -i NAME` whenever the creation left a data
+directory: after setup failure, case failure, success and SIGINT or SIGTERM. Removal errors
 fail the run and report the exact name and data base for a manual retry.
 Reports stay outside the disposable instance. Cases run sequentially and wait
 for gateway metering between turns.

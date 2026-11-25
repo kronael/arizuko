@@ -158,7 +158,9 @@ func TestLifecycleCleanup(t *testing.T) {
 			if failure != "" && failure != "case" && f.failedAt != failure {
 				t.Fatalf("failure at %q, want %q", f.failedAt, failure)
 			}
-			if len(f.calls) == 0 || f.calls[len(f.calls)-1] != "rm -i anteval-test" {
+			// A create that left no data directory leaves nothing to remove,
+			// and `arizuko rm` answers an error for an instance that is absent.
+			if last := f.calls[len(f.calls)-1]; (last == "rm -i anteval-test") == (failure == "create") {
 				t.Fatalf("cleanup: %v", f.calls)
 			}
 			if failure == "drive" || failure == "" {
