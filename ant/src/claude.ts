@@ -1,4 +1,4 @@
-// claude.ts — the claude harness (spec 6/16), and the default occupant. Drives
+// claude.ts — the claude harness (EXTENDING.md § Swapping the agent harness), and the default occupant. Drives
 // Claude Code via the agent SDK's query(): model calls, tool execution, retries
 // and session state all live in the harness; this module spawns it and
 // normalizes its message stream into frames.
@@ -278,7 +278,7 @@ export function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-// claudeHooks is the claude RENDERER (spec 6/16): it turns policy.ts's binding
+// claudeHooks is the claude RENDERER (EXTENDING.md § Swapping the agent harness): it turns policy.ts's binding
 // table into the SDK's hooks object. claude honours every verdict, so no row
 // is refused here.
 export function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: string; hooks: HookCallback[] }>> {
@@ -682,7 +682,7 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
   if (held) yield held;
 }
 
-// claudeHarness is the default occupant (spec 6/16 § "The four layers").
+// claudeHarness is the default occupant (EXTENDING.md § Swapping the agent harness).
 export const claudeHarness: Harness = {
   name: 'claude',
   profile: {

@@ -81,7 +81,7 @@ func htmlDetail(key, val string) string {
 // chatJIDCell renders a chat_jid as a group link when its folder is resolvable
 // (web:/hook: prefixes carry the folder; platform JIDs resolve via the routes
 // table), else as a plain <code> JID. It lived in routd_page.go until that page
-// moved to routd itself (spec 6/28); approvals still render JIDs.
+// moved to routd itself (dashd/README.md); approvals still render JIDs.
 func (d *dash) chatJIDCell(jid string) string {
 	if folder := d.jidFolder(jid); folder != "" {
 		return fmt.Sprintf(`<a href="/me/chats?folder=%s"><code>%s</code></a>`,
@@ -91,7 +91,7 @@ func (d *dash) chatJIDCell(jid string) string {
 }
 
 // folderLink renders a folder as a link into its chats. It lived in
-// runed_page.go until that page moved to runed itself (spec 6/28); approvals
+// runed_page.go until that page moved to runed itself (dashd/README.md); approvals
 // and engagement still render folders.
 func folderLink(folder string) string {
 	return fmt.Sprintf(`<a href="/me/chats?folder=%s">%s</a>`, url.QueryEscape(folder), esc(folder))

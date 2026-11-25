@@ -1,7 +1,7 @@
 package main
 
 // storage.go is authd's composition root: the only file in the daemon that
-// names a storage driver (spec 6/37 step 5). There is no migration set and no
+// names a storage driver (authd/README.md). There is no migration set and no
 // DDL; creating the storage is asking the driver for the entities authstore
 // declares, and asking twice is a no-op.
 

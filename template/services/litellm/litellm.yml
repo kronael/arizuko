@@ -1,4 +1,4 @@
-# litellm — the model gateway (spec 6/23). It holds the instance's model
+# litellm — the model gateway (routd/README.md). It holds the instance's model
 # credential and forwards every agent request upstream with it; a container
 # gets a per-turn virtual key routd minted, never the master key this proxy
 # checks it against. Third-party images, so their env is exactly what is named

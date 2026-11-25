@@ -1,7 +1,7 @@
 package conformance
 
 // protocols.go holds the bodies for what the two primitives COMPOSE into: the
-// versioned replace, its read twin, and the reachability guard (spec 6/40
+// versioned replace, its read twin, and the reachability guard (objstore/README.md
 // §"The seam is TWO primitives, and the rest are protocols").
 //
 // A protocol is a package function over Query and GuardedBatch, so a driver

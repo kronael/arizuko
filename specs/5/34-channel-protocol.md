@@ -323,7 +323,7 @@ the migration makes no further changes. Runtime parsing accepts only the URI
 contract above; there is no legacy parser.
 
 GitHub's seeded targets and the session transition belong to
-[`27-git-channel.md`](../6/27-git-channel.md) §"Conversations and routing".
+`gitd/README.md` § "Observe vs trigger".
 Slash commands remain in `routd/steer.go`; resolution remains in
 [`E-routd.md`](E-routd.md).
 

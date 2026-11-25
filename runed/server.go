@@ -26,7 +26,7 @@ type Server struct {
 	mgr    *Manager
 	db     *DB
 	verify Verifier
-	// dashKeys gates GET /dash/runed/ (spec 6/28): the dashboard trusts the
+	// dashKeys gates GET /dash/runed/ (dashd/README.md): the dashboard trusts the
 	// proxyd-verified end-user identity, not a bearer. nil: local dev, gate
 	// open.
 	dashKeys *auth.KeySet
@@ -61,7 +61,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/spawn_sessions", s.handleSessions)
 	mux.HandleFunc("GET /v1/spawn_sessions/recent", s.handleRecentSessions)
 	s.mountAudit(mux)
-	// The operator dashboard (spec 6/28).
+	// The operator dashboard (dashd/README.md).
 	mux.HandleFunc("GET /dash/runed/", s.handleDash)
 	mux.HandleFunc("POST /dash/runed/kill", s.handleDashKill)
 	return mux

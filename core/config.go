@@ -70,7 +70,7 @@ type Config struct {
 	GoogleAllowedEmails string
 	GitHubAllowedOrg    string
 
-	// Dex login (spec 6/22 step 4); unset → /auth/dex stays unmounted.
+	// Dex login (authd/README.md); unset → /auth/dex stays unmounted.
 	DexIssuer   string
 	DexClientID string
 	DexSecret   string

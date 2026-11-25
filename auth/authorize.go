@@ -540,7 +540,7 @@ func ValidateParams(spec string) error {
 }
 
 // ParamsSpec renders the matcher for a set of CONCRETE argument values — the
-// exact-value rule spec 6/26's `always` verdict writes. It refuses any value it
+// exact-value rule template/web/pub/arizuko/reference/grants.html's `always` verdict writes. It refuses any value it
 // cannot state exactly rather than writing a rule that means something wider:
 //
 //   - `,` separates clauses, so a value carrying one would split into two rules;

@@ -1,6 +1,6 @@
 ---
 status: reference
-depends: [../6/16-daemon-standalone-matrix, 17-openapi-mcp, W-webhook-routes]
+depends: [17-openapi-mcp, W-webhook-routes]
 ---
 
 # specs/5/35 — connecting Hermes to arizuko's messaging plane

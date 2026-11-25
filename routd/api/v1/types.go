@@ -59,7 +59,7 @@ type OK struct {
 
 // TurnResult is the submit_turn payload. Models is the harness's own report of
 // the turn's usage, which routd stores as the turn's usage rows
-// (specs/6/39-gateway-owns-spend.md §"The turn usage record").
+// (routd/README.md).
 type TurnResult struct {
 	TurnID    string                `json:"turn_id"`
 	SessionID string                `json:"session_id"`
@@ -151,7 +151,7 @@ type MessageRow struct {
 // A message row carries NO delivery status. `sent` is the absence of a delivery
 // item rather than a value on the message, so the state a caller can act on is
 // the dead-letter resource — which is the set of rows that are not sent, and the
-// only set an operator does anything with (spec 6/37 §"How `messages` leaves").
+// only set an operator does anything with (objstore/README.md).
 
 // MessagesResponse is GET /v1/messages/{inspect,thread}: full rows + count.
 type MessagesResponse struct {
@@ -217,7 +217,7 @@ type ErroredChatsResponse struct {
 
 // UnroutedChat is one row of GET /v1/routing/unrouted: a chat whose latest
 // inbound message no route, direct address or engagement window claims (spec
-// 6/35-unrouted-traffic). Held, not delivered — the operator claims it by writing a route.
+// ROUTING.md § Unrouted chats are held). Held, not delivered — the operator claims it by writing a route.
 type UnroutedChat struct {
 	ChatJID    string `json:"chat_jid"`
 	Platform   string `json:"platform"`
@@ -357,7 +357,7 @@ type FolderSpend struct {
 // per folder over the window.
 //
 // Metered false means this instance names no gateway and therefore has no spend
-// meter at all (spec 6/39). It is carried explicitly because an empty Folders
+// meter at all (routd/README.md). It is carried explicitly because an empty Folders
 // list would otherwise read as "nothing was spent", which is a claim an
 // unmetered instance cannot make.
 type CostSummaryResponse struct {

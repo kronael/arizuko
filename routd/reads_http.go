@@ -18,7 +18,7 @@ var (
 	scopeRead        = []string{"chats:read:own_group", "chats:read", "messages:read"}
 	scopeRoutesRead  = []string{"routes:read", "routes:read:own_group"}
 	scopeRoutesWrite = []string{"routes:write", "routes:write:own_group"}
-	// Read only: `6/39-gateway-owns-spend` moved the write path out, so routd
+	// Read only: the gateway owns the spend ledger (routd/README.md), so routd
 	// serves the two GET faces and mints no cost row.
 	scopeCostRead = []string{"cost:read", "cost:read:own_group"}
 )
@@ -201,7 +201,7 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCostSummary answers GET /v1/cost/summary?folder=&since= — what the
-// gateway metered per folder over a window (spec 6/39), the one place every
+// gateway metered per folder over a window (routd/README.md), the one place every
 // operator surface reaches the ledger. An instance with no gateway says so
 // rather than reporting a zero that reads like "nothing was spent". The folder
 // claim narrows the result as every other read here does.
@@ -257,7 +257,7 @@ func gatewayDay(ts string) string {
 
 // handleCostGet answers GET /v1/cost?turn_id= — what the gateway charged the
 // key that ran one turn; arizuko stores the pointer, never the number (spec
-// 6/39). 404: the turn ran with no gateway, or the gateway has not flushed its
+// routd/README.md). 404: the turn ran with no gateway, or the gateway has not flushed its
 // usage rows yet.
 func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)

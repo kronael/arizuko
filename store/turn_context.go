@@ -14,7 +14,7 @@ package store
 // `<`, and the live rows carried FOUR widths, so a stale turn survived its own
 // sweep (BUGS L97). gateway_key_hash IS A POINTER AND THE ONLY ONE: arizuko
 // stores WHICH key metered a turn and never the number; `GET /v1/cost?turn_id=`
-// resolves it at the gateway (spec 6/39), and anteval reads that endpoint as
+// resolves it at the gateway (routd/README.md), and anteval reads that endpoint as
 // its settle barrier.
 
 import (
@@ -492,7 +492,7 @@ func (s *Store) SetRunReturned(turnID string) error {
 
 // SetTurnGatewayKey records the sha256 of the key the gateway minted for this
 // turn: the handle that resolves a turn to its own numbers, the pointer
-// arizuko keeps in place of a copy of them (spec 6/39).
+// arizuko keeps in place of a copy of them (routd/README.md).
 func (s *Store) SetTurnGatewayKey(turnID, keyHash string) error {
 	return s.setTurnAttrs(turnID, map[string]string{attrTurnGatewayKey: keyHash})
 }

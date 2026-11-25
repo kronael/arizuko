@@ -103,7 +103,7 @@ func turnEnv(cfg *core.Config, req runedv1.RunRequest, queryTimeout int64) map[s
 		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(queryTimeout, 10)
 	}
 	// The URL is instance config; the key is this ONE turn's, minted by routd
-	// and dead when the turn ends (spec 6/23), so it arrives with the request
+	// and dead when the turn ends (routd/README.md), so it arrives with the request
 	// and is never read from cfg.
 	if cfg.ModelGatewayURL != "" {
 		env["MODEL_GATEWAY_URL"] = cfg.ModelGatewayURL

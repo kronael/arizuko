@@ -1,6 +1,6 @@
 // Package objstore is the storage surface arizuko addresses instead of
 // per-daemon SQL: a daemon names an entity, a coordinate and some attributes,
-// and a driver answers (spec 6/37).
+// and a driver answers (objstore/README.md).
 //
 // TWO primitives, never a third. Everything else is a protocol written over
 // them and shared by every driver (protocol.go, replace.go, consistent.go,

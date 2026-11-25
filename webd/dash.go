@@ -1,14 +1,14 @@
 package main
 
-// dash.go is webd's operator dashboard at GET /dash/webd/ (spec 6/28, 6/30).
+// dash.go is webd's operator dashboard at GET /dash/webd/ (dashd/README.md).
 //
 // webd had no dashd page to migrate, so this is a pure addition: the SSE hub's
-// state lives only in webd's memory, which is exactly why 6/28 puts the page in
-// the owning daemon — a DB snapshot cannot see a live subscriber.
+// state lives only in webd's memory, which is exactly why the page lives in
+// the owning daemon (dashd/README.md) — a DB snapshot cannot see a live subscriber.
 //
 // It is read-only by design. Route tokens and web routes are routd-owned and
 // rendered on routd's page; duplicating their controls here would be the second
-// renderer 6/28 exists to prevent.
+// renderer the cockpit forbids (dashd/README.md).
 
 import (
 	"fmt"

@@ -17,7 +17,7 @@ import (
 func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // The shield and these tests moved here from proxyd with the route-token
-// surface (specs/6/22 step 1). The properties they pin are unchanged.
+// surface (webd/README.md). The properties they pin are unchanged.
 
 func TestAnonShieldBoundary(t *testing.T) {
 	rl := newAnonShield(2, time.Minute)

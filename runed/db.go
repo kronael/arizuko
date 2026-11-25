@@ -5,7 +5,7 @@
 package runed
 
 // db.go is runed's composition root: the only file in the daemon that names a
-// storage driver (spec 6/37 step 5). It prepares entities and migrates work keys
+// storage driver (objstore/README.md). It prepares entities and migrates work keys
 // before any execution worker starts.
 
 import (

@@ -60,8 +60,8 @@ native provider callbacks (removed only after owner approval)
 ```
 
 The environment integrations are candidates, not claims about a supported standard.
-Dex remains optional under [6/22-proxyd-cut](../6/22-proxyd-cut.md)
-§"Step 4 — Dex as an optional upstream broker (measured 2026-09-05)".
+Dex remains optional under `authd/README.md` § "Dex is an upstream broker, not
+a replacement".
 Core process composition belongs to [7/26-single-world-deployment](26-single-world-deployment.md).
 The cuts here must preserve ownership when components share a process.
 
@@ -134,7 +134,7 @@ until a separately measured replacement supplies each responsibility.
 
 ### Measured current state
 
-The decision in 6/22 remains: Dex is an optional upstream broker.
+The decision in `authd/README.md` remains: Dex is an optional upstream broker.
 Its historical classification measured about 345 replaceable lines, not the whole auth layer.
 No new broker runtime experiment accompanies this draft.
 
@@ -151,7 +151,7 @@ The recursive `auth/` count includes `surrogate/` and the 33-line `authtest/`
 support file. Surrogate credential exchange is a separate concern from user login.
 The recursive `authd/` count includes its owned `authstore/`.
 
-The six files measured by 6/22 total **1,388 lines today**:
+The six files that the retired `proxyd-cut` spec (git history) measured total **1,388 lines today**:
 `auth/oauth.go` 416, `authd/oauth.go` 429, `auth/es256.go` 224,
 `auth/jwks.go` 196, `authd/sessions_resource.go` 79, and
 `authd/signing_keys_resource.go` 44. `authd/dex.go` remains **126 lines**.
@@ -166,7 +166,7 @@ A narrower, reproducible candidate count covers ten native function bodies:
 | `authd/oauth.go:202-270`, excluding separating blank lines | `googleCallback`, `githubCallback`, `discordCallback`           | 67    |
 | Total                                                      | Ten function bodies                                             | 256   |
 
-The 256-line count differs in scope from 6/22's historical 345-line classification.
+The 256-line count differs in scope from the historical 345-line classification of the proxyd-cut spec.
 It includes callback prologues, dispatch calls, and admission checks that a replacement
 must retain or supply. It excludes imports, route registration, buttons, and authorize URLs.
 Neither number is a net deletion promise.
@@ -189,7 +189,7 @@ does not delete that shared transport or `auth/surrogate/`.
 
 The cost is a required broker process, its supported persistent storage, connector
 configuration, secrets, callback registration, upgrades, and an additional login dependency.
-6/22's measured connector limits remain evidence for its decision, not fresh vendor claims.
+The measured connector limits of the proxyd-cut spec remain evidence for its decision, not fresh vendor claims.
 Before reconsideration, pin and test the proposed Dex version and storage topology.
 Measure idle memory, login latency, broker outage behavior, and the net repository deletion.
 
@@ -279,7 +279,7 @@ Go entrypoints come from `rg -l '^func main\(' --glob '*.go'`.
    Current totals: proxyd has 1,960 production lines and 4,438 test lines;
    proxycfg has 121 production lines and 167 test lines.
    These totals include access checks that must stay.
-   Candidate: exercise the 6/22 boundary with a fronting proxy, then delete only
+   Candidate: exercise the `proxycfg/README.md` boundary with a fronting proxy, then delete only
    the transport implementation whose behavior that deployment proves equivalent.
    Preserve folder scoping, WebDAV write enforcement, transit proof, redirects,
    route order, optional authentication, and uncached authorization.
@@ -307,7 +307,7 @@ Process count alone does not measure orthogonality.
    Recommendation: no on present evidence. The candidate function bodies total
    256 lines, and the native callbacks enforce admission rules absent from the
    current Dex claims reader. Reconsider only after the parity and operating-cost
-   measurements above support a deletion. The 6/22 optional decision stands meanwhile.
+   measurements above support a deletion. The optional-Dex decision stands meanwhile.
 3. **Should conversation normalization be the first core cut?**
    Recommendation: yes, followed by placement as a separate change.
    L716 and the source sites show repeated address knowledge.

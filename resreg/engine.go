@@ -36,7 +36,7 @@ type Hooks struct {
 	// BeforeInsert fills a row's declared defaults before it is stored
 	// (`effect='allow'` on an acl row). It takes the ROW and nothing else: an
 	// apply holds a claim, not a transaction. A default the storage layer
-	// applies is the writer's, as a stamp is (spec 6/40 answer 5).
+	// applies is the writer's, as a stamp is (resreg/README.md).
 	BeforeInsert func(row any) error
 
 	// AfterScan mutates a row pointer after a read.

@@ -75,7 +75,7 @@ type RunRequest struct {
 	Secrets map[string]string `json:"secrets,omitempty"`
 	// ModelGatewayKey is THIS turn's virtual key at the model gateway, minted
 	// by routd against the master key it alone holds, carrying the folder's
-	// remaining daily budget and the run ceiling as a TTL (spec 6/23). runed
+	// remaining daily budget and the run ceiling as a TTL (routd/README.md). runed
 	// injects it as the container's MODEL_GATEWAY_KEY and never sees the key
 	// that made it. Empty means the instance runs no gateway, and the container
 	// then carries the model credential in Secrets as before.

@@ -176,7 +176,7 @@ var EntitiesByOwner = map[string][]string{
 
 // Driver is what preparing this package's entities takes. CreateEntity is not
 // on objstore.Store because schema is driver-local and an engine with no DDL
-// implements it as a no-op (spec 6/40).
+// implements it as a no-op (store/README.md).
 type Driver interface {
 	objstore.Store
 	CreateEntity(ctx context.Context, entity string) error

@@ -1,6 +1,6 @@
 name: emaid
 proxyd_routes:
-  # The operator dashboard (spec 6/31), served by emaid itself from the mux
+  # The operator dashboard (chanlib/README.md), served by emaid itself from the mux
   # chanlib already builds. `user` so proxyd authenticates and stamps the
   # operator scope the page gates on. Gated by the adapter's own credential,
   # so the route exists exactly when the adapter does.

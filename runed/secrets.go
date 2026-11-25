@@ -33,7 +33,7 @@ func readSecrets() map[string]string {
 // holds the real credential and the turn presents MODEL_GATEWAY_KEY instead
 // (turnEnv), so the model keys are withheld from BOTH sources — a filter on
 // readSecrets alone would still hand the user's own row to the guest
-// (spec 6/23 Fault 1). Every other key, a `shell:env:<KEY>` grant, passes
+// (SECURITY.md). Every other key, a `shell:env:<KEY>` grant, passes
 // through unchanged; with no gateway the map is exactly the merge.
 func spawnSecrets(cfg *core.Config, override map[string]string) map[string]string {
 	s := mergeSecrets(readSecrets(), override)
@@ -47,8 +47,8 @@ func spawnSecrets(cfg *core.Config, override map[string]string) map[string]strin
 		}
 		delete(s, k)
 	}
-	// Saying so is the whole of BUGS `L404`. Spec 6/23 §"Tier placement" says a BYOC
-	// row "resolves INTO a gateway virtual key"; nothing builds that translation, so
+	// Saying so is the whole of BUGS `L404`. A BYOC row does not resolve into a
+	// gateway virtual key (SECURITY.md): nothing builds that translation, so
 	// the key is DROPPED. A person who set their own credential and gets the
 	// operator's gateway instead has no way to learn it from any surface — the turn
 	// just bills somebody else. One line per spawn is not the feature, it is the
@@ -56,7 +56,7 @@ func spawnSecrets(cfg *core.Config, override map[string]string) map[string]strin
 	if len(dropped) > 0 {
 		sort.Strings(dropped)
 		slog.Warn("byoc credential dropped: the model gateway holds the credential and "+
-			"nothing translates an env-profile row into a gateway key (spec 6/23, BUGS L404)",
+			"nothing translates an env-profile row into a gateway key (SECURITY.md, BUGS L404)",
 			"keys", dropped, "gateway", cfg.ModelGatewayURL)
 	}
 	return s

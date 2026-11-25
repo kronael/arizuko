@@ -432,7 +432,7 @@ func TestReadOptional(t *testing.T) {
 // TestTurnEnvEmissions pins each conditional emission, in both directions: a key
 // gated on an unset config value looks exactly like a key nothing emits, which
 // is how ARIZUKO_BACKEND, ARIZUKO_MODEL and ARIZUKO_QUERY_TIMEOUT_MS each died
-// silently (BUGS L60, spec 6/23).
+// silently (BUGS L60, routd/README.md).
 func TestTurnEnvEmissions(t *testing.T) {
 	full := &core.Config{
 		Timezone: "UTC", AgentEnv: map[string]string{"ARIZUKO_BACKEND": "codex", "ARIZUKO_MODEL": "opus", "ARIZUKO_EFFORT": "xhigh"}, ModelGatewayURL: "http://gw:4000",

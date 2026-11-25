@@ -179,7 +179,7 @@ func main() {
 	deliver := routd.NewChannelDeliverer(
 		reg, core.ParseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 
-	// The model gateway pair (spec 6/23). A URL with no master key mints no
+	// The model gateway pair (routd/README.md). A URL with no master key mints no
 	// key, and every turn would then fail at dispatch; refuse at boot instead,
 	// the way runed refuses a half-configured egress substrate.
 	gatewayURL := os.Getenv("MODEL_GATEWAY_URL")
@@ -203,10 +203,10 @@ func main() {
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
-		// Pre-spawn budget gate (spec 6/39-gateway-owns-spend); default-on. Off clears the
+		// Pre-spawn budget gate (routd/README.md); default-on. Off clears the
 		// gateway's budgets too, so the escape hatch reaches what enforces them.
 		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
-		// Model gateway (spec 6/23, 6/39). With a URL set, routd mints one
+		// Model gateway (routd/README.md). With a URL set, routd mints one
 		// virtual key per turn against the master key below, and the gateway is
 		// the ledger every spend surface reads. Unset leaves the model
 		// credential in the container and there is no meter at all.

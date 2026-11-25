@@ -10,7 +10,7 @@ import (
 // LogIPCAudit records a mutating MCP tool call as one audit_log row (spec 5/I-tool-call-logging).
 // params is JSON, redacted by the caller; outcome is ok | error: <msg> |
 // authz_denied. The row is a separate write, not part of the mutation's batch
-// (spec 6/40): an MCP tool's mutation is whatever the tool did, so a lost row
+// (store/README.md): an MCP tool's mutation is whatever the tool did, so a lost row
 // is a silent gap.
 func (s *Store) LogIPCAudit(folder, sub, tool, params, outcome string) error {
 	out, errMsg := mapIPCAuditOutcome(outcome)

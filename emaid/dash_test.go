@@ -9,7 +9,7 @@ import (
 // to act on. BUGS L62 is the proof: marinade's emaid sat IMAP-auth-failing for
 // three days and the only visible symptom was an unhealthy container. Which
 // account against which host is what turns that into a fixable report
-// (spec 6/32).
+// (emaid/README.md).
 func TestDashSectionsNameTheMailbox(t *testing.T) {
 	s := &server{cfg: config{
 		Account:  "bot@example.com",

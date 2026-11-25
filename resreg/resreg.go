@@ -251,7 +251,7 @@ type Resource struct {
 	// makes the rows objstore ITEMS — Table is an entity, each `db:` tag an
 	// attribute name, and these fields' values joined by EntityKeySep are the
 	// item's sort key. The engine reads it and never probes the storage (spec
-	// 6/37 step 6, BUGS L259). A LIST because a coordinate can be composite:
+	// resreg/README.md, BUGS L259). A LIST because a coordinate can be composite:
 	// network_rules is (folder, target), installed_packages (folder, name).
 	//
 	// SEPARATE from PKFields, the MANIFEST identity Diff matches on, but
@@ -282,7 +282,7 @@ type Resource struct {
 	// shows, a checksum covers, and an apply's DELETE reaches (acl_membership
 	// leaves out pairing edges, route_tokens the pairing credentials). A
 	// DECLARED PREDICATE, because the same declaration has to narrow the READ
-	// and both deletes an apply issues (spec 6/40 answer 6). The terms are a
+	// and both deletes an apply issues (resreg/README.md). The terms are a
 	// CONJUNCTION of Eq and Ne; a predicate needing an OR has no form here,
 	// and the answer is an attribute the writer sets. Nil = no filter.
 	RowFilter []objstore.Cmp

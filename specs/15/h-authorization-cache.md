@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [../6/40-store-surface, ../6/22-proxyd-cut, ../5/33-paths-roles]
+depends: [../5/33-paths-roles]
 ---
 
 # specs/15/h — the authorization cache: resolve at mint, revoke from the issued set
@@ -13,8 +13,8 @@ time, and the reason it is not scheduled.
 
 **It is an optimisation, not a simplification.** The walk still runs, once per
 mint instead of once per call, and a revocation scan still runs when a
-capability changes. Nothing leaves the store surface: `6/40` keeps the
-reachability guard in its census either way, and portability is unchanged. What
+capability changes. Nothing leaves the store surface: `objstore/README.md` keeps the
+reachability guard on the interface either way, and portability is unchanged. What
 this buys is latency on the authorize path, and nothing else.
 
 ## Why it is not needed yet
@@ -55,7 +55,7 @@ lookup, native to any engine, not a recursion.
 
 ## What blocks it
 
-A decision, not machinery. [`6/22`](../6/22-proxyd-cut.md) step 3 refuses to
+A decision, not machinery. `proxyd/README.md` § "Forward auth, GET /auth/forward" refuses to
 cache an authorization decision, on the grounds that a cached decision is a
 revocation that does not take effect. Adopting this means replacing that rule
 with the bound above: a revocation takes effect immediately for anything on the
@@ -70,6 +70,6 @@ this is a cache for a query that already costs one lookup.
 
 ## Ties
 
-`6/40` (the store surface; the reachability guard stays in its census
-regardless) · `6/22` step 3 (the rule this replaces) · `5/33` (the two axes a
+`objstore/README.md` (the store surface; the reachability guard stays
+regardless) · `proxyd/README.md` § "Forward auth, GET /auth/forward" (the rule this replaces) · `5/33` (the two axes a
 snapshot would have to carry).

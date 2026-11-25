@@ -98,7 +98,9 @@ on a cascade.
 **Membership is a graph, not a tree.** `acl_membership` edges form a DAG; a
 parent need not be a path prefix of its child.
 `objstore.AddEdge` guards every write against a cycle, and the read path walks
-the same graph (`Ancestors`). A JID-to-sub alias and a role assignment share
+the same graph (`Ancestors`). A visited set stops a cyclic walk, and
+`objstore.Reachable` refuses a walk past 10,000 principals, because the same
+walk runs on the authorization path. A JID-to-sub alias and a role assignment share
 the table.
 
 ## How the storage layer is organised

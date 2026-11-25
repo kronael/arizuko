@@ -11,8 +11,8 @@ package audit
 // applies them. A folder is not the partition because the operator's page
 // names no folder; time is not either, because a walk over time buckets that
 // stops on its own bound reports "no older rows" when it merely gave up. The
-// cost is one collection per database that holds Retention of events (6/40
-// §"Central and per-owner become the same design").
+// cost is one collection per database that holds Retention of events
+// (audit/README.md).
 
 import (
 	"context"
@@ -35,7 +35,7 @@ const Entity = "audit_log"
 
 // EntityMaker is a driver that needs its entities declared before they answer.
 // An engine with no DDL implements it as a no-op, which is why it is not on
-// objstore.Store: schema is driver-local (spec 6/40).
+// objstore.Store: schema is driver-local (audit/README.md).
 type EntityMaker interface {
 	CreateEntity(ctx context.Context, entity string) error
 }
@@ -274,7 +274,7 @@ func Emit(ctx context.Context, e Event) string {
 
 // WriteFor renders one event as the write that records it, and answers the id
 // that write takes. A caller whose OWN mutation is a GuardedBatch puts the row
-// in that batch, so the mutation and its record commit together (spec 6/40
+// in that batch, so the mutation and its record commit together (audit/README.md
 // §"The audited write commits in a GuardedBatch"). This package owns the
 // attribute names and the redaction, so the write crosses the boundary, never
 // the shape.
@@ -316,7 +316,7 @@ func stamped(e Event) Event {
 // /openapi.json emits a schema from IS what rowFrom builds. resreg imports
 // audit, so the struct lives on this side of that edge.
 //
-// ID IS THE SORT KEY, a time-ordered string, not a number (6/37 rule 4):
+// ID IS THE SORT KEY, a time-ordered string, not a number (audit/README.md):
 // ordering, the page cursor and the row's identity are one value, so a cursor
 // stays meaningful across a move between engines. It compares as text.
 type Row struct {

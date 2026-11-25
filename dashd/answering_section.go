@@ -2,7 +2,7 @@ package main
 
 // answering_section.go renders the Status page's answer to "are agents
 // answering people?" — routd's GET /v1/routing/answering, which owns both
-// halves (6/28: the daemon that owns the rows serves the read).
+// halves (dashd/README.md: the daemon that owns the rows serves the read).
 //
 // OPERATOR-ONLY, like the held-set section it sits beside (routes_admin.go).
 // The turn counts are one instance-wide fold and cannot be narrowed per viewer
@@ -43,7 +43,7 @@ func verdictLabel(verdict string) (text, class string) {
 // answeringSection renders the whole section, or a banner naming routd when it
 // cannot be read.
 //
-// An unreachable owner is an ERROR and never empty data (6/29): "every turn
+// An unreachable owner is an ERROR and never empty data (dashd/README.md): "every turn
 // finished" and "nobody is waiting" are both false statements an operator acts
 // on, and this section exists because a false calm is exactly what could not be
 // distinguished from a real one.

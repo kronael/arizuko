@@ -79,9 +79,9 @@ func rel(p string) string { return strings.TrimPrefix(p, root+"/") }
 // updates every visible pointer and leaves this one silently naming the old
 // ID — which is exactly what the 2026-08-27 cockpit move did to four files.
 //
-// Four forms are in use: a bare stem in the same phase (`28-cockpit-index`), a
-// phase-qualified stem (`5/13-ext-mcp`), a repo-rooted one
-// (`specs/5/32-acl-unified`) and a relative one (`../5/14-credentials`).
+// Four forms are in use: a bare stem in the same phase (`42-dynamo-over-postgres`), a
+// phase-qualified stem (`5/33-paths-roles`), a repo-rooted one
+// (`specs/5/9-agent-capability-eval`) and a relative one (`../5/14-credentials`).
 func TestEveryDependsEntryResolves(t *testing.T) {
 	dependsRe := regexp.MustCompile(`(?m)^depends:\s*\[([^\]]*)\]`)
 	specDir := filepath.Join(root, "specs") + string(filepath.Separator)
@@ -124,7 +124,7 @@ func TestEveryDependsEntryResolves(t *testing.T) {
 	}
 }
 
-// specIDRe matches a spec ID written as prose in backticks — `6/16`, `5/A`,
+// specIDRe matches a spec ID written as prose in backticks — `6/42`, `5/A`,
 // `specs/5/33`. That is how most of the corpus cites a spec, and it is the form
 // no other check sees: a link check reads `](path.md)` and the depends check
 // reads frontmatter, so a prose ID can name a retired number while the build
@@ -201,7 +201,7 @@ func TestEveryProseSpecIDResolves(t *testing.T) {
 }
 
 // sectionRe matches a quoted section pointer — `spec 5/8 §"Surface"` and
-// `spec 6/26-personal-mode § "The mechanics"`. BOTH spacings, because the tree
+// `spec 6/42-dynamo-over-postgres § "Ties"`. BOTH spacings, because the tree
 // writes both and two earlier sweeps each covered one: three stale pointers sat
 // in the gap between them (BUGS L356).
 var sectionRe = regexp.MustCompile(`spec[s]? ([1-9][0-9]?)/([0-9A-Z][0-9A-Za-z-]*) § ?"([^"]+)"`)

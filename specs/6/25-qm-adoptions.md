@@ -1,13 +1,7 @@
 ---
 status: shipped
 source: yc-software/qm (MIT), read at 83k LOC 2026-08-20
-depends:
-  [
-    24-crackbox-lightest,
-    22-proxyd-cut,
-    16-daemon-standalone-matrix,
-    ../5/9-agent-capability-eval,
-  ]
+depends: [24-crackbox-lightest, ../5/9-agent-capability-eval]
 ---
 
 # specs/6/25 — three decisions to take from qm
@@ -116,8 +110,7 @@ drift from the first when there is no second. `runed.NewQemuRuntime`
 (`runed/qemu.go`) returns the `Effective` at boot and `substrateLine`
 (`runed/dash.go:82`) renders the gap on the operator page. Delivered equals Declared
 or runed does not start, so the gap it renders is informational rather than a
-half-configured turn. The matrix in `6/16`
-is the doc rendering of that value, not a second source of truth.
+half-configured turn.
 
 ## 3 — agent behaviour is testable without a live instance
 
@@ -165,7 +158,6 @@ function.
 
 ## Ties
 
-`6/24` (the per-spawn proxy this hardens) · `6/16` (the matrix decision 2
-turns into a value) · `5/9` (anteval, which decision 3 explicitly does not
+`6/24` (the per-spawn proxy this hardens) · `5/9` (anteval, which decision 3 explicitly does not
 replace) · BUGS `L54` (the seam decision 3 exists to cover) · `L4` (identity
 from the credential, never from the transport).

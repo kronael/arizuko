@@ -102,7 +102,7 @@ func TestDashApproveFlipsRow(t *testing.T) {
 // decision nobody takes back by reading a log.
 //
 // authd, proxyd, routd and runed have always used RequireWrite here; onbod was the one
-// daemon that read the scope and skipped the origin (spec `6/28:138`).
+// daemon that read the scope and skipped the origin.
 func TestDashWritesRefuseCrossOrigin(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

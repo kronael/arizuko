@@ -4,7 +4,7 @@ package emaistore
 // `email_msg_ids`. The two are one entity here: the index exists only to reach
 // a thread, and neither operation below touches one without the other.
 // Splitting them by entity would split the batch that keeps a Message-ID from
-// being recorded without the thread it names, which is 6/37's third rule.
+// being recorded without the thread it names, which objstore/README.md § Modelling a table as items forbids.
 //
 // The threading model is the one RFC 5322 gives: a mail's Message-ID addresses
 // it forever, and a reply names its parent in In-Reply-To. So `email_msg_ids`

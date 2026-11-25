@@ -1,6 +1,6 @@
 package main
 
-// dash.go is authd's operator dashboard at GET /dash/authd/ (spec 6/28, 6/30).
+// dash.go is authd's operator dashboard at GET /dash/authd/ (dashd/README.md).
 // The handlers call the SAME authstore methods the /v1 resources call, in
 // process.
 

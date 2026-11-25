@@ -1,7 +1,6 @@
 ---
 status: shipped
 shipped: 2026-08-18
-depends: [16-daemon-standalone-matrix]
 ---
 
 # specs/6/24 — crackbox, lightest
@@ -194,6 +193,6 @@ boring rather than to market them.
 ## Ties
 
 [`6/41`](41-qemu-substrate.md) (the VM substrate, which puts this proxy on
-the host side of the tap) · `6/16` (ship one, not seven) · BUGS `L24` (the
+the host side of the tap) · BUGS `L24` (the
 proposal and its measurements) · BUGS `L136` (the DNS channel this design
 does not close, and which the VM case closes by construction).

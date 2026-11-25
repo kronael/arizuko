@@ -19,6 +19,7 @@ proxyd ──► /dash/ttsd/ operator page
 
 There are no resreg resources, MCP tools, IPC sockets, `/openapi.json`, or `/metrics` route.
 The dashboard verifies proxyd's operator identity through `chanlib.AuthdKeys` when `AUTHD_URL` is set.
+`/dash/ttsd/` shows the backend, its answer and its latency, and offers no control: the backend is `TTS_BACKEND_URL`, so a change is an `.env` edit and a restart.
 Speech and voice routes have no application authentication. Keep the service on the internal network or front it with an auth gate.
 `StoreReach["ttsd"]` is empty. ttsd makes no store or router request.
 

@@ -416,7 +416,7 @@ func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
 
 // SetEngagementAudited is SetEngagement plus its audit_log row in ONE batch —
 // the /v1/engagement entrypoint, where this row is the only durable trace. The
-// batch is all-or-nothing, so neither half can outlive the other (spec 6/40).
+// batch is all-or-nothing, so neither half can outlive the other (objstore/README.md).
 func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string, ttl time.Duration, ev audit.Event) error {
 	_, rec := audit.WriteFor(ev)
 	return d.store().BumpEngagementWith(ctx, jid, topic, folder, time.Now().Add(ttl), rec)
@@ -656,7 +656,7 @@ func (d *DB) SessionID(folder, topic string) string {
 
 // SetTurnGatewayKey records the sha256 of the turn's gateway key: the gateway
 // names a key in its spend log by that hash, so this is the pointer arizuko
-// keeps in place of a copy of its numbers (spec 6/39).
+// keeps in place of a copy of its numbers (routd/README.md).
 func (d *DB) SetTurnGatewayKey(turnID, keyHash string) error {
 	return d.store().SetTurnGatewayKey(turnID, keyHash)
 }

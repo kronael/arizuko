@@ -1,6 +1,6 @@
 name: whapd
 proxyd_routes:
-  # The operator dashboard (spec 6/31). whapd cannot import chanlib, so it
+  # The operator dashboard (chanlib/README.md). whapd cannot import chanlib, so it
   # re-implements the contract in src/dash.ts — the cost the written contract
   # exists to make payable. `user` so proxyd authenticates and stamps the
   # operator scope the page gates on.

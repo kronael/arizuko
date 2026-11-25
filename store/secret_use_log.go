@@ -7,7 +7,7 @@ package store
 // The partition is a constant and the sort key the instant: audit_log's shape,
 // for audit_log's reason. It is append-only history with a single writer and
 // NO READER in the tree: an operator reads the `audit_log` twin (`secret.read`)
-// instead, and a coordinate picked for an imagined caller is the mistake 6/37
+// instead, and a coordinate picked for an imagined caller is the mistake store/README.md
 // step 3 wrote up for authd. The collection grows without bound and has no
 // drainage (zero rows fleet-wide, 2026-09-07). `folder` is an attribute, as on
 // audit_log: containment has no operator on an attribute.
@@ -108,7 +108,7 @@ func secretUseWrite(id string, r SecretUseRow) objstore.Write {
 }
 
 // LogSecretUse records one resolved secret and the audit_log row that reports
-// it, in ONE write (spec 6/40). A refusal is a FAULT rather than a race: both
+// it, in ONE write (store/README.md). A refusal is a FAULT rather than a race: both
 // ids carry eight hex digits of randomness on top of the instant, and a secret
 // read that silently recorded nothing is the one outcome spec 5/13 exists to
 // prevent.

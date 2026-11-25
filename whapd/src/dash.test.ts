@@ -4,7 +4,7 @@ import type * as http from 'node:http';
 import { adapterStatus, handleDash, isOperator, renderDash } from './dash.js';
 import type { RoutdVerifier } from './auth.js';
 
-// The contract's three states (6/31). `stale` is a live process whose platform
+// The contract's three states (chanlib/README.md). `stale` is a live process whose platform
 // link has gone quiet — the "healthchecks green but the agent doesn't reply"
 // case — and collapsing it into ok or disconnected loses what separates them.
 describe('adapterStatus', () => {
@@ -81,7 +81,7 @@ describe('renderDash', () => {
   });
 });
 
-// whapd's delta (6/32): the pair-flow state. The shared page says
+// whapd's delta (chanlib/README.md): the pair-flow state. The shared page says
 // "disconnected"; only this says whether an operator must go and enter a code
 // on the phone.
 describe('delta sections', () => {

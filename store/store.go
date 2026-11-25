@@ -97,7 +97,7 @@ func NewOver(obj objstore.Store) *Store {
 	return &Store{obj: obj}
 }
 
-// Obj is this database through objstore's two primitives (spec 6/37 step 5).
+// Obj is this database through objstore's two primitives (store/README.md).
 func (s *Store) Obj() objstore.Store { return objstore.WithIndexes(s.obj, stateIndexes{}) }
 
 func btoi(b bool) int {

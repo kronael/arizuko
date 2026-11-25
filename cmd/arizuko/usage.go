@@ -18,8 +18,8 @@ import (
 
 const usageText = "arizuko usage [-i instance] [--since|-s YYYY-MM-DD] [--by|-b folder|day]"
 
-// cmdUsage sums the per-turn usage records routd stores (spec 6/39 §"The turn
-// usage record") per folder or per UTC day. It reads routd's store through
+// cmdUsage sums the per-turn usage records routd stores (routd/README.md § A turn records the
+// harness's own usage) per folder or per UTC day. It reads routd's store through
 // *routd.DB, the reader the turn_usage resource serves.
 func cmdUsage(args []string) {
 	instance := args[0]

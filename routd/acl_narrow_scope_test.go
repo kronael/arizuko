@@ -118,7 +118,7 @@ func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
 // The other half of L79: the narrowed row must be REACHABLE by naming its exact
 // narrowing. A writer that can create a row it cannot remove is the same hole
 // the empty-literal `params` had, pointing the other way — and it is the
-// revocation spec 6/26 § Decision 5 names as the way to undo an `always`.
+// revocation template/web/pub/arizuko/reference/grants.html names as the way to undo an `always`.
 func TestRevokeACLTx_ExactParamsRemovesTheNarrowedRow(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

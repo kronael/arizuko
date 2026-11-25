@@ -332,8 +332,11 @@ nowhere. A folder confers files, secrets, grants and egress, and a platform
 lets anyone message a bot, so no group is a safe default.
 
 `GET /v1/routing/unrouted` lists the held chats. Only a bearer without a folder
-scope can call it, and the verdict comes from the own resolve step of the
-loop. The page `/dash/routes/` shows the held chats to the operator with a
+scope can call it, and a folder-scoped token gets 403, never an empty list.
+The verdict comes from the own resolve step of the loop. The list counts
+inbound human rows only, so bot rows and the operator's own phone hold
+nothing. A chat with an observe rule is not held. A failed read of the route
+table answers an error, never "everything is unrouted". The page `/dash/routes/` shows the held chats to the operator with a
 one-click claim that writes a `chat_jid=` rule at seq 0. A `platform=<name>`
 rule claims a whole platform. History does not move. Only messages that arrive
 after the claim reach the group.

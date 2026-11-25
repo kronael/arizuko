@@ -330,7 +330,7 @@ func (m *Manager) execute(
 		if m.cfg.ModelGatewayURL != "" && req.ModelGatewayKey == "" {
 			return RunResult{
 				Outcome: runedv1.OutcomeError, Terminal: true,
-				Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (spec 6/23)",
+				Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (runed/README.md)",
 			}
 		}
 		if ipcDir, err := turnIpcDir(m.folders, req); err == nil {

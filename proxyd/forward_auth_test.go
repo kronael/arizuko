@@ -51,7 +51,7 @@ func forwardAuthSrv(t *testing.T) (*server, func(sub string) string) {
 // X-User-* only when proxyd's own bearer is on the request. If the 200 answers
 // identity WITHOUT it, an off-the-shelf proxy in front would copy headers that
 // every backend then treats as untrusted, and the whole surface reads as
-// logged-out (6/22 step 3, first constraint).
+// logged-out (proxyd/README.md).
 func TestForwardAuth_AnsweredIdentityCarriesTheTransitProof(t *testing.T) {
 	s, sign := forwardAuthSrv(t)
 
@@ -152,7 +152,7 @@ func TestForwardAuth_RefusesWithoutAuthSecret(t *testing.T) {
 // /auth/login, and `proxycfg/caddy.go` `authenticated` sends `optional` through the
 // hop — so the two paths disagreed about the only class meant to be anonymous, and
 // every anonymous chat visitor would have landed on a login page under the Caddy
-// renderer (6/22 §"Why `optional` attaches the transit proof on both paths").
+// renderer (proxyd/README.md).
 func TestForwardAuth_OptionalRouteAdmitsAnonymously(t *testing.T) {
 	s, _ := forwardAuthSrv(t)
 	s.rr = newRoutesResource(nil, []store.ProxydRoute{

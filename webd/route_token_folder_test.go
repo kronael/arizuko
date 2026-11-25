@@ -18,7 +18,7 @@ import (
 // `a/b`, which exists here, so the grammar's answer would hand this request to
 // another tenant (BUGS L4).
 //
-// proxyd used to make this call and stamp the answer in X-Folder; specs/6/22
+// proxyd used to make this call and stamp the answer in X-Folder; webd/README.md
 // step 1 left the single resolution here, so the test came with it.
 func TestChatToken_SuffixedJIDServesTheMintedFolder(t *testing.T) {
 	st := testutils.NewRoutdStore(t)

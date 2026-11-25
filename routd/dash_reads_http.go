@@ -1,7 +1,7 @@
 package routd
 
 // dash_reads_http.go — the aggregate reads the operator cockpit needs, served
-// by the daemon that OWNS the rows (spec 6/28 §"Read-path", BUGS L142). Plain
+// by the daemon that OWNS the rows (dashd/README.md, BUGS L142). Plain
 // handlers, not resreg resources: a resource would hand every agent a
 // cross-folder tool for these aggregates. Each is an AGGREGATE, never a row
 // dump, so the surface cannot become a way to read other folders' content.

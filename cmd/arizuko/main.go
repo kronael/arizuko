@@ -36,7 +36,7 @@ const mainUsage = `arizuko <command> [-i|--instance name] [arguments]
   chat | send | pair | secret | user-secret | budget | usage | store
   talk     [@name] [-g <folder>] [-t <token>] [--thread <name>] [--prompt [text]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml
   dump [file] [--quiesced] | apply <dump.tar|rows.yml> [--force] | plan <rows.yml> | get <resource>
-  probe    <base-url> [--token|-t T] [--foreign-folder F]  — check a live component against the 6/16 contract
+  probe    <base-url> [--token|-t T] [--foreign-folder F]  — check a live component against the component contract
   model-pauses list | clear [--url|-u URL] [--token|-t T] — manage an instance model pause
   -h, --help  print the usage of arizuko or of one command on stdout`
 

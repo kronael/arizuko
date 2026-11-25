@@ -1,8 +1,8 @@
 package main
 
-// dash.go is ttsd's operator dashboard at GET /dash/ttsd/ (spec 6/28, 6/30).
+// dash.go is ttsd's operator dashboard at GET /dash/ttsd/ (dashd/README.md).
 //
-// Read-only, and 6/30 says so: backend selection is TTS_BACKEND_URL, an
+// Read-only (ttsd/README.md): backend selection is TTS_BACKEND_URL, an
 // env-and-restart concern, so there is no control to offer. What an operator
 // needs here is the one thing /health reduces to a status code — WHICH backend,
 // whether it answered, and how long it took.
@@ -28,7 +28,7 @@ import (
 // the stamped operator scope counts only behind proxyd's service:proxyd bearer.
 // A nil ks is local dev — no authd, nothing stamping, nothing to enforce — and
 // it falls open exactly as every other nil-KeySet gate in the tree does
-// (6/28: daemon dashboards are operator-only).
+// (dashd/README.md: daemon dashboards are operator-only).
 func dashHandler(backend string, ks *auth.KeySet) http.HandlerFunc {
 	client := &http.Client{Timeout: 3 * time.Second}
 	return func(w http.ResponseWriter, r *http.Request) {

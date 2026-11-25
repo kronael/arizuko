@@ -1,6 +1,6 @@
 // Package emaistore is emaid's storage layer. It holds no SQL and no DDL:
 // every method is objstore's two primitives, and the daemon that constructs
-// this package chooses the driver (spec 6/37).
+// this package chooses the driver (objstore/README.md).
 //
 // One file holds both entities. `email_msg_ids` answers "which thread does this
 // message belong to", and no operation touches it without the thread it points

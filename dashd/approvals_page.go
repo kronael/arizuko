@@ -78,8 +78,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ?id=<id> is the deep link routd puts in the held notice (spec 6/26-personal-mode §"Decision 6").
-	// It names WHICH decision; the `reviewer` filter above names WHO. An id that
+	// ?id=<id> is a deep link to one held call. It names WHICH decision; the `reviewer` filter above names WHO. An id that
 	// no longer waits — or that this reader may not answer — is reported, never
 	// silently ignored: the operator followed a link and must learn why the row
 	// is not there.
@@ -148,7 +147,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 // printed beside the button — never a button whose effect the operator has to
 // guess. routd refuses a rule it cannot state exactly; when it says so, the
 // button is replaced by the reason. There is no "never": undoing one needs a
-// provenance acl rows do not carry (spec 6/26).
+// provenance acl rows do not carry (template/web/pub/arizuko/reference/grants.html).
 func approvalVerdictCell(p pendingRow) string {
 	id := esc(url.PathEscape(p.ID))
 	out := fmt.Sprintf(

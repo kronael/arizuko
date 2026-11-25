@@ -57,7 +57,7 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 }
 
 // cmdProxyConfig renders the instance's proxyd_routes rows as a Caddyfile
-// (spec 6/22 step 2). It PRINTS rather than installs: proxyd is the running
+// (proxycfg/README.md). It PRINTS rather than installs: proxyd is the running
 // proxy, so which proxy fronts an instance is the operator's decision and a
 // renderer that wrote into a live proxy's config dir would take it for them.
 //

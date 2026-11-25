@@ -482,7 +482,10 @@ call to broker. The match is exact. The `(*, **)` row of an operator does not
 confer the grant, and `shell:env:*` is the explicit row for all keys. The model
 keys never travel this way, even under `shell:env:*`. The scope of the token at
 the issuing service is the real bound, because the agent can spend the token
-in the shell with any client.
+in the shell with any client. A hold cannot guard a shell CLI: the hold gate matches one
+`tools/call` by tool name, and a shell command is one `Bash` call with opaque
+text. Where per-call approval matters, use the connector. Each remote tool is
+its own `mcp:github_<tool>` name, so `hold:mcp:<tool>` and a deny row apply.
 
 Set the value and grant its shell use separately. Replace the placeholders
 with your instance, folder and value:

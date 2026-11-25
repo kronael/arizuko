@@ -1,7 +1,7 @@
 // Package runstore is runed's storage layer. It holds no SQL and no DDL: every
 // method is objstore's two primitives, and the driver is chosen by whoever
-// opens runed's store (spec 6/37). Two entities, two partition choices,
-// and they disagree on purpose (6/37 rule 5): `spawns` is mutable state
+// opens runed's store (objstore/README.md). Two entities, two partition choices,
+// and they disagree on purpose (objstore/README.md): `spawns` is mutable state
 // addressed by run id, so it takes ONE partition and the run id as its sort
 // key; `session_log` is history read a folder at a time, so the FOLDER is the
 // partition and a time key the sort key.
@@ -30,7 +30,7 @@ var Entities = []string{Spawns, SessionLog, objstore.IndexEntity}
 
 // EntityMaker is a driver that needs its entities declared before they answer.
 // An engine with no DDL implements it as a no-op, which is why it is not on
-// objstore.Store: schema is driver-local (spec 6/40).
+// objstore.Store: schema is driver-local (objstore/README.md).
 type EntityMaker interface {
 	CreateEntity(ctx context.Context, entity string) error
 }

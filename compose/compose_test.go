@@ -293,7 +293,7 @@ func TestProxydRoutesAssembled(t *testing.T) {
 			GatedBy: "SLACK_BOT_TOKEN", Owner: store.RouteOwnerPackage("slakd")},
 		// `optional`, not `public`: proxyd identifies a caller who offers a
 		// bearer so webd can attribute the message, and forwards everyone else
-		// anonymously with the transit proof (specs/6/22 step 1).
+		// anonymously with the transit proof (proxyd/README.md).
 		"/chat/": {Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 		"/dash/": {Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
 		// Pairing (spec 5/31-identity-pairing): auth `user` so an anonymous visitor is bounced
@@ -967,7 +967,7 @@ func TestRunTimeoutReachesEveryDaemon(t *testing.T) {
 	}
 }
 
-// The gateway pair splits by who uses which half (spec 6/23). routd mints each
+// The gateway pair splits by who uses which half (routd/README.md). routd mints each
 // turn's virtual key with the master key and reads back what the gateway
 // charged it, so both halves reach routd. runed gets the URL — it re-emits it
 // as container env and allows the gateway host through the spawn's egress

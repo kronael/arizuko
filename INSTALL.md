@@ -343,6 +343,11 @@ Never give a key `dynamodb:*` on `*`. Such a key names its owner but isolates
 nothing. One compromised adapter could then reach the tables of every owner on
 the instance.
 
+Enrollment writes one policy per user, named `tables`, and replaces only that
+policy. Another policy on the same user or its group stays in force and can
+widen the key past its owner prefixes. Check the user and group policies of
+each enrolled key on the server.
+
 The table below comes from the call sites. `StoreReach` in
 `store/owner_reach.go` declares it, and `TestStoreReachMatchesTheCallSites`
 fails when a daemon opens an owner that the table does not list, or lists an

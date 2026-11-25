@@ -100,7 +100,7 @@ type Server struct {
 	identity IdentityResolver
 
 	// dashKeys gates GET /dash/routd/ on the proxyd-verified end-user identity,
-	// not the /v1 bearer (spec 6/28); nil → local dev, gate open.
+	// not the /v1 bearer (dashd/README.md); nil → local dev, gate open.
 	dashKeys *auth.KeySet
 
 	// nil → no prior sessions.
@@ -249,7 +249,7 @@ func (s *Server) Handler() http.Handler {
 	// topic_sessions, NOT sessions: `sessions` is authd's wire identity
 	// (BUGS F46, spec 5/5-worlds-agents-sessions § Tier 3).
 	mux.HandleFunc("GET /v1/topic_sessions", s.handleSessionGet)
-	// Operator-cockpit aggregates (6/28, BUGS L142). REST-only on purpose: as
+	// Operator-cockpit aggregates (dashd/README.md, BUGS L142). REST-only on purpose: as
 	// resreg resources these would become agent MCP tools.
 	mux.HandleFunc("GET /v1/sessions/counts", s.handleSessionCounts)
 	mux.HandleFunc("GET /v1/messages/volume", s.handleMessageVolume)
@@ -275,7 +275,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/cost", s.handleCostGet)
 	mux.HandleFunc("GET /v1/cost/summary", s.handleCostSummary)
 	s.mountChannels(mux)
-	// The operator dashboard (spec 6/28): gated by the proxyd-stamped operator
+	// The operator dashboard (dashd/README.md): gated by the proxyd-stamped operator
 	// identity, not the /v1 bearer.
 	mux.HandleFunc("GET /dash/routd/", s.handleDash)
 	mux.HandleFunc("POST /dash/routd/retry", s.handleDashRetry)

@@ -9,7 +9,7 @@ import (
 )
 
 // gitd opens every message with a location header, and an inline comment also
-// carries its diff hunk (specs/6/27-git-channel.md §"Location header"). Every
+// carries its diff hunk (gitd/README.md). Every
 // steer handler reads what the person typed after them: read raw, `#deploy` and
 // `@child do X` stopped matching and reached the agent as plain text.
 const (

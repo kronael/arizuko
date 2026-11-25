@@ -67,7 +67,7 @@ instance with a gateway still waits for it to answer.
 
 The gateway refuses the model call itself: LiteLLM answers `budget_exceeded`
 with HTTP 422 by default and 429 when configured
-([`6/39-gateway-owns-spend.md`](../6/39-gateway-owns-spend.md)). A static
+(`routd/README.md` § "The model gateway"). A static
 handler makes no model call, so no cap can stop it. When `ant` meets the
 refusal, every backend ends the turn as a result refused as `budget`
 (`isBudgetRefusal`, `ant/src/backend.ts:65`; never a provider failure), and the

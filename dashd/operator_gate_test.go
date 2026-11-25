@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestOperatorGate_RefusesWithTheThemedBanner — spec 6/28 requires a deep-page
+// TestOperatorGate_RefusesWithTheThemedBanner — dashd/README.md requires a deep-page
 // 403 to render the theme error banner. dashd answered `http.Error` bare text,
 // which is the only dashboard in the fleet that did (BUGS L141).
 func TestOperatorGate_RefusesWithTheThemedBanner(t *testing.T) {
@@ -43,7 +43,7 @@ func TestOperatorGate_RefusesWithTheThemedBanner(t *testing.T) {
 
 // TestOperatorGate_ReadsTheSharedGroupSource — dashd carried a byte-for-byte
 // copy of auth.CallerGroups and the literal "**" beside auth.OperatorGroup.
-// Three copies of one operator decision is what 6/28 says the shared gate
+// Three copies of one operator decision is what dashd/README.md says the shared gate
 // replaced; this pins dashd onto the shared readers.
 func TestOperatorGate_ReadsTheSharedGroupSource(t *testing.T) {
 	d := &dash{}

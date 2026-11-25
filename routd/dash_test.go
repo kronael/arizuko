@@ -34,8 +34,7 @@ func dashGet(h http.Handler, groups string) *httptest.ResponseRecorder {
 }
 
 // The dashboard is mounted on routd's own mux at its own /dash/ namespace —
-// the per-daemon half of 6/28. Before this it did not exist and dashd rendered
-// routd's pages from a direct read of routd.db.
+// the per-daemon half of the cockpit (dashd/README.md).
 func TestDashboardIsMountedOnRoutdsOwnMux(t *testing.T) {
 	_, _, h := dashSrv(t)
 	w := dashGet(h, `["**"]`)
@@ -51,7 +50,7 @@ func TestDashboardIsMountedOnRoutdsOwnMux(t *testing.T) {
 			t.Errorf("the overview does not render %q", want)
 		}
 	}
-	// The breadcrumb roots at the hub, per 6/28's theme section.
+	// The breadcrumb roots at the hub, per theme/README.md § The cockpit convention.
 	if !strings.Contains(body, `/dash/services/`) {
 		t.Error("no breadcrumb back to the hub")
 	}
@@ -176,7 +175,7 @@ func dashPost(h http.Handler, path, form, groups string) *httptest.ResponseRecor
 // proxyd matches longest-prefix, so routing /dash/routd/ to routd captures the
 // POST controls under it too. dashd served retry and replay from a raw UPDATE
 // on routd.db; if routd did not answer them, the takeover would leave an
-// operator with two dead buttons — 6/30's rule is that a copy leaves dashd only
+// operator with two dead buttons — a copy leaves dashd only
 // once the replacement is live.
 func TestDashboardServesTheControlsItTookOver(t *testing.T) {
 	_, _, h := dashSrv(t)

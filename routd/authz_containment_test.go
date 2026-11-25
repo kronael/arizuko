@@ -142,7 +142,7 @@ func TestRESTWebRoutePutContainment(t *testing.T) {
 	}
 }
 
-// GET /v1/cost/summary is the operator's spend axis (spec 6/30), so its
+// GET /v1/cost/summary is the operator's spend axis (dashd/README.md), so its
 // narrowing must be the same one every other read here uses: a folder-scoped
 // token cannot ask for a folder outside its claim, and an empty claim (root or
 // a service bearer) sees everything.
@@ -171,7 +171,7 @@ func TestRESTCostSummaryFolderBound(t *testing.T) {
 	}
 	// The dedicated scope is required: a bearer holding some OTHER cost-shaped
 	// scope is refused. `cost:write` is the string used because routd issues no
-	// such scope since `6/39-gateway-owns-spend` took the write path, so nothing
+	// such scope since routd/README.md took the write path, so nothing
 	// can satisfy this by accident.
 	if c := getCode(t, "alice", "/v1/cost/summary"+since, "cost:write:own_group"); c != 403 {
 		t.Errorf("summary with a non-read cost scope = %d, want 403", c)

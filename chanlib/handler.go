@@ -314,7 +314,7 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	mux.HandleFunc("POST /pin", Auth(handlePin(bot)))
 	mux.HandleFunc("POST /unpin", Auth(handleUnpin(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, st))
-	// The operator dashboard (spec 6/31), routed by DAEMON name: the manifest
+	// The operator dashboard (chanlib/README.md), routed by DAEMON name: the manifest
 	// publishes /dash/teled/ while `name` is the platform, so the path is read
 	// from AUTHD_SERVICE_NAME, never derived — deriving it made every adapter
 	// dashboard 404 at its own URL.

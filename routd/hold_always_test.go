@@ -1,6 +1,6 @@
 package routd
 
-// Spec 6/26 § Decision 5, the `always` verdict: approve exactly as `yes`, plus
+// template/web/pub/arizuko/reference/grants.html, the `always` verdict: approve exactly as `yes`, plus
 // the skip-approval acl row, in ONE transaction. These tests drive the real
 // gate, so what the notice displays and what the writer stores come from the
 // same renderer — a display and a write that could disagree is the whole point
@@ -211,8 +211,7 @@ func TestAlways_ToolWithoutKeysIsRefused(t *testing.T) {
 
 // `never` does not ship. Undoing it means deleting the tool deny it also
 // writes, and acl rows carry no verdict identity, so a revoke cannot tell that
-// deny from standing policy that predates it (spec 6/26-personal-mode §"The
-// mechanics behind `always`"). No surface may offer it until that is designed.
+// deny from standing policy that predates it (template/web/pub/arizuko/reference/grants.html). No surface may offer it until that is designed.
 func TestNever_IsNotOffered(t *testing.T) {
 	_, _, dl, id := holdOnce(t, "delete", map[string]any{"target": "prod"})
 	if notice := dl.sends[0].text; strings.Contains(notice, "/never") {

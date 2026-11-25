@@ -83,7 +83,7 @@ func TestMergeSecrets_NilOverride(t *testing.T) {
 // A configured gateway withholds the model credential from BOTH sources — the
 // host anchor and the trigger user's own env-profile row — while a `shell:env`
 // capability key still passes, and the virtual key still reaches the spawn as
-// the guest env (spec 6/23 Fault 1).
+// the guest env (SECURITY.md).
 func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "")

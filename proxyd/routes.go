@@ -11,7 +11,7 @@ import (
 // tokens (specs/5/1-auth-standalone.md) will distinguish later. `optional`
 // identifies the caller when they offer a credential and forwards anonymously
 // otherwise — the route-token surface, where the token is the credential and a
-// stamped sub only decides attribution (specs/6/22 step 1).
+// stamped sub only decides attribution (proxyd/README.md).
 var validAuth = map[string]bool{"public": true, "user": true, "operator": true, "optional": true}
 
 // MatchRoute selects the route whose Path is the longest prefix of `path`.

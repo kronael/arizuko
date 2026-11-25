@@ -85,6 +85,9 @@ faces supply different callers and target bounds.
   carries; `Authorize` checks what a principal holds. The two are never
   merged, because a leaked token must carry less than its owner.
 - **Elevation is explicit.** `IsOperator` checks admin on `**` before `/root`.
+  The operator shortcut is one raw row shape: scope `**`, no action, no
+  params, no predicate, effect allow (`store.OperatorShape`). An explicit
+  `admin` or `*` row is an ordinary ACL row.
   An elevated turn bypasses ordinary tool gates for one turn. Rule mutations
   still pass `CheckGrant` with the issuer's authority.
 - **Rule mutations use `CheckGrant`.** Added allows and removals outside
@@ -98,7 +101,12 @@ faces supply different callers and target bounds.
   An added allow cannot name a wildcard principal.
   Edge additions check the parent's allows and hold rules in both layers.
   Edge removals check the parent's denies, hold rules and local allows.
-  The check returns a policy version for the write to prove.
+  The check returns a policy version for the write to prove. The write
+  proves it through `objstore.BumpAt` on routd's marker. A moved version
+  refuses the whole batch with `ErrScopeMoved`, and REST answers 409. Other
+  routd writes also move the marker, so unrelated activity can make a person
+  retry a grant. Removing a local allow needs the authority to add that allow
+  with the grant option, because the removal can expose a default.
   Host CLI and manifest writes, consent pairing and folder bootstrap use
   their own authority.
 - **The magnitude gate passes no arguments** for tools registered through

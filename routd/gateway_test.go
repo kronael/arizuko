@@ -461,7 +461,7 @@ func TestTurnFailsAsOutageWhenTheCapReconcileGetsNoAnswer(t *testing.T) {
 
 // The container gets a key minted for THIS turn and the master key stays in
 // routd. One shared non-expiring key handed to every spawn is exactly the
-// fault 6/23 names.
+// fault routd/README.md names.
 func TestTurnMintsItsOwnKeyAndRevokesItAfter(t *testing.T) {
 	_, loop, runner, fake := gatewayLoop(t, "demo")
 

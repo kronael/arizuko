@@ -86,7 +86,7 @@ func TestMapEvent_Fixtures(t *testing.T) {
 }
 
 // One App secret, two repos: two JIDs, two topics, and the route table tells
-// them apart without any per-repo registration (spec 6/27 decision 3).
+// them apart without any per-repo registration (gitd/README.md).
 func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 	a := mapFixture(t, store.GitHubSourceApp, "arizuko-krons", "issue_comment", "issue_comment_created")
 	b := mapFixture(t, store.GitHubSourceApp, "arizuko-krons", "issue_comment", "issue_comment_created_crackbox")
@@ -143,7 +143,7 @@ func TestMapEvent_PRCommentRequiresMentionDespiteAssignees(t *testing.T) {
 }
 
 // Observe vs trigger is the route's decision: the same registration observes
-// a push and triggers on a comment (spec 6/27 decision 4).
+// a push and triggers on a comment (gitd/README.md).
 func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 	routes, err := store.GitHubSourceRoutes("repo/kronael/arizuko", "eng")
 	if err != nil {
@@ -655,7 +655,7 @@ const (
 		"+\tmac := hmac.New(sha256.New, []byte(secret))\n+\tmac.Write(body)\n+\treturn compare(mac.Sum(nil), header)\n```"
 )
 
-// Every mapped message opens with the location header of spec 6/27, and the
+// Every mapped message opens with the location header of gitd/README.md, and the
 // id in it is the id of the row.
 func TestMapEvent_LocationHeader(t *testing.T) {
 	for _, c := range []struct{ file, event, want string }{

@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// The model gateway's admin surface (spec 6/23, 6/39). LiteLLM is the ledger:
+// The model gateway's admin surface (routd/README.md). LiteLLM is the ledger:
 // it meters every call, holds the folder's cap as a team budget and the
 // person's as an internal user's, and refuses the request itself when either
 // is spent. routd mints ONE virtual key per turn, hands it to runed, then
@@ -79,7 +79,7 @@ type budget struct {
 // user = the caller and no budget of its own — a per-turn ceiling would be a
 // third policy the operator never set. ttl 0 leaves the key alive until revoke.
 // A key naming a team the gateway lacks is minted happily and then 404s EVERY
-// model call, so the caller ensures the team first (spec 6/39).
+// model call, so the caller ensures the team first (routd/README.md).
 func (g *modelGateway) mint(
 	ctx context.Context, alias, folder, turnID, userSub string, ttl time.Duration,
 ) (turnKey, error) {
@@ -131,7 +131,7 @@ func (g *modelGateway) teamBudget(ctx context.Context, folder string) (budget, e
 }
 
 // createTeam gives a folder its team, carrying the operator's cap. The team id
-// IS the folder (spec 6/39), so nothing has to be stored to find it again.
+// IS the folder (routd/README.md), so nothing has to be stored to find it again.
 func (g *modelGateway) createTeam(ctx context.Context, folder string, capCents int) error {
 	body := map[string]any{
 		"team_id":    folder,
@@ -230,7 +230,7 @@ type folderSpend struct {
 // spendByFolder sums /team/daily/activity's per-day rows into per-folder totals
 // for [start, end] (YYYY-MM-DD, inclusive). It is the ONLY read behind every
 // operator spend surface — dashboard, REST, CLI — so none can show a number
-// another one does not (spec 6/39).
+// another one does not (routd/README.md).
 func (g *modelGateway) spendByFolder(ctx context.Context, start, end string) ([]folderSpend, error) {
 	var out struct {
 		Results []struct {

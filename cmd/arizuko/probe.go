@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// The component-contract probe (spec 6/16).
+// The component-contract probe (EXTENDING.md).
 //
 // Primarily an OPERATOR DEPLOYMENT CHECK. Go tests read the source, so they
 // check the code; this checks the deployed instance, which no test can — a
@@ -43,7 +43,7 @@ func cmdProbe(args []string) {
 	fs.StringVar(&foreign, "foreign-folder", "", "a folder the bearer must not reach")
 	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
 		usage(err, "arizuko probe <base-url> [--token|-t <bearer>] [--foreign-folder <folder>]\n"+
-			"  checks a live component against the spec 6/16 component contract")
+			"  checks a live component against the component contract")
 	}
 	base := strings.TrimSuffix(fs.Arg(0), "/")
 

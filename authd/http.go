@@ -90,7 +90,7 @@ type server struct {
 	serviceSecrets map[string]string // bootstrap key -> service principal (sub)
 	grants         GrantsFetcher     // nil when GRANTS_URL is unset
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
-	// gateDash gates GET /dash/authd/ (spec 6/28): the dashboard trusts the
+	// gateDash gates GET /dash/authd/ (dashd/README.md): the dashboard trusts the
 	// proxyd-verified end-user identity, not a bearer. false: local dev, gate
 	// open.
 	gateDash bool
@@ -131,7 +131,7 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	s.mountAudit(m)
 	s.mountSigningKeys(m)
 	s.mountSessions(m)
-	// The operator dashboard (spec 6/28).
+	// The operator dashboard (dashd/README.md).
 	m.HandleFunc("GET /dash/authd/", s.handleDash)
 	m.HandleFunc("POST /dash/authd/revoke", s.handleDashRevoke)
 	// OAuth /auth/* (spec 5/1), mounted only when provider config is present.

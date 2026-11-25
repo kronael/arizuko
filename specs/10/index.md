@@ -38,13 +38,13 @@ rejected git-as-truth outright).
 
 ## Merged and deleted 2026-08-02
 
-| was                              | now                                                                                                                                                            |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `1-self-eval-haiku.md`           | merged into `1-self-healing-loop.md` — they were one loop split across three files, each inert alone                                                           |
-| `2-state-evaluator.md`           | merged into `1-self-healing-loop.md`                                                                                                                           |
-| `3-repair-playbooks.md`          | merged into `1-self-healing-loop.md`; the five per-playbook recipes were cut — a recipe is a skill body, not a spec                                            |
-| `4-positioning-componentized.md` | deleted. Superseded by `5/A-primitives-framing.md` + `6/16-daemon-standalone-matrix.md`, and actively wrong — it listed `gated` as a live schema-owning daemon |
-| `5-skill-catalog-audit.md`       | deleted. A methodology that was never run, headlining "arizuko's 56 skills" when `ant/skills/` carries 93                                                      |
+| was                              | now                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `1-self-eval-haiku.md`           | merged into `1-self-healing-loop.md` — they were one loop split across three files, each inert alone                      |
+| `2-state-evaluator.md`           | merged into `1-self-healing-loop.md`                                                                                      |
+| `3-repair-playbooks.md`          | merged into `1-self-healing-loop.md`; the five per-playbook recipes were cut — a recipe is a skill body, not a spec       |
+| `4-positioning-componentized.md` | deleted. Superseded by `5/A-primitives-framing.md`, and actively wrong — it listed `gated` as a live schema-owning daemon |
+| `5-skill-catalog-audit.md`       | deleted. A methodology that was never run, headlining "arizuko's 56 skills" when `ant/skills/` carries 93                 |
 
 The merge also corrected the loop for the split: `routd` owns both tables,
 because `timed` owns no DB and reads over its service bearer. The originals

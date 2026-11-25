@@ -4,7 +4,7 @@ package runstore
 // agent session, opened when a run starts and closed when it exits.
 //
 // THE PARTITION IS THE FOLDER AND THE SORT KEY IS THE INSTANT IT STARTED
-// (6/37 rules 4 and 5): every read is "the n newest sessions in this folder",
+// (objstore/README.md): every read is "the n newest sessions in this folder",
 // so the time is the order, the page and the identity at once. A folder, not
 // a constant, because this entity has no drainage and grows one item per turn
 // forever; the read that touches the largest folder is `Descending` with a

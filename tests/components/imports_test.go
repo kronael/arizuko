@@ -64,7 +64,7 @@ func TestShippableComponentsImportNoArizukoInternals(t *testing.T) {
 // arizuko's, siblings included. Mechanism reads the declaration — container
 // and sandbox import substrate — never the reverse: a declaration that
 // imported egress or core could name an allowlist or a folder, and then a
-// substrate could carry policy (spec 6/16, the component contract).
+// substrate could carry policy (ARCHITECTURE.md, the component contract).
 func TestSubstrateIsALeaf(t *testing.T) {
 	for _, dep := range deps(t, "./substrate") {
 		if dep != "substrate" {
@@ -90,7 +90,7 @@ func TestContainerImportsNoIPC(t *testing.T) {
 // `db_utils/opener_test.go` failed the build on any opener other than `db_utils.Open`,
 // and `objstore/sqlstore`'s own refusal covered the engine. Both are gone — the move to
 // a DynamoDB-protocol store finished at v0.68.0 — and so is the thing that stopped a
-// second one arriving. Spec `6/37` states the invariant ("zero `database/sql`
+// second one arriving. objstore/README.md states the invariant ("zero `database/sql`
 // importers") and nothing enforced it, which is the half BUGS `L350` is about: the
 // invariant still holds, and the tests that held it do not.
 //
@@ -111,7 +111,7 @@ func TestNoPackageOpensSQL(t *testing.T) {
 	for _, dep := range lines {
 		if dep == "database/sql" {
 			t.Error(`a package imports "database/sql". The store is a DynamoDB-protocol ` +
-				`service reached through objstore (spec 6/37), there is no engine seam to ` +
+				`service reached through objstore (objstore/README.md), there is no engine seam to ` +
 				`select with, and the opener guard that used to say so left with db_utils. ` +
 				`If a SQL handle is genuinely needed, that is a spec change, not an import.`)
 		}

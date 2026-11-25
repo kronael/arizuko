@@ -1,10 +1,10 @@
 package routd
 
-// dash.go is routd's operator dashboard at GET /dash/routd/ (spec 6/28, 6/30):
+// dash.go is routd's operator dashboard at GET /dash/routd/ (dashd/README.md):
 // one handler in the daemon that owns the data, gated by auth.RequireOperator,
 // reading the same in-process readers routd's /v1 handlers read — a third face
 // on the handler set, never a read of another daemon's DB. Only the overview
-// is built; the other five pages 6/30 lists stay unbuilt rather than stubbed,
+// is built; the other pages stay unbuilt rather than stubbed,
 // because a page that renders an empty table turns the hub tile green anyway.
 
 import (
@@ -24,7 +24,7 @@ import (
 )
 
 // erroredPreview caps the errored-chat table: the overview is a summary, not
-// the errored page 6/30 specifies.
+// a full errored-chat page.
 const erroredPreview = 15
 
 // dashSnapshot is everything the overview renders, built in one place so the

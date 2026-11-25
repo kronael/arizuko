@@ -1,9 +1,9 @@
-// dash.ts is whapd's operator dashboard at GET /dash/whapd/ (spec 6/31).
+// dash.ts is whapd's operator dashboard at GET /dash/whapd/ (chanlib/README.md).
 //
 // The Go adapters get this page for free: chanlib/dash.go is one renderer
 // mounted inside NewAdapterMux, so seven adapters share it with no per-adapter
 // code. whapd cannot import chanlib, so it re-implements the contract here —
-// and 6/31 says in as many words that this duplication is the cost the written
+// and chanlib/README.md says in as many words that this duplication is the cost the written
 // contract exists to make payable. Keep this file in step with chanlib/dash.go;
 // they are two implementations of one spec, not two designs.
 //
@@ -78,7 +78,7 @@ export function adapterStatus(
 }
 
 /** DashSection is one per-adapter delta panel — the TS twin of
- * chanlib.DashSection (spec 6/32). Label/value rows, not HTML, for the same
+ * chanlib.DashSection (chanlib/README.md). Label/value rows, not HTML, for the same
  * reason: handing every adapter markup is how one grammar becomes ten layouts.
  */
 export interface DashSection {
@@ -160,7 +160,7 @@ export async function handleDash(
     verifier: RoutdVerifier;
     isConnected: () => boolean;
     lastInboundAt: () => number;
-    /** sections are this adapter's deltas (6/32); omitted means none. */
+    /** sections are this adapter's deltas (chanlib/README.md); omitted means none. */
     sections?: () => DashSection[];
   },
 ): Promise<boolean> {

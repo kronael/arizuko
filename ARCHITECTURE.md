@@ -462,6 +462,7 @@ Sources: [dependency tests](tests/components/imports_test.go#L1),
 | One turn renderer; two execution operations.         | Policy decisions reach the guest in one envelope. The QEMU implementation delivers that envelope and keeps its process state behind a handle. [renderer](runed/render.go#L37-L40), [execution port](runed/runtime.go#L24-L60). |
 | Persistent group home; fresh guest for execution.    | Session files and work survive turns. The temporary root overlay does not retain changes between guests. [home mount](runed/mounts.go#L56-L59), [overlay](kernel/guest-init/main.go#L416-L426).                                |
 | Egress rules outside the guest.                      | The host seals the tap to the proxy, so guest code cannot bypass a domain decision with direct network traffic. [tap rules](runed/vmnet.go#L80-L101).                                                                          |
+| Strongly consistent reads; no secondary index.       | A revoked grant must stop conferring at once, and a secondary index can lag the write it follows. `dynstore` sends `ConsistentRead` on every query and declares no index. [query](objstore/dynstore/query.go#L160-L170).       |
 | Current ACL reads on proxyd's request path.          | Revocation takes effect while an existing access token still verifies. [revocation test](proxyd/hotpath_read_test.go#L20-L64).                                                                                                 |
 
 ## The instance keeps files while the server keeps rows

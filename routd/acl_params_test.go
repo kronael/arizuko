@@ -1,6 +1,6 @@
 package routd
 
-// Spec 6/26 gap 2.2: the acl writer carries `params`. Until 2026-08-30
+// template/web/pub/arizuko/reference/grants.html: the acl writer carries `params`. Until 2026-08-30
 // grantACLTx INSERTed it as an empty literal, so no shaped rule was expressible
 // on the agent/REST face at all — including both rows Decision 5's standing
 // verdicts write. These tests drive the REAL socket, so the Gate's delegation
@@ -83,7 +83,7 @@ func TestACLMCP_AddWritesParams(t *testing.T) {
 	}
 }
 
-// The spec's own acceptance case (6/26 gap 2.2): a caller who may grant
+// The spec's own acceptance case (template/web/pub/arizuko/reference/grants.html): a caller who may grant
 // `mcp:t(repo=mine/*)` cannot write the unnarrowed `mcp:t`. auth.paramsCover
 // reads an empty held spec as "no constraint", so the check only holds if the
 // candidate row the Gate builds carries the caller's params unshaved — the

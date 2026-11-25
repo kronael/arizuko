@@ -1,4 +1,4 @@
-# gitd — GitHub webhook ingress (spec 6/27). Delivery sources and their sealed
+# gitd — GitHub webhook ingress (gitd/README.md). Delivery sources and their sealed
 # secrets are routd's (`arizuko github <inst> add …`) and gitd's own
 # inbound-retention and outbound-dedup record is its own prefix; both live on the
 # store server, so gitd mounts no part of the data dir.

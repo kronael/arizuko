@@ -33,7 +33,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// routd owns user_profiles; the page asks for the caller's display name
-	// rather than reading the table (6/28, BUGS L142). A failure is silent by
+	// rather than reading the table (dashd/README.md, BUGS L142). A failure is silent by
 	// design here — the name is decoration, and the page renders without it.
 	var name string
 	if ps, err := d.principalsViaRoutd(r.Context()); err == nil {

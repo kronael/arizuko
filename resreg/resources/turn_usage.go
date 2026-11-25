@@ -8,7 +8,7 @@ import (
 )
 
 // TurnUsageRow is one model's usage in one turn, as the harness reported it
-// (specs/6/39-gateway-owns-spend.md §"The turn usage record"). Input is the
+// (routd/README.md). Input is the
 // uncached input; CacheRead the cached. CostCents is the harness's own figure,
 // which the gateway's supersedes on a Metered row. The credit fields are the
 // codex account's and absent elsewhere: CreditsSpent is the balance drop

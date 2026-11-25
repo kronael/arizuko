@@ -72,7 +72,7 @@ func actionForms(jid string) string {
 // third-party page can drive that browser into admitting a group — and admission is
 // the one onbod decision nobody can take back by reading a log. authd, proxyd, routd
 // and runed have always used RequireWrite for their dashboard writes; onbod was the
-// daemon that read the scope and skipped the origin (BUGS `L403`, spec `6/28:138`).
+// daemon that read the scope and skipped the origin (BUGS `L403`).
 func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
 	if !auth.RequireWrite(w, r, a.ks, "onbod") {
 		return

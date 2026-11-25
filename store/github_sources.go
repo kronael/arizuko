@@ -72,7 +72,7 @@ func (s *Store) githubSourceItem(ctx context.Context, key string) (objstore.Item
 	return items[0], true, nil
 }
 
-// GitHubSource is one webhook delivery source gitd verifies (spec 6/27). Source
+// GitHubSource is one webhook delivery source gitd verifies (gitd/README.md). Source
 // is "<kind>/<name>": repo/<owner>/<repo>, org/<owner> or app/<slug>. The
 // sealed secret never leaves the row except through GitHubSourceSecret.
 type GitHubSource struct {

@@ -44,7 +44,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler(backend))
-	// The operator dashboard (spec 6/28). ttsd verifies no tokens, so it gates
+	// The operator dashboard (dashd/README.md). ttsd verifies no tokens, so it gates
 	// on the operator scope proxyd stamps rather than on a keyset of its own.
 	mux.HandleFunc("GET /dash/ttsd/", dashHandler(backend, chanlib.AuthdKeys()))
 	mux.Handle("POST /v1/audio/speech", proxyHandler(beURL))

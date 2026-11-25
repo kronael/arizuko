@@ -15,7 +15,7 @@ import (
 // HTTP face. Spec 5/16 § "The hot-path exception" decides that stays. This test
 // pins the property the decision rests on, so the rejected design fails a test
 // instead of passing review. (`route_tokens` was the other hot-path read;
-// specs/6/22 step 1 moved that resolution to webd.)
+// That resolution lives in webd now, webd/README.md.)
 
 // A grant revoked in `acl` is denied on the very next request, even though the
 // caller's still-valid JWT carries the folder in its login-time Scope claim.

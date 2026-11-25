@@ -185,7 +185,7 @@ func (s *Store) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 }
 
 // AdvanceObservedCursor moves a topic's ambient watermark to ts, and only
-// forward: a guarded transition, not an update (spec 6/40 §2). It also creates
+// forward: a guarded transition, not an update (store/README.md). It also creates
 // the row when the topic has none, because buildAgentPrompt advances the
 // cursor BEFORE SetSession creates it; a write that only updated matched
 // nothing on a topic's first turn and re-included the whole observed window.

@@ -1,7 +1,7 @@
 // Package conformance is the suite every objstore driver passes. The test
 // bodies are exported and live here rather than beside one driver, so a second
 // driver runs the IDENTICAL bodies and cannot quietly answer a question
-// differently (spec 6/37 step 4).
+// differently (objstore/README.md).
 //
 // That substitution is what a vendor API would have imposed for free and what
 // arizuko's own two-primitive surface has to earn: an operation that cannot be
@@ -17,8 +17,8 @@
 // A body earns its place by being able to FAIL, watched, against a driver
 // broken on purpose. And it earns its place only for a shape a PRODUCTION call
 // site asks for: bodies that were the sole consumer of an interface type went
-// with that type when the surface was trimmed (spec 6/40 §"What gets on the
-// surface").
+// with that type when the surface was trimmed (objstore/README.md § What goes on the
+// interface).
 package conformance
 
 import (
@@ -83,7 +83,7 @@ func Run(t *testing.T, newStore Factory) {
 const tokens = "refresh_tokens"
 
 // tenant is the partition every body writes under. A subtree has to sit inside
-// ONE partition for a prefix to cover it (spec 6/40 §1).
+// ONE partition for a prefix to cover it (objstore/README.md).
 const tenant = "acme"
 
 // OneClaimWinsAndTheLosersAreNotErrors is authd's ClaimAndRotateRefresh: N callers
@@ -387,7 +387,7 @@ func PointReadReportsTombstonesRatherThanHidingThem(t *testing.T, newStore Facto
 //
 // A document store has no AUTOINCREMENT to order by, so history is ordered by a
 // time key the WRITER produces, fixed width so string order is time order
-// (spec 6/37 rule 4). core.TS is that layout. time.RFC3339Nano is not: it
+// (objstore/README.md). core.TS is that layout. time.RFC3339Nano is not: it
 // strips trailing zeros, so a whole second renders `…:41Z` and a fraction of
 // the SAME second renders `…:41.882458214Z`, and `.` (0x2E) sorts before `Z`
 // (0x5A) — the later instant sorts FIRST. Every chat /approve wrote its
@@ -545,7 +545,7 @@ func ACheckGatesAWriteToAnotherItem(t *testing.T, newStore Factory) {
 // BatchRefusesWhatNoDriverMayAccept pins the two bounds a batch carries because
 // the WEAKEST engine carries them: at most one action per item, and at most
 // MaxBatchActions actions. A SQL driver could run both happily; a caller that
-// relied on it would break on the engine nobody tested (spec 6/40).
+// relied on it would break on the engine nobody tested (objstore/README.md).
 //
 // These come back as ERRORS, not refusals. A refused batch is a condition that
 // did not hold; a batch shaped like this is a programming mistake, and the two

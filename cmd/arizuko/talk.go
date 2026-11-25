@@ -270,8 +270,7 @@ func (s *talkSession) sseURL() string {
 // turn is ONE iteration of the REPL loop: subscribe, send, print the round.
 // `-p` runs it exactly once. There is no second send path and no second
 // printer — a one-shot form that drifted from the interactive one is the
-// failure spec 6/26 names when it calls talk "the third consumer of one
-// surface, never a fourth path into the queue".
+// failure a second send path invites.
 //
 // Subscribe BEFORE send: the /me stream replays nothing, so a reply that landed
 // between the two would be lost and the round would never appear to end.

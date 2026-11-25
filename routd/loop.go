@@ -113,7 +113,7 @@ type LoopConfig struct {
 
 	// The model gateway pair (MODEL_GATEWAY_URL, MODEL_GATEWAY_KEY). With a
 	// URL, every turn mints its own virtual key and the gateway's measurement
-	// is the ledger (specs 6/23, 6/39); empty leaves the container holding the
+	// is the ledger (routd/README.md); empty leaves the container holding the
 	// model credential and the agent reporting its own spend.
 	GatewayURL string
 	GatewayKey string

@@ -96,7 +96,7 @@ or expressible elsewhere:
   question rather than a table.
 
 A world is **not** a billing boundary either. The cap primitive ships
-([`6/39-gateway-owns-spend`](../6/39-gateway-owns-spend.md): `store.FolderCap` /
+(`routd/README.md` § "The model gateway": `store.FolderCap` /
 `store.UserCap`) but is read per **exact** folder (`store/groups.go:582`) and
 per user (`store/user_profiles.go:186`), with no
 roll-up to the top-level folder — and `0` means uncapped, which is the schema
@@ -288,7 +288,7 @@ container. What ships today.
 
 **The condition under which this flips.** B becomes viable **once a spend cap
 is enforced on the admission path**. Note precisely what is missing: the cap
-_primitive_ already ships ([`6/39-gateway-owns-spend`](../6/39-gateway-owns-spend.md),
+_primitive_ already ships (`routd/README.md` § "The model gateway",
 `store.FolderCap`), but `cost_cap_cents_per_day` reads `0` = uncapped for an
 unknown group (`store/groups.go:578-587`) and nothing on the admission path sets or
 requires one. So B is not blocked on inventing a cap — it is blocked on the
@@ -454,7 +454,7 @@ collaboration is disallowed by design: worlds are isolation boundaries.
 `5/18` onboarding · `5/31` pairing · the JID format (`template/web/pub/arizuko/reference/jid.html`) · `5/15` surrogate OAuth ·
 `5/17` one handler, two faces · `5/32`+`5/33` grants · `5/P` runed
 sessions/spawns · `EXTENDING.md` products/packages · `5/8` manifest and archive ·
-`5/14` credentials · `6/39` the gateway owns spend ·
+`5/14` credentials · `routd/README.md` the gateway owns spend ·
 `5/9` capability
 eval · `5/V` web vhosts.
 

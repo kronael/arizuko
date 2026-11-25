@@ -194,7 +194,7 @@ The group's `agent` setting selects this name; see
 
 The stdin frame of the guest carries model credentials only. They come from two sources. The first is the operator anchors in the host `.env`, the keys of `store.EnvProfileKeys`: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_OAUTH_TOKEN`, `OPENAI_API_KEY` and `CODEX_API_KEY`. The second is the own rows of the triggering user for the same keys, which let a user bring an own account (`routd.DB.EnvProfileSecrets`). The user rows overlay the anchors.
 
-When `MODEL_GATEWAY_URL` configures a model gateway, `spawnSecrets` withholds those keys from both sources. The guest then holds only `MODEL_GATEWAY_KEY`, the virtual key of the gateway. runed resolves capability credentials, scoped to a folder or a user, on the host at tool-call time through the broker, and they never enter the guest.
+When `MODEL_GATEWAY_URL` configures a model gateway, `spawnSecrets` withholds those keys from both sources. The guest then holds only `MODEL_GATEWAY_KEY`, the virtual key of the gateway. A run that arrives with no `ModelGatewayKey` on such an instance is refused before anything starts, because the guest would reach no model and the 401 answers would look like a harness fault. Only a routd that did not mint can send such a run. runed resolves capability credentials, scoped to a folder or a user, on the host at tool-call time through the broker, and they never enter the guest.
 
 The agent model and the query timeout travel in the process environment as `ARIZUKO_MODEL` and `ARIZUKO_QUERY_TIMEOUT_MS`. ant reads them at module load in `index.ts` and `claude.ts`. `turnEnv` is the one place that decides the environment, and a key that it omits is silently dead in the guest.
 

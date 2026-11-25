@@ -1,6 +1,6 @@
 package runed
 
-// dash.go is runed's operator dashboard at GET /dash/runed/ (spec 6/28, 6/30):
+// dash.go is runed's operator dashboard at GET /dash/runed/ (dashd/README.md):
 // one handler in the daemon that owns the data, gated by auth.RequireOperator,
 // reading the in-process readers its /v1 handlers read.
 

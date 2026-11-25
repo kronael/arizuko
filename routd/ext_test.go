@@ -433,7 +433,7 @@ func TestLoadExtProviders_RestWithoutToolsIsLoud(t *testing.T) {
 
 // The operator file is the later source, so a connector it names after a
 // built-in replaces that built-in's tool under the same LocalName rather than
-// registering a second one — and says so at WARN, naming both sources (6/19).
+// registering a second one — and says so at WARN, naming both sources (EXTENDING.md).
 func TestLoadExtProviders_OperatorShadowsBuiltin(t *testing.T) {
 	var buf bytes.Buffer
 	prev := slog.Default()

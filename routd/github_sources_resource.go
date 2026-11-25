@@ -1,7 +1,7 @@
 package routd
 
 // github_sources_resource.go is the one renderer for gitd's delivery-source
-// registry (spec 6/27): the agent's three tools and the operator REST face
+// registry (gitd/README.md): the agent's three tools and the operator REST face
 // share this handler. Registering a source seeds route rows, so the REST gate
 // is the routes gate; the owner_folder is ALWAYS the caller's folder and the
 // arg-carried target_folder only picks where the seeded routes deliver.

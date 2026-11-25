@@ -80,7 +80,7 @@ func (f *fakeDex) sign(t *testing.T) string {
 	return raw
 }
 
-// idClaims is what Dex v2.45.1 put on the ID token in the spike (spec 6/22 step 4).
+// idClaims is what Dex v2.45.1 put on the ID token in the spike (authd/README.md).
 func idClaims(f *fakeDex) map[string]any {
 	now := time.Now()
 	return map[string]any{

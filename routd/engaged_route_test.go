@@ -10,7 +10,7 @@ import (
 
 // An operator extends engagement to CI with one `?engaged` row above the seeded
 // `?observe` fallback (ROUTING.md §"A target query sets the mode",
-// specs/6/27-git-channel.md). The row fires while the chat and topic are
+// gitd/README.md). The row fires while the chat and topic are
 // engaged and is observed otherwise; it is never addressed.
 func engagedCIRoutes(t *testing.T) []core.Route {
 	t.Helper()

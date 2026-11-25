@@ -124,7 +124,7 @@ var errSourceMismatch = errors.New("payload repository outside the registered so
 // delivery, which carries no installation. GITHUB_APP_ACCEPTS_REPO sets it.
 // The secret still has to verify, so the sender holds the credential, but the
 // delivery is no longer bound to an installation the App owns: any repository
-// holding that secret can speak on the source's path. Spec 6/27 and BUGS L409.
+// holding that secret can speak on the source's path. gitd/README.md and BUGS L409.
 var appAcceptsRepo = core.EnvOr("GITHUB_APP_ACCEPTS_REPO", "") == "1"
 
 // checkSource binds the payload to the registered source the path named: a

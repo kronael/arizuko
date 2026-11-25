@@ -26,7 +26,7 @@ func dashReq(h http.HandlerFunc, groups string, bearer ...string) *httptest.Resp
 }
 
 // Every Go adapter gets its dashboard from the mux it already builds — one
-// renderer, no per-adapter code (6/31). Mounting it in NewAdapterMux is what
+// renderer, no per-adapter code (chanlib/README.md). Mounting it in NewAdapterMux is what
 // makes that true, so this asserts the route is there.
 func TestEveryAdapterMuxServesItsDashboard(t *testing.T) {
 	mux := NewAdapterMux("slakd", []string{"slack:"}, &fakeBot{},
@@ -83,7 +83,7 @@ func TestStaleThresholdMatchesTheHealthEndpoint(t *testing.T) {
 	}
 }
 
-// Deployed, the adapter page is operator-only (6/28), and the operator scope
+// Deployed, the adapter page is operator-only (dashd/README.md), and the operator scope
 // counts only behind proxyd's transit bearer. Eight adapters inherit this one
 // handler, so the third case below is eight surfaces at once (BUGS L270).
 func TestDashboardEnforcesOperatorWhenDeployed(t *testing.T) {
@@ -122,7 +122,7 @@ type sectionBot struct {
 func (s *sectionBot) DashSections() []DashSection { return s.secs }
 
 // An adapter with state the shared page cannot show contributes a SECTION, not
-// a second page (6/32). The interface is optional, so an adapter that has no
+// a second page (chanlib/README.md). The interface is optional, so an adapter that has no
 // delta needs no code — that is the common case.
 func TestDeltaSectionsAreOptionalAndRendered(t *testing.T) {
 	plain := handleAdapterDash("slakd", nil, &fakeBot{},

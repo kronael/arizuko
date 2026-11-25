@@ -16,7 +16,7 @@ import (
 )
 
 // connectorConfig is one [[connector]] block — the ONE declaration shape for
-// an external tool source (spec 6/19). `transport` picks the dispatch path and
+// an external tool source (EXTENDING.md). `transport` picks the dispatch path and
 // nothing else: `mcp` discovers its own catalogue and reads Headers only;
 // `rest` declares its tools and may use all three credential sinks.
 type connectorConfig struct {
@@ -101,7 +101,7 @@ type extFile struct {
 	Connectors []connectorConfig `toml:"connector"`
 }
 
-// extSource is one entry in the loader's ordered source list (spec 6/19). The
+// extSource is one entry in the loader's ordered source list (EXTENDING.md). The
 // embedded set is ONE source: it ships as a unit and its file order is an
 // accident of names. The operator file is the second source and shadows it.
 type extSource struct {
@@ -201,7 +201,7 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 					byName[tool.LocalName] = extSlot{pos: len(out), source: src.name}
 					out = append(out, tool)
 				case held.source == src.name:
-					return nil, fmt.Errorf("ext tool %q declared twice in %s: a tool name is the agent's wire identity and no ordering picks between two in one source (spec 6/19)",
+					return nil, fmt.Errorf("ext tool %q declared twice in %s: a tool name is the agent's wire identity and no ordering picks between two in one source (EXTENDING.md)",
 						tool.LocalName, src.name)
 				default:
 					slog.Warn("ext tool shadowed", "tool", tool.LocalName,

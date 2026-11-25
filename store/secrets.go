@@ -292,7 +292,7 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	return nil
 }
 
-// SetSecret seals one secret and records the act, in ONE batch (spec 6/40).
+// SetSecret seals one secret and records the act, in ONE batch (store/README.md).
 func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err

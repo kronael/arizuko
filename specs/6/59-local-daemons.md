@@ -297,8 +297,8 @@ Keep the policy and key writer at `cmd/arizuko/store.go:126` and
 Existing cross-owner reach stays explicit (`store/owner_reach.go:16`).
 In particular, onbod, dashd, webd and proxyd need more than their own prefix.
 Keep `TestStoreReachMatchesTheCallSites` against the new declaration source.
-[6/43-shared-store-server](43-shared-store-server.md) owns the external server
-and account model. `objstore` stays `Query` and `GuardedBatch`.
+`INSTALL.md` § "The store server holds every table of the instance" owns the
+external server and account model. `objstore` stays `Query` and `GuardedBatch`.
 
 The existing installer first materializes required release packages without builds.
 Enrollment is an operator command that supplies scoped keys.
@@ -346,7 +346,7 @@ Generic resource services need no channel extension.
 Extend `resreg.OpenAPIHandler` with optional channel metadata from the adapter's
 existing constructor values. Keep mounted-resource reflection unchanged.
 Adapter verbs retain their existing protocol and capability semantics.
-[6/31-adapter-contract](31-adapter-contract.md) owns the dashboard, not that protocol.
+`chanlib/README.md` § "One dashboard page for every adapter" owns the dashboard, not that protocol.
 Non-Go adapters implement the same OpenAPI extension and HTTP contract.
 
 Each instance has one private socket directory, mounted as `/run/arizuko`.
@@ -381,7 +381,6 @@ No parallel registration mechanism remains.
 
 ## Publishing boundaries
 
-[6/16-daemon-standalone-matrix](16-daemon-standalone-matrix.md) supplies the evidence.
 `mcpfw`, `egress` and `obs` are small publication units, without a required module
 or process split. authd and proxyd have useful independent service contracts.
 Core-only functions qualify for consolidation under 7/26.

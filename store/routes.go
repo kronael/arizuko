@@ -561,7 +561,7 @@ func routeInSubtree(folder, target string) bool {
 // ListRoutes returns the rules whose target is inside folder's subtree, or
 // every rule for a root caller. The target is the SECOND field of the
 // coordinate, so containment is a filter: a folder matches itself, its
-// children under "/" and its topics under "#" (spec 6/40 §1).
+// children under "/" and its topics under "#" (groupfolder/README.md).
 func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	all, err := s.allRoutes(context.Background())
 	if err != nil {

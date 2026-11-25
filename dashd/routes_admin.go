@@ -35,7 +35,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Routes")
 	_, _ = fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
 
-	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
+	// READ through routd's /v1 (dashd/README.md).
 	// routd owns the routes table and already serves these rows to the agent, to
 	// the CLI and to its own REST face; this page is one more reader, not a
 	// second projection.
@@ -43,8 +43,8 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	// This page has no per-folder authorize-before-read problem: it is
 	// instance-wide and the operator gate ran above, before anything was read.
 	// The WRITES below still go through the store — they carry the operator onto
-	// the audit row via AsUser and dashd's service bearer does not, so moving
-	// them waits on 6/29's identity decision.
+	// the audit row via AsUser and dashd's service bearer does not
+	// (dashd/README.md).
 	routes, err := d.listRoutes(r.Context())
 	if err != nil {
 		slog.Warn("routes: list", "err", err)
@@ -98,7 +98,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// writeUnroutedSection renders the held set (spec 6/35-unrouted-traffic): every chat routd drops
+// writeUnroutedSection renders the held set (ROUTING.md § Unrouted chats are held): every chat routd drops
 // today because no route, direct address or engagement window claims it, each
 // with a claim form that posts the existing add-route write. Operator-only — a
 // held chat belongs to no folder, so no folder-scoped caller has a claim to

@@ -347,5 +347,5 @@ Canonical umbrella for the onboarding narrative; nothing is superseded. `ROUTING
 hook), `5/32`+`5/33` (grant vocabulary), `5/5` (invites, gates, the world
 roster this routes into), `5/31` (pairing — onboarding redeems the bridge
 rather than owning it, which is what makes pairing reachable outside a route
-miss), `6/30` (onbod's admission-queue dashboard), `ROUTING.md` (route-table
+miss), `onbod/README.md` (the admission-queue dashboard), `ROUTING.md` (route-table
 syntax).

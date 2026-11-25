@@ -28,7 +28,7 @@ type inviteRow struct {
 }
 
 // listInvites reads onbod's own /v1, not onbod's tables. The rows belong to
-// onbod and onbod serves them on resreg, so the direct read was the one 6/28
+// onbod and onbod serves them on resreg, so the direct read was the one dashd/README.md
 // forbids without qualifying for its `secrets` exception — the owner WOULD
 // serve this if asked, and does. The page's WRITES stay on the FS-mounted
 // discipline CLAUDE.md governs; only the LIST moves.

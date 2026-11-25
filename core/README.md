@@ -55,7 +55,12 @@ read in `tz`. `Timezone()` resolves that zone from `TZ`, UTC when it is unset or
 unloadable.
 
 Only the store writes `scheduled_tasks.next_run` from it: `DueTasks` for a cron
-task's first run and `RescheduleTask` for the run after each fire. The task
+task's first run and `RescheduleTask` for the run after each fire. `DueTasks`
+fills an empty `next_run` under the condition that the task is still active and
+still has none, and that poll does not fire the task. A cron that does not parse,
+or a task with neither cron nor `next_run`, becomes `error`. A `next_run` that
+`reschedule_task` or `PATCH` writes is a plain write the scheduler never
+overwrites. The task
 surfaces call it at write time only to refuse a cron that could never run. A
 seeder must use the cron to avoid firing every task on group creation.
 

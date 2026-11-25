@@ -431,7 +431,7 @@ func AMergeKeepsWhatTheWriterDidNotName(t *testing.T, newStore Factory) {
 		if got[owned.attr] != owned.want {
 			t.Errorf("after the merge %s is %q, want %q: a Merge carries the attributes it "+
 				"names and leaves the rest, and a Put here would hand the container a "+
-				"credential its owner never revoked (spec 6/40)", owned.attr, got[owned.attr],
+				"credential its owner never revoked (objstore/README.md)", owned.attr, got[owned.attr],
 				owned.want)
 		}
 	}

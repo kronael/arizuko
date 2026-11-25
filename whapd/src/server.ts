@@ -201,7 +201,7 @@ export function startServer(
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    // The operator dashboard (spec 6/31), before the routd gate: it is reached
+    // The operator dashboard (chanlib/README.md), before the routd gate: it is reached
     // by an operator's browser through proxyd, not by routd's service token.
     if (
       await handleDash(req, res, {
@@ -213,7 +213,7 @@ export function startServer(
         verifier,
         isConnected,
         lastInboundAt,
-        // whapd's delta (6/32): the pair-flow state. The shared page says
+        // whapd's delta (chanlib/README.md): the pair-flow state. The shared page says
         // "disconnected"; only this says whether an operator must go and enter
         // a code on the phone. bot.getStatus() already redacts the code —
         // rendering it would put a live credential on an operator page.

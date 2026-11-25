@@ -42,7 +42,7 @@ func TestCallerGroupsFailsClosed(t *testing.T) {
 	}
 }
 
-// The refusal is a themed page, not a bare string: 6/28 requires the error
+// The refusal is a themed page, not a bare string: auth/README.md requires the error
 // banner so an operator who lands on a 403 still sees where they are. onbod's
 // copy of this gate rendered "forbidden" and the scheduler rendered the page — the
 // drift this helper exists to end.

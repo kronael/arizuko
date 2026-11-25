@@ -45,7 +45,7 @@ const (
 	Update
 	// Merge is Update without must-exist: it merges Attrs, takes Remove away,
 	// writes Init only if it CREATES the item, and never refuses. It can ride as
-	// a companion write in someone else's batch (spec 6/40 §"Merge").
+	// a companion write in someone else's batch (objstore/README.md).
 	//
 	// NOT a Put: an unconditional Put erases every attribute the writer did not
 	// name, and a secrets item carries attributes surrogate OAuth owns.

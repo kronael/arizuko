@@ -1,6 +1,6 @@
 // Package authstore is authd's storage layer. It holds no SQL: every method is
 // objstore's two primitives, and the driver is chosen by the daemon that
-// constructs it (spec 6/37). One file per entity, except that auth_users.go
+// constructs it (authd/README.md). One file per entity, except that auth_users.go
 // also carries oauth_identities, because no operation touches an identity
 // without the account it belongs to.
 //
@@ -48,7 +48,7 @@ var Entities = []string{
 }
 
 // Partition is the one partition every item authd owns lives in. A partition
-// is what a caller FILTERS on (6/37 rule 1), and authd filters on none: a
+// is what a caller FILTERS on (authd/README.md), and authd filters on none: a
 // signing key is instance-global and a session is keyed by `sub`.
 const Partition = "authd"
 

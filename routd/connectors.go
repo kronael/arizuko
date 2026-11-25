@@ -20,7 +20,7 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// The two transports a [[connector]] block can declare (spec 6/19), kept
+// The two transports a [[connector]] block can declare (EXTENDING.md), kept
 // mechanically distinct so no field means two things: `mcp` proxies a remote
 // MCP server and discovers its catalogue, `rest` calls an HTTP API from a
 // catalogue it declares. There is no stdio transport: an endpoint needs no
@@ -32,7 +32,7 @@ const (
 
 // connectorFile is the TOML wire shape. One file, many [[connector]] blocks.
 //
-// The block type is `connectorConfig` (ext.go), the ONE declaration shape 6/19
+// The block type is `connectorConfig` (ext.go), the ONE declaration shape EXTENDING.md
 // defines — NOT `ipc.ConnectorSpec`, which is this loader's own output. Decoding
 // straight into the output type made a second format out of one file: a `rest`
 // block must declare `[[connector.tool]]` (ext.go), `ConnectorSpec` has no such
@@ -105,7 +105,7 @@ func decodeConnectors(src string, data []byte, v any) error {
 		return fmt.Errorf("parse %s: %w", src, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
-		return fmt.Errorf("parse %s: unknown key %q — a block is [[connector]] with transport = mcp | rest (spec 6/19)",
+		return fmt.Errorf("parse %s: unknown key %q — a block is [[connector]] with transport = mcp | rest (EXTENDING.md)",
 			src, undecoded[0].String())
 	}
 	return nil

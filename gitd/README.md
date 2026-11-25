@@ -5,6 +5,9 @@ channel adapter like `slakd`: it receives signed webhook deliveries, maps each
 to `chanlib.InboundMsg` rows and POSTs them to routd. Everything the agent does
 to manage the repo, including merge, label, review, and close, goes through the GitHub MCP
 connector (`template/connectors/github.toml`), not through channel verbs.
+The channel posts, edits and reacts only to its own comments. A change to
+another party's state therefore passes the connector's `mcp:github_<tool>`
+grant and hold, and a second channel path would bypass both.
 
 ## Delivery sources
 
@@ -30,7 +33,10 @@ routd's `github_sources`, which gitd reads through `store.OpenOwner` — the
 endpoint when `DYNAMODB_URL` names one — and unseals per delivery. The path `/github/<kind>/<name>`
 selects the secret — the payload never chooses its own verifier — and a
 repo/org source is bound to its repo/org: a payload naming another repo is
-refused with 400 even when the signature is valid.
+refused with 400 even when the signature is valid. An App delivery must carry
+an installation object with a positive id, except a `ping`. With
+`GITHUB_APP_ACCEPTS_REPO=1` an App source also accepts a repository delivery
+with no installation, and the secret still has to verify (BUGS `L409`).
 
 ## A GitHub App connects selected repositories
 
@@ -107,6 +113,9 @@ The webhook URL then returns 404. Source deletion does not uninstall the App or 
 To remove GitHub access, uninstall the App under the account's **Settings → Applications → Installed GitHub Apps**.
 You can also remove individual repositories from the installation.
 gitd replies and App connector calls refuse access when the source or installation is missing.
+`githubapp.Client.Token` asks GitHub for the repository installation before it reuses a cached token.
+A failed lookup, a failed token request or a suspended installation evicts the cached token and refuses access.
+A verified `installation` webhook with action `deleted` or `suspend`, and an `installation_repositories` webhook with action `removed`, evict the affected tokens.
 
 GitHub setup details: [App registration](https://docs.github.com/en/apps/creating-github-apps/writing-code-for-a-github-app/building-a-github-app-that-responds-to-webhook-events),
 [permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app),
@@ -125,7 +134,8 @@ Owner and repo ride in the JID (`chanlib.ParseGitHubJID` /
 `FormatGitHubJID`), so one App secret serving fifty repos yields fifty JIDs
 and the ordinary route table maps them. The sender is `github:<login>` — the
 same principal authd mints for a GitHub sign-in, so one person's dashboard
-login and PR comment are one identity.
+login and PR comment are one identity. Route resolution selects the group,
+and gitd derives no folder.
 
 ## Observe vs trigger
 

@@ -36,7 +36,7 @@ type ExtTool struct {
 	// Each value may carry "{secret:KEY}" placeholders, resolved per call by
 	// RenderSecrets against the broker-resolved secrets — the SAME vocabulary
 	// an `mcp` connector uses for its headers, which is what makes one
-	// declaration serve both transports (spec 6/19).
+	// declaration serve both transports (EXTENDING.md).
 	Headers map[string]string
 	Query   map[string]string
 	Body    map[string]string

@@ -3,7 +3,7 @@ package main
 // storage.go is where emaid picks its storage driver and makes sure the store
 // can answer. It is the composition root and the only file in the adapter that
 // names a driver: emaistore holds the interface, so a second engine is a second
-// driver and one line here (spec 6/37 step 5).
+// driver and one line here (objstore/README.md).
 //
 // There is no migration set and no DDL of emaid's own. An entity is a name the
 // driver resolves however it must — a table on SQL, nothing at all on an engine

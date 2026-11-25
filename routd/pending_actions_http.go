@@ -92,7 +92,7 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 			reviewer = x.Caller.Sub
 		}
 		// `standing` is the `always` verdict, an ARGUMENT of approve rather than
-		// a third action: pending_actions has no third status (spec 6/26
+		// a third action: pending_actions has no third status (template/web/pub/arizuko/reference/grants.html
 		// § Decision 5). There is no standing reject — see resolveHoldInto.
 		standing := x.Action == actionApprove && x.Args.Bool("standing")
 		// A verdict another reviewer landed first refuses the write; the 409

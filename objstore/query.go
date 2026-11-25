@@ -4,7 +4,7 @@ import "fmt"
 
 // Query is one read. Entity and Partition are always required: a query without
 // a partition key is a full scan, which on a key-value engine is a secondary
-// index somebody has to declare (6/37 rule 2).
+// index somebody has to declare (objstore/README.md).
 type Query struct {
 	Entity    string
 	Partition string
@@ -52,7 +52,7 @@ const (
 // KeyPredicate selects on the sort key.
 //
 // PrefixKey is how CONTAINMENT works: a subtree is a string prefix on a path,
-// no closure table (6/40 §1). Sep is the separator between a folder and what
+// no closure table (groupfolder/README.md). Sep is the separator between a folder and what
 // hangs below it ("/" between folders, "#" before a topic); the predicate
 // matches Value ITSELF plus everything under Value+Sep, so `a` does not reach
 // `ab`. Empty Sep is a bare begins_with.

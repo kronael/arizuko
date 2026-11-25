@@ -409,7 +409,7 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 // used to ask indirectly, via proxyd's X-Folder stamp, but proxyd attached the
 // bearer only on the AUTHENTICATED path, so on every real instance no anonymous
 // visitor could satisfy it and the widget's live stream answered 403 to everyone
-// (specs/6/22 step 1).
+// (webd/README.md).
 func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) {
 	topic := r.URL.Query().Get("topic")
 	if topic == "" {

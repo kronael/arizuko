@@ -10,7 +10,7 @@ import (
 )
 
 // Only a person's message or mention rides engagement, on every channel. Every
-// other verb follows its route (specs/6/27-git-channel.md, ROUTING.md
+// other verb follows its route (gitd/README.md, ROUTING.md
 // §"Engagement follows a person's message").
 func newEngagementLoop(t *testing.T, routes []core.Route) (*DB, *Loop) {
 	t.Helper()

@@ -8,7 +8,7 @@ Consolidation removes a process when an existing daemon can reuse its work.
 proxyd serves the web files; routd runs the task ticker.
 The package and daemon contract is [6/59-local-daemons](../6/59-local-daemons.md).
 There is no requirement for one binary or one core process.
-Storage remains external under [6/43-shared-store-server](../6/43-shared-store-server.md).
+Storage remains external (`INSTALL.md` § "The store server holds every table of the instance").
 
 ## Implementation status
 
@@ -73,7 +73,6 @@ vited process (removed)     timed process (removed)
 
 proxyd stays: replacing its configuration and auth logic with Caddy or Traefik
 has no demonstrated code saving. authd retains its independent issuer contract.
-The standalone evidence is [6/16-daemon-standalone-matrix](../6/16-daemon-standalone-matrix.md).
 Its vited, timed and proxy-replacement recommendations are not decisions for this
 composition. Process separation serves independent use, platform connection
 lifecycles or execution isolation.

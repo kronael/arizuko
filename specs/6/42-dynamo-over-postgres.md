@@ -1,14 +1,6 @@
 ---
 status: partial
-depends:
-  [
-    37-store-model,
-    40-store-surface,
-    41-qemu-substrate,
-    23-llm-gateway,
-    ../5/16-mcp-rest-unification,
-    ../5/33-paths-roles,
-  ]
+depends: [41-qemu-substrate, ../5/16-mcp-rest-unification, ../5/33-paths-roles]
 ---
 
 # specs/6/42 — DynamoDB over PostgreSQL: one server, one driver, no database layer
@@ -311,7 +303,7 @@ PostgreSQL, and the tree has no handler for `40P01` (grep over
 `crates/storage-postgres/src`), so the abort surfaces as an internal error;
 the SDK retries 5xx and the token makes the retry safe, and §12 measures it.
 Latency under high write load is a user report, not arizuko's load: krons
-writes about 1,560 audit rows and 140 messages a day (`6/37`).
+writes about 1,560 audit rows and 140 messages a day (the store census of the retired `store-model` spec (git history)).
 
 **The gate.** `objstore/conformance` through `dynstore` against
 `extenddb/extenddb-postgres` on `postgres:17-alpine`, every body, `-race`
@@ -489,7 +481,7 @@ needs from a remote engine.
   `Put` with `ItemAbsent`. Two walkers closing a cycle from opposite ends read
   the same version; the second batch refuses on `#version = :was`. `L256`
   records this as resting on SQLite's single writer today; here it rests on
-  the condition, which is where `6/40` put it.
+  the condition (`objstore/README.md` § "Two primitives").
 - **`Increment`** (`objstore/protocol.go`). `Update` conditioned on the read
   value; a refusal re-reads. Needs read-your-writes for the re-read, hence
   `ConsistentRead`. The counter stays a string; nothing here uses `ADD` or
@@ -499,8 +491,7 @@ One thing changes in arizuko's favour. `store.RestoreInvite`
 (`store/invites.go`) exists because an invite's counter lives in `onbod.db` and
 its ACL grant in `routd.db`, "a separate DB so the two can't share a tx". Under
 one server they can. This spec keeps the compensation — a batch stays inside
-one owner prefix (§5) — and records the collapse as the follow-up `6/40`
-§"The audited write" argues for.
+one owner prefix (§5) — and records the collapse as a follow-up.
 
 ## 7. The arizuko side: what is deleted, what replaces it
 
@@ -527,13 +518,13 @@ part of the port that is design rather than substitution.
    and MCP call, hands it to the resource `Handler` as `x.Tx`, writes the audit
    row into it and commits. The contract changes: a `Handler` DESCRIBES its
    writes (`[]objstore.Check`, `[]objstore.Write`) and the engine runs one
-   `GuardedBatch` with the audit row appended — the shape `6/40` §"The audited
-   write" states and `audit.WriteFor` already offers. This is the largest
+   `GuardedBatch` with the audit row appended — the shape `objstore/README.md` § "Two primitives"
+   states and `audit.WriteFor` already offers. This is the largest
    single item in §11.
 2. `store/audit_helpers.go:16` — `runAudited`, which carries `DeleteGroup`'s
    unbounded subtree purge. The purge becomes `Query` on the folder prefix
    plus guarded deletes in batches of 99 with the audit row in the last batch
-   (`6/40` §4); a purge that dies half-way is re-run, which an idempotent
+   (`resreg/README.md`); a purge that dies half-way is re-run, which an idempotent
    delete permits.
 3. `dashd/dashstore/tasks.go:94` and `:157` — two task writers holding a
    transaction around a read-then-write; each is one `GuardedBatch` whose
@@ -545,7 +536,7 @@ part of the port that is design rather than substitution.
    store. They lose their last caller with items 1–4 and go.
 6. `resreg/engine.go:333` — the column-backed row reader, live for every
    resource registered without an entity coordinate. Each declares its
-   coordinate (`6/40` §"What a registered resource still needs") or, like
+   coordinate (`resreg/README.md` § "Every resource is one objstore entity") or, like
    `audit_log` and `signing_keys`, mounts its own `Handler`; the column path
    goes with the SQL that fed it.
 
@@ -568,8 +559,7 @@ federation work.
 PostgreSQL is bundled: the server and its PostgreSQL run outside the instance's
 Compose project and systemd unit, each instance is one account on it, and
 `INSTALL.md` §"The store server holds every table of the instance" is the
-operator's procedure. Whether `litellm_db` folds into that server is `6/37`
-§"One server, three owners", not this spec. Every daemon's fragment gains the
+operator's procedure. Whether `litellm_db` folds into that server is not this spec's question. Every daemon's fragment gains the
 five env lines above and loses its `DB_PATH` mount.
 
 **The copy is hand-driven, and the binary carries no migration.** Decision
@@ -587,10 +577,10 @@ file — all are `(part, sort, attrs)` on an instance that runs the object model
 — and write each row as a `Put` in `TransactWriteItems` batches of 100 into
 `<owner>.<entity>`. It is a copy, not a remodel: no key changes, no attribute
 changes. `*_v1` (the pre-entity originals), `migrations`, `messages_fts*` and
-`cost_log` are not copied; `cost_log` has no reader left since `6/39` gave the
-gateway the ledger. Verification is mechanical: per table the row count and
+`cost_log` are not copied; `cost_log` has no reader left since the gateway holds the
+ledger (`routd/README.md`). Verification is mechanical: per table the row count and
 the `Query` count agree, and every `chats` cursor reads back at the same
-position (234 cursors on the three instances, `6/37` step 5).
+position (234 cursors on the three instances).
 
 **`make test` starts the server itself.** There is no in-memory ExtendDB. `dyntest`
 (`objstore/dynstore/dyntest/dyntest.go`) starts `dyntest.Image`,
@@ -691,8 +681,7 @@ server's. **Reopen trigger:** a caller needs a rank, or the scans load the
 store more than the appends do. ExtendDB serves `DynamoDBStreams` (§3), so an
 index is then a Streams consumer that keeps its postings in its own store.
 
-This supersedes one sentence of `6/37` §"How `messages` leaves" — "Its index
-stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
+No FTS5 index stays on a SQLite deployment, because there is no SQLite deployment.
 
 ## 9. Acceptance
 
@@ -886,11 +875,9 @@ All remaining items are LIVE:
 
 ## Ties
 
-`6/43` (one server for every deployment — the topology this spec left open,
-the catalog/data split and the account boundary) · `6/37` (the object model this spec keeps, the one sentence it supersedes,
-the census, and the Postgres seam this spec removes) · `6/40` (the surface,
+`INSTALL.md` § "The store server holds every table of the instance" (one server for every deployment) · `objstore/README.md` (the object model, the surface,
 the protocols, the audited write) · `6/41` (the two-lever rule) ·
-`6/23` (the PostgreSQL service already in the deployment,
+`routd/README.md` § "The model gateway" (the PostgreSQL service already in the deployment,
 `template/services/litellm.yml`) · `5/16` (ownership, and the federation debt
 the policies do not close) · `5/33` (the path is the coordinate) · BUGS `L97`,
 `L122`, `L251`, `L256`, `L267`, `L276`, `L277`.

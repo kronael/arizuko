@@ -42,8 +42,7 @@ count, and is exactly how a component gets rebuilt anyway.
   want credential injection ([8/Z-egred-mitm](../5/13-ext-mcp.md)); envoy
   is industrial but a large config surface for one allowlist. Cilium/Calico
   are Kubernetes-only and off our path.
-- **mcp-firewall** (specced, not built —
-  [6/12-mcp-firewall](../6/12-mcp-firewall.md)). **The most likely to be
+- **mcp-firewall** (`mcpfw/README.md`). **The most likely to be
   replaceable outright**: the Claude Agent SDK already has a `canUseTool`
   callback, which is zero code. The only real question is whether its policy
   expressivity matches. Do not ship our own without checking this first.

@@ -19,7 +19,7 @@ const ProxydTransitSub = "service:proxyd"
 // One declaration because a drop is silent, not loud: X-User-Name is the sender
 // name webd records on a posted message (webd/api.go) and the label dashd's nav
 // shows, so a renderer that copies three of the four anonymises every caller
-// while every request still returns 200 (spec 6/22 steps 2 and 3).
+// while every request still returns 200 (SECURITY.md).
 var TransitHeaders = []string{"Authorization", "X-User-Sub", "X-User-Name", "X-User-Groups"}
 
 // ProxydTransit reports whether r carries a valid authd-minted ES256 bearer

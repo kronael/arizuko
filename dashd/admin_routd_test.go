@@ -117,7 +117,7 @@ func TestRouteCreate_TargetsRoutdDB(t *testing.T) {
 // TestRouteList_ReadsRoutdV1: the routes page renders a row that routd serves.
 //
 // Renamed from ReadsRoutdDB: the row is still seeded into routd.db, but the
-// page reaches it through routd's /v1 now (6/28 §"Read-path: /v1 only"), so
+// page reaches it through routd's /v1 now (dashd/README.md), so
 // the name no longer describes what is being asserted. The property — a route
 // in the table reaches the page — is unchanged.
 func TestRouteList_ReadsRoutdV1(t *testing.T) {
@@ -154,8 +154,8 @@ func TestRouteDelete_TargetsRoutdDB(t *testing.T) {
 // has no mint (BUGS V2).
 //
 // It used to be TestRouteTokenList_ReadsRoutdDB and seeded routd.db, which was
-// a test OF THE MECHANISM: spec 6/28 says no dashboard reads a SQLite DB
-// directly, so the page now asks routd's /v1 and this drives a stub routd
+// a test OF THE MECHANISM: dashd reads a row over the owner's /v1 where the owner
+// serves it (dashd/README.md), so the page now asks routd's /v1 and this drives a stub routd
 // instead. The property — which rows reach the page — is unchanged; only where
 // they come from moved.
 func TestRouteTokenList_ReadsRoutdV1(t *testing.T) {

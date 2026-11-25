@@ -1,10 +1,10 @@
 package chanlib
 
-// dash.go is THE adapter dashboard (spec 6/31), implemented once and mounted
+// dash.go is THE adapter dashboard (chanlib/README.md), implemented once and mounted
 // by every Go adapter through NewAdapterMux: one renderer with per-adapter
 // deltas, never ten copies of a shared grammar — every fact the page shows is
 // already a parameter of NewAdapterMux. The TypeScript adapter (whapd)
-// re-implements the contract in its own source, which is why 6/31
+// re-implements the contract in its own source, which is why chanlib/README.md
 // writes it down rather than leaving it implied by this file.
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/kronael/arizuko/theme"
 )
 
-// DashSection is one per-adapter delta panel (spec 6/32): an adapter with
+// DashSection is one per-adapter delta panel (chanlib/README.md): an adapter with
 // state the others do not have contributes a section rather than a second
 // page. Rows are label/value pairs, because giving adapters HTML would let ten
 // pages drift into ten layouts; an adapter that needs more extends this type.
@@ -35,7 +35,7 @@ type DashSectioner interface {
 	DashSections() []DashSection
 }
 
-// handleAdapterDash renders the single adapter page 6/31 specifies: overview,
+// handleAdapterDash renders the single adapter page chanlib/README.md states: overview,
 // connection, stream health, capabilities, then any per-adapter deltas. ks is
 // injected because AuthdKeys is built once from the process env, so a test
 // cannot swap it.

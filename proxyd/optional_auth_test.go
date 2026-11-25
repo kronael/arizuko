@@ -16,7 +16,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// `optional` is the route-token surface's gate (specs/6/22 step 1): it replaced
+// `optional` is the route-token surface's gate (proxyd/README.md): it replaced
 // the `switch rt.Path` arm that named /chat/ and /hook/ and resolved their
 // tokens. proxyd no longer knows those paths; webd resolves the token.
 

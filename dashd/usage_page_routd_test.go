@@ -17,7 +17,7 @@ import (
 // This routd names no model gateway, which is a supported deployment and the
 // one with no meter. The page must then say so on every spend cell rather than
 // draw a zero: nothing measured this instance, and "$0.00" would claim
-// something did (spec 6/39). The message axis is arizuko's own data and is
+// something did (routd/README.md). The message axis is arizuko's own data and is
 // unaffected, so it still carries real counts — which is what makes this the
 // end-to-end check that the two halves come from different owners.
 func TestUsagePageNumbersViaRealRoutd(t *testing.T) {

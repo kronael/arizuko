@@ -267,7 +267,7 @@ func TestProviderFailureFieldsMatchAcrossLanguages(t *testing.T) {
 }
 
 // ModelUsage is the per-turn usage record ant renders and routd stores
-// (specs/6/39-gateway-owns-spend.md §"The turn usage record"). A field one side
+// (routd/README.md). A field one side
 // renames is dropped at the boundary with no error, and the turn reads as free.
 func TestModelUsageFieldsMatchAcrossLanguages(t *testing.T) {
 	src := antSource(t, "mcp.ts")

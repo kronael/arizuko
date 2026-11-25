@@ -126,7 +126,7 @@ func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error
 
 // BumpEngagementWith is BumpEngagement carrying the caller's OWN writes in the
 // same batch, for the operator's /v1/engagement, whose audit row has to commit
-// with the window it records (spec 6/40).
+// with the window it records (store/README.md).
 func (s *Store) BumpEngagementWith(ctx context.Context, jid, topic, folder string,
 	until time.Time, also ...objstore.Write) error {
 	return s.bumpEngagement(ctx, jid, topic, folder, until, also...)

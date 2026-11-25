@@ -57,7 +57,7 @@ func TestServicesOperator(t *testing.T) {
 	}
 }
 
-// The hub's link source must cover BOTH registration paths 6/28 names, or it
+// The hub's link source must cover BOTH registration paths dashd/README.md names, or it
 // calls a whole class of dashboard a 404.
 //
 // This replaced TestServicesBuiltFlagMatchesMountedRoutes, which existed to
@@ -168,7 +168,7 @@ func TestProbeHealthOKAndErr(t *testing.T) {
 }
 
 // manifestRoutePaths reads the routes packaged daemons ship in
-// template/services/<name>.yaml. 6/28 names TWO registration paths — core
+// template/services/<name>.yaml. dashd/README.md names TWO registration paths — core
 // daemons in coreProxydRoutes, packaged ones in a manifest — and a check that
 // knows only the first calls every adapter dashboard a 404.
 func manifestRoutePaths(t *testing.T) []string {

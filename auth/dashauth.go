@@ -1,6 +1,6 @@
 package auth
 
-// This gate is the SECOND of the two layers 6/28 names. The first is proxyd's
+// This gate is the SECOND of the two layers auth/README.md names. The first is proxyd's
 // transit proof (auth.ProxydTransit), which is what makes the X-User-* headers
 // trustworthy at all; a daemon MUST verify that before calling anything here.
 // This file decides only "is the verified caller an operator", never "is the
@@ -8,7 +8,7 @@ package auth
 //
 // dashd's own requireAdmin is deliberately NOT folded in: it answers a
 // different question (does this caller hold `admin` on THIS folder scope), for
-// the cross-cutting pages 6/29 keeps central. Collapsing the two would widen or
+// the cross-cutting pages dashd keeps central. Collapsing the two would widen or
 // narrow one of them silently.
 
 import (
@@ -109,8 +109,7 @@ func sameOrigin(r *http.Request) bool {
 	return false
 }
 
-// Forbidden renders the themed refusal page. 6/28 §Auth requires the theme
-// error banner rather than plain text, because the hub reads a deep-page 403 as
+// Forbidden renders the themed refusal page. It uses the theme error banner rather than plain text, because the hub reads a deep-page 403 as
 // `warn` (daemon up, caller lacks scope) and an operator who lands on one
 // should still see where they are.
 func Forbidden(w http.ResponseWriter, daemon, msg string) {

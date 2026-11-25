@@ -171,8 +171,7 @@ var folderScopeKeep = map[string]keepReason{
 // next tenant of the path sees it.
 var folderScopeUnpurged = map[string]string{
 	// The purge is one batch on routd's tables and cannot reach onbod's.
-	// Closing this needs the delete to reach onbod's /v1, or the generation
-	// (specs/6/37 redesign 1).
+	// Closing this needs the delete to reach onbod's /v1.
 	"invites":            "onbod owns it, in onbod.db",
 	"invite_redemptions": "onbod owns it, in onbod.db",
 }

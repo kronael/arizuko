@@ -278,8 +278,8 @@ func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
 }
 
 // The group row carries `open` and the observe windows so ONE read answers the
-// settings page, instead of a dashboard reaching into this DB for them (spec
-// 6/28). Their defaults must match the accessors they replace, or a group with
+// settings page, instead of a dashboard reaching into this DB for them
+// (dashd/README.md). Their defaults must match the accessors they replace, or a group with
 // no config key reads as closed and capped at nothing.
 func TestGroupRowProjectsConfigDefaultsLikeTheAccessors(t *testing.T) {
 	s := openMem(t)

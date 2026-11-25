@@ -165,7 +165,7 @@ func TestSlinkStream_Forbidden(t *testing.T) {
 
 // The same request WITH proxyd's transit bearer streams. Anonymous — no
 // X-User-*, no grant — which is the widget's ordinary case and the one that
-// answered 403 on every instance until specs/6/22 step 1.
+// answered 403 on every instance until token resolution moved to webd
 func TestChatStream_AnonThroughProxydAllowed(t *testing.T) {
 	s, _, st := newTestServer(t)
 	k, err := auth.NewSigningKey("k1")

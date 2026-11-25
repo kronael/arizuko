@@ -20,6 +20,8 @@ browser or WebDAV client ──► proxyd /dav/ ──► davd:8080 /data
 | `/dav/` on proxyd                                     | User-authenticated entry; proxyd strips the prefix and confines the path. |
 | `/health`, `/openapi.json`, `/metrics`, `/dash/davd/` | Not mounted by arizuko. Health probes use `/`.                            |
 
+The image holds `dufs`, `wget` and CA certificates on alpine, so no arizuko code runs in it to serve a page. The dashd hub tile probes `GET /`.
+
 There are no resreg resources, MCP tools, IPC sockets, or calls to routd or authd.
 Compose declares `depends_on: [routd]`; davd does not call routd.
 The backend has no arizuko identity checks. Keep access behind proxyd.

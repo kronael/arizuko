@@ -156,6 +156,15 @@ every harness unchanged.
 | codex | `-c model_provider=gateway` with `base_url=<url>/v1` and `wire_api="responses"`; codex rejects `chat` | `env_key=MODEL_GATEWAY_KEY`; with no key, `requires_openai_auth=true` sends codex's own ChatGPT bearer |
 | pi | `registerProvider` re-points `anthropic` at the URL and `openai` at `<url>/v1` (`src/pi-extension.ts`) | the key is a fallback pi uses only when no real credential is present |
 
+## Usage is the difference from the session start
+
+A usage record covers one turn and never the session. Claude: the result `modelUsage` less the last
+`cost-state` entry of the transcript that the turn resumes, and `costUSD` the same way. Codex:
+`turn.completed` less the last `total_token_usage` of the rollout before the turn, with no cost, and
+`credits_spent` is the balance drop. pi: the sum of the `message_end` usages of the run, with the
+`cost.total` of each message. A round that routd answers with a nudge records no usage, so ant
+carries the usage into the next submission of the same turn.
+
 ## The turn deadline
 
 A turn has one ceiling: `RUNED_RUN_TIMEOUT`, default 40m.
@@ -306,6 +315,11 @@ provider refusal, a non-transient HTTP status, `HarnessConfigError` and a cancel
 terminal. A model call that the gateway refuses over a spent cap (`budget_exceeded`, HTTP 422 or
 429) is none of these: every backend ends the turn as a result refused as `budget`
 (`isBudgetRefusal` in `src/backend.ts`), and the chassis submits `submit_turn` status `budget`.
+Only an attempt-ending SDK rejection, a structured provider error or an anchored CLI error
+envelope reports a provider failure. The texts `Monthly spend limit reached` and
+`You've hit your individual spend limit` count only as the whole message of such a rejection.
+Usage events, quotations, tool errors, generic 403 answers and unknown errors stay per-turn.
+Exit code 78 alone never pauses, because an HTTP 400 content error also produces it.
 Malformed harness JSON fails before a backend starts. Pi uses the same MCP boundary through its native mcp.json configuration.
 Grep `submit_status failed` and `Query timeout: process deadline reached, aborting`.
 There is no obs.Setup or OTLP exporter in ant; runed captures per-turn logs and routd records lifecycle results.

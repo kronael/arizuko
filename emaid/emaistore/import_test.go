@@ -4,7 +4,7 @@ package emaistore
 // values, and owns the item shape.
 //
 // NOTHING IN PRODUCTION CALLS IT. LinkMessageToThread writes the thread and the
-// index row that names it in ONE batch, which is 6/37's third rule, so an index
+// index row that names it in ONE batch (objstore/README.md), so an index
 // row naming a thread that has no row — the dangling case Counts reports — is a
 // state no live method reaches. A test writes one here.
 

@@ -28,7 +28,7 @@ type AdapterStore struct {
 // OpenAdapterStore prepares one adapter's storage: chanlib SHIPS the entities,
 // the TABLES belong to the adapter daemon, one set per service, so no library
 // owns a database. It is the only door, so the dial is written here once, and
-// it names a driver, which is the composition root's job (spec 6/37 step 5).
+// it names a driver, which is the composition root's job (objstore/README.md).
 func OpenAdapterStore(service string) (AdapterStore, error) {
 	as := AdapterStore{Close: func() error { return nil }}
 	// The prefix is the adapter's name, so two accounts of ONE adapter share

@@ -125,7 +125,7 @@ var daemonKeys = map[string][]string{
 		// The product `arizuko create` was given; routd carries it onto the
 		// default group's row at boot.
 		"ARIZUKO_DEFAULT_PRODUCT",
-		// The model gateway (spec 6/23, 6/39): routd mints each turn's virtual
+		// The model gateway (routd/README.md): routd mints each turn's virtual
 		// key with the master key and reads the folder's spend; runed gets the
 		// URL only.
 		"MODEL_GATEWAY_URL", "MODEL_GATEWAY_KEY",
@@ -169,7 +169,7 @@ var daemonKeys = map[string][]string{
 		"ARIZUKO_BACKEND", "ARIZUKO_DEFAULT_MODEL", "ARIZUKO_DEFAULT_EFFORT",
 		// runed re-emits it as container env and allows the host through the
 		// spawn's egress proxy. NOT the master key: routd mints each turn's key
-		// and runed injects only the one it is handed (spec 6/23), so the daemon
+		// and runed injects only the one it is handed (routd/README.md), so the daemon
 		// that starts the guests has no credential of its own.
 		"MODEL_GATEWAY_URL",
 		// NO SECRETS_KEY: runed injects the credentials routd already decrypted

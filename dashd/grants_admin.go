@@ -45,18 +45,17 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
+	// READ through routd's /v1 (dashd/README.md).
 	// routd owns the acl table and its list filters `scope = folder`, which is
 	// exactly what ListACLByScope queried — the same rows, one reader.
 	//
 	// The three datalist reads below (user_profiles, acl_membership, the group
 	// subtree) still go to the DB: they are form autocomplete and routd exposes
 	// no /v1 for them. Different data, different reader — not two paths to one
-	// datum. See 6/29 for what closing them needs.
+	// datum. See dashd/README.md for what closing them needs.
 	//
 	// The WRITES also stay: they carry the operator onto the audit row through
-	// AsUser and dashd's service bearer does not, so moving them waits on
-	// 6/29's identity decision.
+	// AsUser and dashd's service bearer does not (dashd/README.md).
 	rows, err := d.listACL(r.Context(), folder)
 	if err != nil {
 		// An empty grants table would read as "this folder has no permissions",
@@ -107,7 +106,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	var principalOpts strings.Builder
 	principalOpts.WriteString(`<datalist id="principals">`)
 	// routd owns user_profiles and acl_membership; the form asks for the subs a
-	// grant may name rather than reading either table (6/28, BUGS L142). The
+	// grant may name rather than reading either table (dashd/README.md, BUGS L142). The
 	// projection is sub + name — a label and an id, nothing else.
 	if ps, err := d.principalsViaRoutd(r.Context()); err == nil {
 		for _, pr := range ps {
@@ -129,7 +128,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	scopeSelect.WriteString(`<select name="scope">`)
 	fmt.Fprintf(&scopeSelect, `<option value="%s" selected>%s (this folder)</option>`, esc(folder), esc(folder))
 	// routd owns `groups`, so the subtree is filtered from ITS answer rather
-	// than from its file (6/28). Containment is groupfolder.Contains — the same
+	// than from its file (dashd/README.md). Containment is groupfolder.Contains — the same
 	// rule the POST handler rejects a widened scope with, so the UI cannot
 	// offer an option the server would refuse.
 	if all, err := d.foldersViaRoutd(r.Context()); err == nil {

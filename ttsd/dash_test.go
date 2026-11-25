@@ -30,7 +30,7 @@ func TestPanelNamesTheBackendAndItsState(t *testing.T) {
 	}
 }
 
-// Deployed, the page is operator-only (6/28) — and the operator scope counts
+// Deployed, the page is operator-only (dashd/README.md) — and the operator scope counts
 // only behind proxyd's transit bearer. The third case is the one this gate used
 // to fail: the scope alone, which anyone who could reach the port could send.
 func TestDashboardIsOperatorOnlyWhenEnforcing(t *testing.T) {

@@ -62,7 +62,7 @@ func dashPost(h http.Handler, path, form, groups string) *httptest.ResponseRecor
 }
 
 // runed serves its own dashboard, and the kill control the proxyd route takes
-// over from dashd along with the prefix (6/28, 6/30).
+// over from dashd along with the prefix (dashd/README.md).
 func TestDashboardAndItsControlAreServedByRuned(t *testing.T) {
 	_, db, h := dashSrv(t)
 	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r1", Folder: "acme", ContainerName: "c1",

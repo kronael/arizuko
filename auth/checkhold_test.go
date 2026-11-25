@@ -111,7 +111,7 @@ func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 	}
 }
 
-// Spec 6/26 § Decision 5. A skip-approval row (`effect='deny'` on a `hold:`
+// template/web/pub/arizuko/reference/grants.html. A skip-approval row (`effect='deny'` on a `hold:`
 // row) is the ONLY way an "always allow this shape" answer can be expressed:
 // it denies the hold, not the tool. Without it CheckHold had no exception at
 // all, and the obvious alternative — an allow row on plain `mcp:<tool>` — is

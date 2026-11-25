@@ -1,5 +1,5 @@
 // Package proxycfg renders arizuko's proxyd_routes rows as an off-the-shelf
-// proxy's configuration (spec 6/22 step 2).
+// proxy's configuration (proxycfg/README.md).
 //
 // It is a second READER of one declaration, never a second format: the rows are
 // written by `arizuko generate` (store.SyncProxydRoutes) and read by proxyd's
@@ -52,7 +52,7 @@ func Caddyfile(routes []store.ProxydRoute, opts Options) (string, error) {
 	sort.SliceStable(kept, func(i, j int) bool { return len(kept[i].Path) > len(kept[j].Path) })
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Generated from proxyd_routes by arizuko (spec 6/22 step 2).\n")
+	fmt.Fprintf(&b, "# Generated from proxyd_routes by arizuko (proxycfg/README.md).\n")
 	fmt.Fprintf(&b, "# Edits are overwritten; change the rows, not this file.\n")
 	fmt.Fprintf(&b, "%s {\n", opts.Listen)
 	for _, r := range kept {
@@ -85,7 +85,7 @@ func renderRoute(b *strings.Builder, r store.ProxydRoute, opts Options) error {
 	fmt.Fprintf(b, "\t%s %s {\n", directive, matcher(r.Path))
 	if authenticated(r.Auth) {
 		if opts.ForwardAuth == "" {
-			fmt.Fprintf(b, "\t\t# REFUSED: auth=%q needs a forward-auth endpoint (6/22 step 3);\n", r.Auth)
+			fmt.Fprintf(b, "\t\t# REFUSED: auth=%q needs a forward-auth endpoint (proxycfg/README.md);\n", r.Auth)
 			fmt.Fprintf(b, "\t\t# rendering the proxy hop without it would serve this route unauthenticated.\n")
 			b.WriteString("\t\trespond 503\n\t}\n")
 			return nil

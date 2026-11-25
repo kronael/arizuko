@@ -1,13 +1,13 @@
 package resreg
 
 // entity.go is the OBJECT path: how the engine reads and writes a resource
-// whose rows are objstore items (spec 6/37 step 6, BUGS L259).
+// whose rows are objstore items (resreg/README.md, BUGS L259).
 //
 // THERE IS ONE SHAPE PER RESOURCE AND THE RESOURCE DECLARES IT
 // (Resource.EntitySortKey); the engine never probes the storage and never
 // falls back, because two paths for one table drift. THE COORDINATE IS A
 // LIST joined by a declared separator, and a value carrying the separator is
-// refused at WRITE (spec 6/40 §1). An attribute an item does not carry is
+// refused at WRITE (resreg/README.md). An attribute an item does not carry is
 // ABSENT, the only null, so a nullable value needs no COALESCE and no
 // ColumnOverride. WHAT IT REFUSES it refuses at Register, so a misdeclared
 // resource stops the binary rather than answering a wrong row later.
@@ -64,7 +64,7 @@ type entityMeta struct {
 // entityScope is the read that stands in for a scoped delete. An entity has
 // no predicate delete, so a scoped delete is a QUERY and then one guarded
 // delete per item, which is why it belongs inside the versioned replace (spec
-// 6/40 §3). Three shapes, picked by the DECLARATION at Register: an attribute
+// resreg/README.md). Three shapes, picked by the DECLARATION at Register: an attribute
 // is a Where term; a sort key is an exact key; the first field of a composite
 // coordinate is a begins_with on `scope+sep`, exact because no value may
 // carry the separator.
@@ -621,7 +621,7 @@ func requireEntities(subsystem string) error {
 
 // EntityMaker is a driver that needs its entities declared before they answer.
 // An engine with no DDL implements it as a no-op, which is why it is not on
-// objstore.Store: schema is driver-local (spec 6/40).
+// objstore.Store: schema is driver-local (resreg/README.md).
 type EntityMaker interface {
 	CreateEntity(ctx context.Context, entity string) error
 }
@@ -657,7 +657,7 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 
 // --- the apply ----------------------------------------------------------
 
-// applyEntities is Apply as the versioned replace of spec 6/40 §3. There is
+// applyEntities is Apply as the versioned replace of resreg/README.md. There is
 // no pre-image and no rollback: a replace that dies after writing leaves the
 // subsystem PART-APPLIED with its claim held, and recovery is to run the same
 // apply again. THE ROLL-FORWARD IS THE SAME CALL: re-running carries the

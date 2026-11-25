@@ -14,15 +14,14 @@ control API; the API ships before the products that depend on it.
 
 ## Specs
 
-| Spec                                             | Status      | Hook                                                                                                                             |
-| ------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| [A-socials-daemon.md](A-socials-daemon.md)       | planned     | Broadcast platforms leave chanlib for one socials-daemon MCP surface (decision 2026-07-13).                                      |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in the agent container → MCP `file_event` → SSE + audit.                                                |
-| [4-chat-web-app.md](4-chat-web-app.md)           | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                                                 |
-| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                                                    |
-| [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                                                |
-| [→ 6/27-git-channel](../6/27-git-channel.md)     | moved       | `gitd` is a channel adapter — platform, not a product; moved 2026-08-25 to the active platform phase, beside its sibling `6/26`. |
-| [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher.                          |
+| Spec                                             | Status      | Hook                                                                                                    |
+| ------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------- |
+| [A-socials-daemon.md](A-socials-daemon.md)       | planned     | Broadcast platforms leave chanlib for one socials-daemon MCP surface (decision 2026-07-13).             |
+| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in the agent container → MCP `file_event` → SSE + audit.                       |
+| [4-chat-web-app.md](4-chat-web-app.md)           | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                        |
+| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                           |
+| [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                       |
+| [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher. |
 
 ## Product catalog
 
@@ -35,7 +34,7 @@ spec file:
 
 A product earns a spec file here only when it carries a design decision
 those three cannot express (none currently — the `github` product's one
-decision, gitd, is a platform spec: [6/27](../6/27-git-channel.md)).
+decision, gitd, is platform: `gitd/README.md`).
 
 ### Unshipped product ideas
 
@@ -53,7 +52,7 @@ No `packages/` template, no page — intent only, kept as lines:
 
 The HITL firewall ([5/19](../5/19-hitl-firewall.md)) shipped 2026-08-07 and
 no longer blocks `creator`/`socials`. What remains: per-channel budgets
-([6/39-gateway-owns-spend](../6/39-gateway-owns-spend.md), the
+(`routd/README.md`, the
 cap the gateway enforces)
 gate `support` and `socials`.
 

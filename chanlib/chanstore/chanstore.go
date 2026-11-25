@@ -1,10 +1,10 @@
 // Package chanstore is chanlib's storage layer: every channel adapter asks it
 // what a delivery needs and it answers, so a second driver reimplements this
-// package and no adapter changes (spec 6/37 step 1).
+// package and no adapter changes (objstore/README.md).
 //
 // It holds no SQL and no DDL. Every method below is objstore's two primitives —
 // Query and GuardedBatch — and the driver is chosen by whoever opens the
-// adapter's database, never in here (spec 6/37 step 5). An entity is a name a
+// adapter's database, never in here (objstore/README.md). An entity is a name a
 // driver resolves however it must, so there is no migration chain: preparing
 // the storage is asking the driver for the entities this package declares, and
 // asking twice is a no-op.
@@ -14,7 +14,7 @@
 // messages is this adapter still holding"; `file_urls` answers "what platform
 // URL does this proxied attachment id stand for"; `ack_marks` answers "which
 // message carries this chat's acknowledgement mark". No operation spans them,
-// so they get a file each (6/37 rule 1) and no file needs another's coordinate.
+// so they get a file each (objstore/README.md) and no file needs another's coordinate.
 //
 // One database per adapter holds all four. chanlib SHIPS the entities; the FILE
 // belongs to the adapter daemon, one per service, so an adapter stays
@@ -78,7 +78,7 @@ const tsWidth = 30
 type Store struct{ s objstore.Store }
 
 // New wraps a driver. Whoever opens the adapter's database picks which one; this
-// package never names it, which is the whole point of the seam (spec 6/37).
+// package never names it, which is the whole point of the seam (objstore/README.md).
 func New(s objstore.Store) *Store { return &Store{s: objstore.WithIndexes(s, inboundIndex{})} }
 
 // point is the read that addresses ONE item and applies no predicate. It answers

@@ -6,7 +6,7 @@ package authstore
 // holds ONE item per lineage, sorted by the family id, with `revoked_at` — the
 // tombstone that makes a family killable — plus the two numbers a session
 // listing needs. A family is one item, so revocation is a single guarded
-// write (spec 6/40 §"What authd asks"), and a successor is a member of its
+// write (authd/README.md), and a successor is a member of its
 // family, so a dead family has no live member to leak (BUGS F36).
 
 import (
@@ -178,7 +178,7 @@ const maxSessionsLimit = 200
 
 // SessionsByFamily lists one row per family — a login and everything it
 // rotated into. An empty sub means every family. The two numbers are
-// attributes the rotation sets in the batch it was making anyway (spec 6/40
+// attributes the rotation sets in the batch it was making anyway (authd/README.md
 // §"What authd asks", item 1). The order is applied here: the sort key is the
 // family id because revocation addresses one, and a family's POSITION changes
 // on every rotation while its identity does not.

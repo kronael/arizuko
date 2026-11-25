@@ -256,8 +256,8 @@ optional fields are omitted, and a document needs its backend. There are no
 backend, effort or model lists, per-key inheritance controls, or
 effective-value resolver in Go. GET exposes the saved document for reload.
 dashd saves through the store as the operator (`dashd/groups_admin.go`), not
-through `/v1`. The two specs disagree: `specs/6/29-dashd-hub.md` §"The WRITES stay
-on the DB, by rule" keeps operator writes on the store so the audit row names the
+through `/v1`. The two docs disagree: `dashd/README.md` § "Which door each page reads
+through" keeps operator writes on the store so the audit row names the
 operator, which a `service:dashd` bearer cannot do, and this spec says dashd
 calls the groups update through `/v1` with the caller's authority. That is the
 owner's decision (BUGS `L903`); until it is made the write stays on the store.

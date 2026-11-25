@@ -8,7 +8,7 @@ import (
 )
 
 // reconcileCaps moves the gateway onto arizuko's cap policy before the turn's
-// key is minted (spec 6/39). The gateway enforces: LiteLLM refuses a model call
+// key is minted (routd/README.md). The gateway enforces: LiteLLM refuses a model call
 // over a team or user budget, so routd compares no spend and refuses nothing.
 // It keeps the gateway's rows in step with the operator's caps, and creates the
 // folder's team when the gateway has none (every model call needs it). A non-nil

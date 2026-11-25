@@ -64,6 +64,10 @@ must be contained on the window's claiming folder, and its audit row names
 `service:dashd`. An approval verdict releases the original suspended call,
 and dashd forwards the reviewer's sub as a parameter.
 
+**A page adds no API.** A daemon's own page calls the same readers as
+its `/v1` handlers. When dashd needs a read that no owner route serves,
+the owner gets a new `/v1` route, and dashd adds no private endpoint.
+
 **Reads go over the owner's `/v1` where the owner serves the read.** Two
 read paths to one consumer drift. The exception: the owner refuses to
 serve the read. `/dash/me/secrets` and `/dash/me/env` list key names from
@@ -118,8 +122,8 @@ their owners. `davd` serves none, `davd/README.md`.
 - **Memory edits** (2): `PUT|DELETE /dash/memory/` — admin-gated writes to allow-listed group files (`MEMORY.md`, `.claude/CLAUDE.md`, flat `*.md` under `diary/`, `facts/`, `users/`, `episodes/`). Symlink-escape hardened. No locking — last write wins, and the agent re-reads its files at session start.
 - **Per-user secrets** (4): `GET|POST /dash/me/secrets`, `PATCH|DELETE /dash/me/secrets/{key}` — capability credentials (e.g. `GITHUB_TOKEN`); identity-bound to `X-User-Sub`; writes require same-origin and are sealed at rest under `SECRETS_KEY`. `GET` serves an HTML management page (Accept `text/html`) and JSON otherwise. (`me_secrets.go`)
 - **Per-user env-profile keys** (4): `GET|POST /dash/me/env`, `PATCH|DELETE /dash/me/env/{key}` — the model credentials (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`); user-scoped only, a user's key overrides the operator default for their spawns. Same identity-bound + sealed-at-rest treatment as secrets. (`me_env.go`)
-- **Tasks** (3): `GET /dash/tasks/{id}`, `POST /dash/tasks/`, `POST /dash/tasks/{id}/{action}` — detail, create, pause/resume/cancel. (`tasks_admin.go`) The create form checks the schedule with `core.NextRun` only and stores no `next_run`, so it refuses an RFC3339 one-shot that routd's `parseTaskSchedule` accepts from the agent's `schedule_task`: one schedule, accepted on one face and refused on the other.
-- **Routes editor** (5): `GET|POST /dash/routes/`, `PATCH|DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` — admin-gated CRUD. The GET also renders the **Unrouted chats** section for the operator only (`**`): every chat routd holds because no rule claims it, read from routd's `GET /v1/routing/unrouted`, each with a claim form that posts the same `POST /dash/routes/` write. Operator-only is load-bearing — a held chat belongs to no folder, so no folder admin has a claim to see it. (`routes_admin.go`)
+- **Tasks** (3): `GET /dash/tasks/{id}`, `POST /dash/tasks/`, `POST /dash/tasks/{id}/{action}` — detail, create, pause/resume/cancel. (`tasks_admin.go`) The create form and the agent's `schedule_task` read the schedule through one function, `core.ParseTaskSchedule`, so both faces accept the same values.
+- **Routes editor** (5): `GET|POST /dash/routes/`, `PATCH|DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` — admin-gated CRUD. The GET also renders the **Unrouted chats** section for the operator only (`**`): every chat routd holds because no rule claims it, read from routd's `GET /v1/routing/unrouted`, each with a claim form that posts the same `POST /dash/routes/` write. Operator-only is load-bearing — a held chat belongs to no folder, so no folder admin has a claim to see it. When routd does not answer, the section shows an error banner and not an empty table, because "no unrouted chats" is a statement the operator acts on. (`routes_admin.go`)
 - **Groups CRUD** (8; the delete route removes nothing: it answers 409 with the command `arizuko group -i <instance> rm <folder>`, because a purge also removes grants that bind outside the folder, and admin on one folder does not give that right): `GET|POST /dash/groups/new`, `GET|POST /dash/groups/{folder...}` (dispatchers to settings/delete/grants), `DELETE /dash/groups/{folder...}`, `GET /dash/groups/{folder}/tools|grants`, `POST /dash/groups/{folder}/grants|grants/revoke` — admin-gated. The settings page writes the handler in `groups.config.agent` and the group's harness document in `groups.config.harness`. The harness form has free-text backend, model and effort fields and a "Use instance defaults" control; saving builds one document from the non-blank fields, which needs a backend, and the control removes the setting. dashd saves through the store as the operator, so the audit row names the operator, and not through `PATCH /v1/groups/{folder}`. Skill toggles create/remove `.disabled` markers. (`groups_admin.go`, `grants_admin.go`, `tools_admin.go`)
 - **Route tokens** (2): `GET /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — list + revoke, NO MINT. Reads scope-filtered; revoke admin-gated. Issuance belongs to the resource owner — routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link`/`issue_webhook`/`issue_pairing_link`, and `arizuko token`. The cockpit exposes no token mint form. (`route_tokens.go`)
 - **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
@@ -259,8 +263,7 @@ Opening routd's store fails boot; an unavailable optional onbod owner produces a
 Grep `open routd's store`, `dashd started`, `store unavailable`, and request errors for the failing /v1 path.
 `GET /metrics` reports HTTP request count and duration when enabled; `/health` tests only process liveness.
 
-Known limits include the grant form's delegation checks ([BUGS L540](../BUGS.md)), one-shot schedule validation ([BUGS L485](../BUGS.md)),
-and the pairing proxy's service identity ([BUGS L492](../BUGS.md)).
+Known limits include the grant form's delegation checks ([BUGS L540](../BUGS.md)) and the pairing proxy's service identity ([BUGS L492](../BUGS.md)).
 Tests exercise gates and stubbed API reads; local documentation checks do not render a live operator session.
 
 Sources: [boot and routes](main.go), [service probes](services.go), [WhatsApp proxy](channels.go),

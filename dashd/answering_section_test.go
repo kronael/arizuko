@@ -144,7 +144,7 @@ func TestStatus_AnsweringSectionIsOperatorOnly(t *testing.T) {
 }
 
 // TestStatus_AnsweringSectionSaysWhenRoutdIsUnreachable — an unreachable owner
-// is an ERROR, never empty data (6/29). "Nobody is waiting" is the false calm
+// is an ERROR, never empty data (dashd/README.md). "Nobody is waiting" is the false calm
 // this whole section exists to stop, so it must never be what a dead routd
 // renders as.
 func TestStatus_AnsweringSectionSaysWhenRoutdIsUnreachable(t *testing.T) {
@@ -162,7 +162,7 @@ func TestStatus_AnsweringSectionSaysWhenRoutdIsUnreachable(t *testing.T) {
 // The session tally on the same page dropped an unreachable routd to a
 // slog.Warn and rendered nothing, so an absent session table read as "no
 // sessions" — a false statement an operator acts on, and exactly the failure
-// mode spec 6/29 names. One page cannot hold two answers to "what does a dead
+// mode dashd/README.md names. One page cannot hold two answers to "what does a dead
 // routd look like" (BUGS L325).
 func TestStatus_SessionCountsSayWhenRoutdIsUnreachable(t *testing.T) {
 	d, _ := answeringDash(t)

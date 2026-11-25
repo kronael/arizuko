@@ -10,7 +10,7 @@ import (
 )
 
 // The SSE hub's state exists only in webd's memory — a DB snapshot cannot see a
-// live subscriber, which is exactly why 6/28 puts the page in the owning daemon.
+// live subscriber, which is exactly why the page lives in the owning daemon.
 func TestHubStatusCountsLiveSubscribers(t *testing.T) {
 	h := newHub()
 	if got := h.status(); len(got) != 0 {

@@ -1,12 +1,7 @@
 ---
 status: partial
 depends:
-  [
-    ../5/9-agent-capability-eval,
-    41-qemu-substrate,
-    42-dynamo-over-postgres,
-    23-llm-gateway,
-  ]
+  [../5/9-agent-capability-eval, 41-qemu-substrate, 42-dynamo-over-postgres]
 ---
 
 # specs/6/50 — anteval runs against an instance it creates
@@ -117,7 +112,7 @@ The run refuses an existing data directory or Compose project.
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Identity and data | `anteval-<run id>` is the explicit instance name. The CLI resolves its data directory under `ARIZUKO_DATA_DIR` and declares the Compose project and network identities.                                                                                                                                                                                                        |
 | Services          | Use the release's normal package installation and Compose generation.                                                                                                                                                                                                                                                                                                          |
-| Store             | Use one isolated account on an explicitly configured external test store, through `arizuko store enroll`. The account owns all eval tables and credentials. The server serves no user instance and follows `43-shared-store-server.md`; no private store package or dev-store variant.                                                                                         |
+| Store             | Use one isolated account on an explicitly configured external test store, through `arizuko store enroll`. The account owns all eval tables and credentials. The server serves no user instance and follows `INSTALL.md` § "The store server holds every table of the instance"; no private store package or dev-store variant.                                                 |
 | Configuration     | Write the new instance's `.env` using existing CLI configuration keys. Allocate separate host ports and a declared, nonoverlapping `RUNED_VSOCK_CID_BASE` / `RUNED_VSOCK_PORT_BASE` window. Add no eval-specific copies of these keys.                                                                                                                                         |
 | Release assets    | Rootfs and kernel assets from the release are read-only. Mutable guest state belongs to the new instance.                                                                                                                                                                                                                                                                      |
 | Model and gateway | Supply the credential the backend needs explicitly: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude, `HOST_CODEX_DIR` naming a login with `auth.json` for Codex. A missing one fails before creation and names the backend. Install the normal gateway package for case cost and settle checks; a Codex run runs direct. Never copy another instance's credential. |

@@ -839,8 +839,8 @@ List and revoke a group's web chat and webhook tokens.
 routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link` /
 `issue_webhook` / `issue_pairing_link`, and `arizuko token`. A mint form here
 was a second writer over `route_tokens` carrying its own label validation
-(BUGS `V2`; spec `6/30` §webd: "There is no token minting anywhere in the
-cockpit"). Revocation stays: it is the action an operator needs where the
+(BUGS `V2`; `dashd/README.md` § What it does not do: the cockpit mints
+nothing). Revocation stays: it is the action an operator needs where the
 status is shown (design principle 6).
 
 #### User stories
@@ -1174,7 +1174,7 @@ p.dim: Enter this code in WhatsApp → Linked Devices → Link a device.
 Each daemon serves its own control plane and dashd only links to it:
 `/dash/routd/`, `/dash/runed/`, `/dash/authd/` and `/dash/proxyd/` are
 mounted by routd, runed, authd and proxyd, and proxyd routes each prefix to
-the owning daemon (spec [6/30](specs/6/30-per-daemon-dashboards.md)). Their
+the owning daemon (`dashd/README.md`). Their
 screens are specified next to the source, not here; `dashd/services.go`
 carries the link row for each.
 

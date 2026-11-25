@@ -1,6 +1,6 @@
 package main
 
-// Dex login, spec 6/22 step 4: Dex authenticates, authd maps the ID token to a provider principal.
+// Dex login, authd/README.md: Dex authenticates, authd maps the ID token to a provider principal.
 
 import (
 	"context"

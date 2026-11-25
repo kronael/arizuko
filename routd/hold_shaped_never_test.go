@@ -1,6 +1,6 @@
 package routd
 
-// Spec 6/26 gap 2.3: a SHAPED `never` cannot work, so no surface may offer one.
+// template/web/pub/arizuko/reference/grants.html: a SHAPED `never` cannot work, so no surface may offer one.
 //
 // The hold path passes arguments — holdGate hands CheckHold stringArgs(args) —
 // but the authz path does not: ipc's granted() calls authorizeCall(name, nil),

@@ -2,9 +2,7 @@
 status: partial
 depends:
   [
-    27-git-channel,
     45-gdrive-comments-channel,
-    31-adapter-contract,
     ../5/24-live-tasklist-status,
     ../5/34-channel-protocol,
   ]
@@ -381,7 +379,7 @@ render no presence. A sink with a native indicator does not add a mark.
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
 `typing` being the one verb it does not probe. googd and gitd edit and delete
 only the reply or comment they posted (`specs/6/45-gdrive-comments-channel.md`
-§"Decision 3", `specs/6/27-git-channel.md`).
+§"Decision 3", `gitd/README.md` § "Reply").
 
 ## Checkpoint and continuation
 
@@ -488,7 +486,7 @@ slakd and gitd call from their `Typing`. The helper owns the mark's state:
   read as a whole at boot;
 - a boot sweep (`AckMark.Sweep`) that removes every persisted mark older than
   `chanlib.DefaultTypingMaxTTL`, which clears the residue a crash leaves
-  (`specs/6/27-git-channel.md §"Typing indicator"`), and re-arms the backstop of
+  (`gitd/README.md` § "Typing"), and re-arms the backstop of
   a younger one, because its turn may still be running and routd's
   `Typing(off)` will come;
 - the same TTL backstop per mark while the process lives.
@@ -563,9 +561,9 @@ The port stays `Typing(jid, on)` and the helper records the trigger candidate at
 passes (`RouterClient.postInbound`), which covers a message replayed from
 retention and keeps the two-messages-in-one-chat guess.
 
-## What this changes in 6/27 and 6/45
+## What this changes in gitd and 6/45
 
-`specs/6/27-git-channel.md §"Channel messages and repository tools"` and
+`gitd/README.md` § "Reply" and
 `specs/6/45-gdrive-comments-channel.md §"Decision 3 — the thread reply, and
 changes to the agent's own replies"` carry the same line:
 
@@ -578,7 +576,7 @@ Under that line a progress message, its edits and deletion, and the `👀` mark 
 plumbing with the authority the reply already has; `comments.update` on a
 human's comment and `action=resolve` are not. Concretely:
 
-- `6/27`: `capsFor` advertises `send_text`, `send_file`, `typing`, `edit` and
+- gitd: `capsFor` advertises `send_text`, `send_file`, `typing`, `edit` and
   `delete` with the token, so GitHub shows the `👀` mark and one status
   comment. §"Typing indicator" there is the rendering (`👀` through the shared
   helper, the two reaction endpoints) and points here for the mechanism.

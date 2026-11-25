@@ -82,5 +82,3 @@ A codex call does not go through the model gateway, so no spend cap
 covers it. The operator sees it on OpenAI's invoice and nowhere else.
 Treat `/oracle` as spending real money that no limit will stop, and
 use it when the answer is worth that.
-
-Spec: `specs/6/39-gateway-owns-spend.md`.

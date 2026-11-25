@@ -616,7 +616,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}
 	}
 
-	// The turn's own virtual key at the model gateway (spec 6/23): TTL = the run
+	// The turn's own virtual key at the model gateway (routd/README.md): TTL = the run
 	// ceiling, attributed to the folder and the caller, revoked by the deferred
 	// delete. The alias ends in random hex because a retry re-dispatches the
 	// SAME turn_id. The gateway's team and caps are reconciled first, since the

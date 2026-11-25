@@ -4,7 +4,7 @@ package runstore
 // spawn, the execution-session envelope routd claims a folder's run slot with.
 //
 // THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE RUN ID, not the folder
-// 6/37 rule 1 predicted: six operations address a spawn by its run id and
+// objstore/README.md § Modelling a table as items predicted: six operations address a spawn by its run id and
 // hold no folder at all, and Start, End and Kill are guarded transitions,
 // which name ONE item. The cost is that folder reads are whole-partition
 // reads with an attribute filter and newest-first order is applied by the
@@ -54,7 +54,7 @@ func init() { objstore.OrderedAttr(Spawns, attrCreatedAt, tsWidth) }
 
 // Spawn is one container spawn. Kind selects the Manager.Run post-claim
 // executor (spec 5/8). SessionLogID is a string because the session log's
-// identity is its sort key (6/37 rule 4).
+// identity is its sort key (objstore/README.md).
 type Spawn struct {
 	RunID         string
 	Folder        string
@@ -210,8 +210,8 @@ func (s *Store) KillSpawn(ctx context.Context, runID string) error {
 	return nil
 }
 
-// LinkSessionLog records which session-log item a run opened: 6/37 rule 3's
-// duplicated key rather than an embed, because the session log is read on its
+// LinkSessionLog records which session-log item a run opened: a
+// duplicated key (objstore/README.md) rather than an embed, because the session log is read on its
 // OWN, a folder at a time, and nothing reads it through the spawn. The id is
 // a sort key inside the spawn's OWN folder partition.
 func (s *Store) LinkSessionLog(ctx context.Context, runID, logID string) error {

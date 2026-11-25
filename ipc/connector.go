@@ -36,7 +36,7 @@ const GitHubInstallationToken = "GITHUB_INSTALLATION_TOKEN"
 type ConnectorSpec struct {
 	Name string `toml:"name"`
 	// Transport is "mcp" (this file) or "rest" (routd/ext.go). One block shape,
-	// two dispatch paths, spec 6/19. Empty means mcp: the transport that
+	// two dispatch paths, EXTENDING.md. Empty means mcp: the transport that
 	// discovers its own catalogue is the one a bare block cannot be mistaken for.
 	Transport string `toml:"transport"`
 	// URL is the server's streamable-HTTP MCP endpoint.

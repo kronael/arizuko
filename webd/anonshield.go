@@ -10,7 +10,7 @@ import (
 )
 
 // The anonymous DoS shield for the route-token surface (`/chat/`, `/hook/`).
-// It lived in proxyd's dispatchRouteToken until specs/6/22 step 1 moved the
+// It lived in proxyd's dispatchRouteToken until the route-token surface moved
 // surface here; the algorithm is unchanged.
 
 // clientIP is the caller's address as proxyd resolved it. proxyd rewrites
@@ -100,7 +100,7 @@ func (rl *anonShield) allow(key string) bool {
 // exactly the callers proxyd's tryAuth used to admit past the shield.
 //
 // This is a DoS shield, not metering: spend is governed by cost caps
-// (spec 6/39-gateway-owns-spend). The per-token ceiling in ratelimit.go is the orthogonal
+// (routd/README.md). The per-token ceiling in ratelimit.go is the orthogonal
 // it bounds a single chat's traffic, this bounds a single address's.
 func (s *server) shieldAnon(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

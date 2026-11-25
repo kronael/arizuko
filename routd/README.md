@@ -73,6 +73,10 @@ the due pointer; reschedule writes the next one. Startup migrates existing
 task rows once before starting the scheduler.
 The ID `sched-<taskID>@<scheduled-time>` keeps repeated fires identical.
 A failed one-time enqueue retains its scheduled time for retry.
+One function reads a schedule that a person or an agent types, `core.ParseTaskSchedule`.
+An RFC 3339 time is a one-shot and carries its own `next_run`. Any other value must be a cron
+that `core.NextRun` accepts, and the store writes the `next_run` of a cron task.
+The `schedule_task` tool and the dashd create form both call it, so both accept the same values.
 
 The router cancellation context stops the loop, and shutdown joins the loop
 before closing the store. The router dashboard shows the last tick, firing
@@ -237,11 +241,23 @@ When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keep
 - **A gateway failure is a dependency outage.** When the reconcile or the key mint fails, routd
   returns `ErrDependencyDown` (`dispatch.go`). No guest starts, and routd feeds the batch again. A
   turn never runs without a meter. A failed spend read is an error and never an empty spend.
+- **routd mints, and runed never holds the master key.** `MODEL_GATEWAY_URL` and `MODEL_GATEWAY_KEY` are one
+  declaration in the instance `.env`. Compose gives routd both values and gives runed the URL only. routd mints
+  because the folder cap and the person cap are routd rows, and runed opens no store. runed copies the key it
+  receives into the guest and lets the gateway host through the egress proxy.
+- **A key outlives a dead routd until its TTL.** routd deletes the key when the turn ends. When routd stops
+  before the delete, the TTL, which is the run ceiling, ends the key.
 - **One limit.** A gateway drops the model key of a user, with a warning in the runed log, because nothing translates it into a gateway key. BUGS `L404` tracks this limit.
 - **No gateway means no meter.** The dashboard says so, and shows no number that the agent chose. A
   cap on such an instance is enforced by nothing, and routd logs that fact on every turn.
 
 The package ships its own Postgres (`litellm_db`) for keys and spend. It holds the bookkeeping of the gateway and not the store of the instance. Every operator surface reads spend through `/v1/cost/summary`.
+
+## A turn records the harness's own usage
+
+ant reports one usage record per turn. Each model row holds `input`, `cache_read`, `cache_write`, `output` and `cost_cents`, and `input` is the uncached input on every harness. A codex row also holds `credits_spent`, `credits_balance`, `window_used_percent` and `plan_type`. routd stores the record on the turn's `turn_results` item with the outcome, together with `harness` and `metered`. `usageRows` in `turn_usage.go` is the one renderer: the log line `agent self-reported model usage`, the `turn_usage` resource and `arizuko usage` read its rows.
+
+On a metered instance the gateway holds the cost, and `cost_cents` is only the self-report. A row that disagrees with the gateway is the shape a bypassed gateway takes. On an unmetered instance the record is the only usage. `credits_spent` is the drop of the account balance across the turn, so a turn on the same account that overlaps it lands in the figure. A rollout with no credit data leaves the credit fields absent, never zero. No quota reads the record.
 
 ## State ownership
 

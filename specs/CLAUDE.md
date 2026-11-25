@@ -94,12 +94,12 @@ fails loudly when it stops being true.
 A spec is a claim. When an open bug says the claim is false, the frontmatter
 says so too: `status: defected` plus `defects: [L199, L200]`, and the phase
 index row matches. It goes back to `shipped` when the bug closes — `649016d9`
-did exactly that for `6/40` when `L252` was fixed.
+did exactly that for the store-surface spec when `L252` was fixed.
 
 `defected` and `partial` are different axes and both can carry `defects:`.
 `partial` means not fully built; `defected` means built and contradicted. So
-`6/43` is `partial` with `defects: [L319]`: the enrolment path was never built,
-and `L319` is what blocks it.
+a spec can be `partial` with `defects: [L319]`: part of it is unbuilt, and
+`L319` is what blocks it.
 
 This is not a style note. 22 of 50 phase-5 specs were marked this way on
 2026-08-09, and the day closed at 9 defected — a status is a claim, so a spec

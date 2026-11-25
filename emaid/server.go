@@ -320,7 +320,7 @@ func fetchMsgToInbound(
 }
 
 // DashSections is emaid's per-adapter delta on the shared adapter dashboard
-// (spec 6/32). The shared page says connected or disconnected; for email that
+// (emaid/README.md). The shared page says connected or disconnected; for email that
 // is not enough to act on, and BUGS L62 is the proof — marinade's emaid sat
 // IMAP-auth-failing for three days, and the only visible symptom was an
 // unhealthy container. WHICH account against WHICH host is what turns that into

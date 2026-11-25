@@ -311,7 +311,7 @@ steps:
         job: reconcile the pi row with delivery through submit_turn
         names: ['Day one, per harness']
         never: retain the pi selection refusal as target behavior
-      - path: specs/6/23-llm-gateway.md (changed)
+      - path: routd/README.md (changed)
         job: reconcile native provider configuration with measured gateway behavior
         names: ['registerGateway']
         never: erase the measured vendor entitlement restriction

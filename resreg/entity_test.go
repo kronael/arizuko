@@ -488,7 +488,7 @@ func TestEntity_EnsureSubsystemIsQuietWithNoEntityBackedResource(t *testing.T) {
 //
 // network_rules is keyed (folder, target) and installed_packages (folder,
 // name), so a coordinate is a LIST of fields joined by a declared separator
-// (spec 6/40 §1). The bodies below pin the three things that makes true: the
+// (resreg/README.md). The bodies below pin the three things that makes true: the
 // tuple survives the round trip through the key, an instance-wide row whose
 // first field is empty still has a coordinate, and a value carrying the
 // separator is REFUSED rather than joined.
@@ -689,7 +689,7 @@ func TestEntity_RegisterRefusesAMisdeclaredCoordinate(t *testing.T) {
 // routes is keyed (seq, target, match) and `seq` is an integer. A key is
 // compared as TEXT, so the rendering has to make byte order and numeric order
 // the same thing — the rule objstore.OrderedSort enforces for an instant
-// (BUGS L97), applied to a number (spec 6/40 §"The four coordinates").
+// (BUGS L97), applied to a number (resreg/README.md).
 
 // PaddedRow is that coordinate in miniature: a number first, a string second.
 type PaddedRow struct {
@@ -833,7 +833,7 @@ func TestEntity_RegisterRefusesAMisplacedPadding(t *testing.T) {
 // Six routd resources declare StampedFields so the engine fills created_at on
 // insert (BUGS F49). An entity has no engine between the caller and the item,
 // so the storage layer stamps it — and the declaration stays, because it is
-// what tells an operator's manifest the field is not theirs to set (spec 6/40
+// what tells an operator's manifest the field is not theirs to set (resreg/README.md
 // §"What a registered resource still needs", answer 2).
 
 // StampedRow is a synthetic resource with one server-owned instant.
@@ -1024,7 +1024,7 @@ func TestEntity_RegisterRefusesAMintedNumberOnAScopedResource(t *testing.T) {
 // A filter narrows the manifest-visible projection, and the SAME declaration has
 // to narrow the read and both deletes: a filter the read honours but a delete
 // does not widens that delete past the projection it was computed from. On this
-// path a delete set is a READ, so all three are one Where (spec 6/40 answer 6).
+// path a delete set is a READ, so all three are one Where (resreg/README.md).
 
 // FilteredRow carries a scope and the attribute its own filter compares.
 type FilteredRow struct {
@@ -1201,8 +1201,7 @@ func TestEntity_RowFilterAttributeIsWrittenEvenWhenEmpty(t *testing.T) {
 // `acl`, `groups` and `scheduled_tasks` fill a value an operator's manifest may
 // omit — effect='allow', product='assistant', status='active' — with a declared
 // hook. An entity has no engine between the caller and the item, so the storage
-// layer applies it, exactly as it applies a stamp (spec 6/40 §"What a registered
-// resource still needs", answer 5).
+// layer applies it, exactly as it applies a stamp (resreg/README.md).
 
 // DefaultedRow is one field the writer fills when the row leaves it empty.
 type DefaultedRow struct {
@@ -1357,8 +1356,7 @@ func TestEntity_ValidateRowsRefusesBeforeTheWipe(t *testing.T) {
 // []string` and `strip_prefix bool` do not survive as items without a rendering.
 // The claim the bodies below hold is not "it round-trips" but "the stored TEXT
 // is what the codec rendered": one renderer, so a migration carrying a table
-// into items cannot change a value on the way (spec 6/40 §"What a registered
-// resource still needs", answer 3).
+// into items cannot change a value on the way (resreg/README.md).
 
 // CodecRow is proxyd_routes' two awkward fields on their own columns — no
 // shadow column, no Hooks — plus a string to anchor the row.
@@ -1536,8 +1534,7 @@ func TestCodec_RegisterRefusesAMisdeclaredEncoding(t *testing.T) {
 // claim a cascade off `groups`, and an entity has neither a table to delete
 // from nor a foreign key (BUGS L253). A folder purge becomes a Query on the
 // scope plus guarded deletes, and for Apply those deletes ride INSIDE the
-// replace's claimed scope rather than beside it (spec 6/40 §"What a registered
-// resource still needs", answer 4).
+// replace's claimed scope rather than beside it (resreg/README.md).
 
 // ScopedRow scopes on an ATTRIBUTE: web_routes' shape, keyed on path_prefix
 // with the folder beside it.

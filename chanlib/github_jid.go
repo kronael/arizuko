@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// GitHubJID is a parsed GitHub JID (spec 6/27):
+// GitHubJID is a parsed GitHub JID (gitd/README.md):
 //
 //	github:<owner>                    account/org-level event (no repository)
 //	github:<owner>/<repo>             repo-level event

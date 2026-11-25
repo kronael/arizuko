@@ -17,7 +17,7 @@ import (
 // usageRoutdDB is a migrated routd.db seeded with the given group folders. The
 // page reads groups and messages from here and the spend from routd's
 // /v1/cost/summary, which the stub answers from stubMeter — the gateway holds
-// that number and no SQLite does (spec 6/39).
+// that number and no SQLite does (routd/README.md).
 func usageRoutdDB(t *testing.T, folders ...string) objstore.Store {
 	t.Helper()
 	db := routdDB(t)
@@ -100,7 +100,7 @@ func TestUsageWithCost(t *testing.T) {
 
 // An instance with no model gateway has no meter, so the page says so instead
 // of drawing $0.00 — a zero there reads as "nothing was spent", which is a
-// measurement nobody took (spec 6/39).
+// measurement nobody took (routd/README.md).
 func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
 	stubMeter(t, false)

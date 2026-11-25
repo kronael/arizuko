@@ -11,7 +11,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// cmdBudget manages per-folder and per-user cost caps. Spec 11/19-cost-caps, 6/39.
+// cmdBudget manages per-folder and per-user cost caps. Spec 11/19-cost-caps, routd/README.md.
 //
 // The cap is arizuko's policy and lives in ROUTD.DB
 // (`groups.cost_cap_cents_per_day` / `user_profiles.cost_cap_cents_per_day`);

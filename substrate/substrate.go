@@ -6,7 +6,7 @@
 //
 // Every Profile field is a bool or an enum and the package imports nothing: a
 // field holding a folder, a grant or an allowlist could carry policy, and
-// policy belongs to arizuko, never to the substrate (6/16).
+// policy belongs to arizuko, never to the substrate (substrate/README.md).
 package substrate
 
 // Backend names the mechanism that runs a workload.

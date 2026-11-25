@@ -24,8 +24,8 @@ import (
 // stubRoutd stands in for routd's /v1 read face, serving from the SAME
 // routd.db the test seeds.
 //
-// It exists because spec 6/28 moved dashd's reads off direct DB access: the
-// pages ask routd now, so a test that seeds routd.db and renders a dashd page
+// It exists because dashd reads over the owner's /v1 (dashd/README.md): the
+// pages ask routd, so a test that seeds routd.db and renders a dashd page
 // needs something to answer. tests/testutils ships no routd server, and
 // standing the real one up here would drag its whole dependency graph into
 // dashd's tests.
@@ -182,7 +182,7 @@ func stubRoutd(t *testing.T, db objstore.Store) string {
 		writeStubJSON(w, out)
 	})
 
-	// The held set (spec 6/35-unrouted-traffic): chats with inbound rows that the route table
+	// The held set (ROUTING.md § Unrouted chats are held): chats with inbound rows that the route table
 	// does not claim and that address no folder directly. The verdict is
 	// router.ResolveRoute over the chat's last inbound row — the evaluator
 	// routd's loop calls at its route-table step — so the stub cannot list a
@@ -278,7 +278,7 @@ func stubRoutd(t *testing.T, db objstore.Store) string {
 
 	// The spend axis. routd answers it from the model gateway, which is the
 	// ledger — the numbers are in nobody's SQLite, so the stub serves what a test
-	// seeds through stubMeter rather than reading a table (spec 6/39).
+	// seeds through stubMeter rather than reading a table (routd/README.md).
 	//
 	// `since` is REQUIRED by routd — a summary with no window reports a lifetime
 	// total as if it were current — so the stub refuses it too, or a page that

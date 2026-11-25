@@ -318,7 +318,7 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 // the waiter that suspended the call runs it itself. `standing` is NOT a third
 // status: the standing answer lives in acl. `never` is deliberately absent:
 // acl rows carry no verdict identity, so a revoke could not tell its deny
-// from standing policy (spec 6/26). WHO MAY ANSWER is decided HERE, on the
+// from standing policy (template/web/pub/arizuko/reference/grants.html). WHO MAY ANSWER is decided HERE, on the
 // HELD ROW's folder: testing the CALLER for `**` left a world creator unable
 // to answer a hold in their own world (BUGS L271).
 func (d *DB) resolveHoldInto(ctx context.Context, ws *store.WriteSet, id, verdict, reviewer,

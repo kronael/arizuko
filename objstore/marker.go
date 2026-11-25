@@ -2,8 +2,8 @@ package objstore
 
 // marker.go is the version marker the three UNBOUNDED protocols share: the
 // versioned replace, the consistent multi-read and the reachability guard. A
-// bounded write is one GuardedBatch and needs none (spec 6/40 §"The audited
-// write").
+// bounded write is one GuardedBatch and needs none (objstore/README.md § The version
+// marker).
 //
 // The marker carries at most four attributes:
 //

@@ -185,7 +185,7 @@ A naive `resreg.MCPTools` mount that `AddTool`s unconditionally would WIDEN
 visibility, so agent-tool registration stays driven by the socket's
 `Visible` predicate (`resreg/resreg.go:422`), never by resreg policy. This
 is orthogonal to the injected gate and to the per-call firewall of
-[`6/12`](../6/12-mcp-firewall.md).
+`mcpfw` (`mcpfw/README.md`).
 
 ## One owner per table; in-process handler vs cross-daemon forwarder
 
@@ -287,7 +287,7 @@ High-rate side effect of normal operation → not.**
 - [`5/16`](16-mcp-rest-unification.md) — the adoption program.
 - [`5/8`](8-yaml-manifests.md) — the same cold-tier resources as
   declarative YAML. A different front on the same tables.
-- [`6/12`](../6/12-mcp-firewall.md) — per-call allow/deny filtering between
+- `mcpfw/README.md` — per-call allow/deny filtering between
   agent and MCP server; orthogonal to both the injected gate and the
   visibility view.
 

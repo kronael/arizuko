@@ -88,7 +88,7 @@ func TestLogSecretUse_TheIDCarriesTheInstant(t *testing.T) {
 // TestLogSecretUse_AuditPairAtomic: one call must produce BOTH the use and its
 // audit_log row — the "every event has an audit row" invariant. They are now one
 // GuardedBatch rather than one transaction, so they commit together or not at
-// all on every engine (spec 6/40).
+// all on every engine (store/README.md).
 func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 	s := openEntities(t)
 

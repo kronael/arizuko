@@ -98,7 +98,7 @@ func TestRunBudgetSet_RejectsBadScope(t *testing.T) {
 // `budget show` reports the CAP, which is arizuko's own policy row, and says
 // where the spend lives. It cannot report spend: the gateway meters it and
 // reaching it needs the master key this CLI deliberately does not hold, so a
-// number here would either be stale or be a second ledger (spec 6/39).
+// number here would either be stale or be a second ledger (routd/README.md).
 func TestRunBudgetShow_Folder(t *testing.T) {
 	s := budgetDB(t)
 	if err := s.PutGroup(core.Group{Folder: "team"}); err != nil {

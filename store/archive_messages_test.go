@@ -431,7 +431,7 @@ func TestMessagesImportRejectsMalformedJSONL(t *testing.T) {
 
 // cursorOf reads a chat's dispatch cursor through the entity, which is where it
 // lives: the fixture asserts what the poll loop would read, not what a column
-// holds (spec 6/37 step 7).
+// holds (store/README.md).
 func cursorOf(t *testing.T, st *store.Store, jid string) string {
 	t.Helper()
 	c, err := st.AgentCursor(jid)

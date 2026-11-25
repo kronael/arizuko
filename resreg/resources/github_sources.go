@@ -8,7 +8,7 @@ import (
 
 // GitHubSourcesRow mirrors github_sources MINUS the sealed secret column: the raw
 // secret is shown once at registration and the engine never selects the sealed
-// value. Apply never rebuilds this table (spec 6/27).
+// value. Apply never rebuilds this table (gitd/README.md).
 type GitHubSourcesRow struct {
 	Source      string `db:"source"       yaml:"source"       json:"source"`
 	OwnerFolder string `db:"owner_folder" yaml:"owner_folder" json:"owner_folder"`
@@ -41,12 +41,12 @@ var GitHubSourcesMCPDoc = map[resreg.Action]string{
 		"and route its events to target_folder. Returns {source, url, secret} once: paste " +
 		"url + secret into GitHub's webhook settings (content type JSON). Events land on " +
 		"github:<owner>/<repo>[/pr/<n>|/issue/<n>] JIDs; comments and new PRs/issues trigger " +
-		"a turn, everything else is observed. Edit the seeded `routes` rows to change that. Spec 6/27.",
+		"a turn, everything else is observed. Edit the seeded `routes` rows to change that. gitd/README.md.",
 	resreg.ActionList: "List the GitHub webhook sources owned by your folder. Returns " +
-		"{source, owner_folder, created_at}; secrets are never returned. Spec 6/27.",
+		"{source, owner_folder, created_at}; secrets are never returned. gitd/README.md.",
 	resreg.Action("revoke"): "Revoke a GitHub webhook source by its key (repo/<owner>/<repo>, " +
 		"org/<owner>, app/<slug>). Deliveries to its URL 404 immediately and the seeded route " +
-		"rows are removed. Caller must own the source. Spec 6/27.",
+		"rows are removed. Caller must own the source. gitd/README.md.",
 }
 
 var GitHubSourcesMCPArgs = map[resreg.Action][]resreg.MCPArg{

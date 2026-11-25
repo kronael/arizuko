@@ -55,7 +55,7 @@ func (m Message) AddressesBot() bool { return m.BotMsg || m.Verb == "mention" }
 // history, so the status and the attempt count live in their own entity keyed by
 // the status — and 'sent' is the ABSENCE of an item there, because 98.4% of the
 // rows on krons are sent and an index holding all of them never sheds one
-// (spec 6/37 §"How `messages` leaves").
+// (objstore/README.md).
 //
 // 'failed' IS the dead-letter state: the message keeps its content and no sweep
 // sends it again. The attempt count tells the two dead-letter causes apart —
@@ -98,7 +98,7 @@ type Group struct {
 	// Open, ObserveWindowMessages and ObserveWindowChars are read-only
 	// projections of the `config` column. They
 	// exist so ONE read answers the whole group settings page instead of the
-	// page reaching into another daemon's DB for them (spec 6/28 read-path).
+	// page reaching into another daemon's DB for them (dashd/README.md).
 	//
 	// Safe as read-only because Store.PutGroup writes `container_config`,
 	// `product` and `updated_at` and never `config` — so a round-trip through
@@ -208,7 +208,7 @@ type PanePrompt struct {
 //
 // ID IS A STRING because runed's is: the row's identity there is its sort key,
 // the instant it started plus a suffix, and a generated sequence is what no
-// document store has (spec 6/37 rule 4). The same move made audit.Row.ID a
+// document store has (objstore/README.md). The same move made audit.Row.ID a
 // string for the same reason.
 type SessionRecord struct {
 	ID        string

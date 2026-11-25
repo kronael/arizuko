@@ -20,8 +20,7 @@ func (s *server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 
 		// An `optional` route admits an anonymous caller and still carries proxyd's
 		// transit proof — the route-token surface, where the token IS the credential
-		// and a stamped sub only decides attribution (6/22 §"Why `optional` attaches
-		// the transit proof on both paths").
+		// and a stamped sub only decides attribution (proxyd/README.md § Route rows).
 		//
 		// Without this the hop 303s every anonymous /chat/ and /hook/ visitor to
 		// /auth/login, because the decision above knows nothing about the route class

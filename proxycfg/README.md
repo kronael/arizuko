@@ -3,7 +3,8 @@
 proxycfg renders the `proxyd_routes` rows as a Caddyfile, so an operator can
 front arizuko with an off-the-shelf proxy. `arizuko proxy-config -i <instance>
 [--listen :8080] [--forward-auth host:port]` prints the file and writes
-nothing. The rows and their fields are described in
+nothing. The operator decides which proxy fronts the instance, and proxyd
+stays the running proxy on every instance. The rows and their fields are described in
 [`proxyd/README.md` § Route rows](../proxyd/README.md#route-rows).
 
 The render is a second reader of one declaration, never a second format:

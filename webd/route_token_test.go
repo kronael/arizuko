@@ -124,7 +124,7 @@ func TestRouteTokenStream_BoundToRecord(t *testing.T) {
 	//
 	// This half used to assert 403 for a caller whose grants covered only the
 	// claimed group. That gate consulted grants because proxyd resolved the
-	// token and webd compared its stamp; with resolution here (specs/6/22 step
+	// token and webd compared its stamp; with resolution here (webd/README.md step
 	// 1) grants no longer enter the decision, so the containment is asserted
 	// directly on the frames instead of on a status code.
 	resp2, cancel2 := get("victim", signUserHeaders(map[string]string{

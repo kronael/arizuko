@@ -21,7 +21,7 @@ import (
 // /health path (davd has no /health — it answers GET /).
 //
 // There is deliberately no `Built` field. Whether a tile LINKS is read from the
-// live route table (see shouldLink), because 6/29 makes the route entry the
+// live route table (see shouldLink), because dashd/README.md makes the route entry the
 // registration: "the daemon list comes from the proxyd /dash/<daemon>/ route
 // entries — no registry, no autodiscovery". The bool that used to sit here was
 // a second record of that fact and it drifted from the tree in five of eight
@@ -36,7 +36,7 @@ type service struct {
 }
 
 // services is the static daemon list the hub probes. No autodiscovery — route
-// entry IS registration (spec 6/28); adding a daemon here is a deliberate edit.
+// entry IS registration (dashd/README.md); adding a daemon here is a deliberate edit.
 //
 // This list is the set of daemons the hub KNOWS ABOUT and probes. It does not
 // decide which of them are reachable — the route table does.
@@ -49,7 +49,7 @@ var services = []service{
 	{"webd", "webd", "/dash/webd/", "web chat widget and routes", ""},
 	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", "/"},
 	{"ttsd", "ttsd", "/dash/ttsd/", "text-to-speech proxy", ""},
-	// Channel adapters (spec 6/31, 6/32): each serves the SHARED chanlib
+	// Channel adapters (chanlib/README.md): each serves the SHARED chanlib
 	// dashboard from the mux it already builds, and each route is gated by the
 	// adapter's own credential, so a tile links exactly when the adapter is
 	// deployed.
@@ -58,7 +58,7 @@ var services = []service{
 	{"discd", "discd", "/dash/discd/", "Discord adapter", ""},
 	{"emaid", "emaid", "/dash/emaid/", "Email adapter", ""},
 	// The two TypeScript adapters re-implement the same contract in their own
-	// source (6/31): they cannot import chanlib.
+	// source (chanlib/README.md): they cannot import chanlib.
 	{"whapd", "whapd", "/dash/whapd/", "WhatsApp adapter", ""},
 }
 
@@ -70,10 +70,9 @@ const healthTimeout = 500 * time.Millisecond
 // err = reachable-but-unhealthy OR refused/timeout (daemon down in production);
 // unknown = DNS failure (container not deployed or local-dev name mismatch).
 //
-// Three, not four. `6/29` and `6/30` asked for a `warn` state meaning "up but
-// scope-denied"; it has no subject, because the probe is `/health`, which every daemon
-// mounts before auth by design. Both specs withdraw the criterion rather than leave it
-// open (2026-10-08) — a fourth branch no probe can reach is dead code, not a gap.
+// Three, not four. A `warn` state meaning "up but scope-denied" has no
+// subject, because the probe is `/health`, which every daemon
+// mounts before auth by design. A fourth branch no probe can reach is dead code, not a gap.
 const (
 	statusOK      = "ok"
 	statusErr     = "err"
@@ -130,8 +129,8 @@ func classifyHealth(resp *http.Response, err error) string {
 //
 // The answer is the route table: a /dash/<daemon>/ route exists only for a
 // daemon that serves one, so a tile links exactly when clicking it arrives
-// somewhere. 6/29: "the daemon list comes from the proxyd /dash/<daemon>/ route
-// entries — no registry, no autodiscovery."
+// somewhere. The daemon list comes from the proxyd /dash/<daemon>/ route
+// entries, with no registry and no autodiscovery (dashd/README.md).
 //
 // The PROBE never gates the link. An unreachable daemon is exactly the one an
 // operator wants to click through to diagnose; hiding the link on a bad probe
@@ -142,9 +141,9 @@ func shouldLink(routed []string, s service) bool {
 
 // routedDashPaths asks proxyd which /dash/ routes it carries.
 //
-// Over proxyd's own /v1, not the DB: that is the read path 6/28 requires of a
+// Over proxyd's own /v1, not the DB: that is the read path dashd/README.md requires of a
 // cross-cutting dashd page, and the live table is the only reader that knows
-// BOTH registration paths 6/28 names — core routes and the per-package
+// BOTH registration paths dashd/README.md names — core routes and the per-package
 // manifests every channel adapter ships.
 //
 // On any failure it degrades to the core routes compiled in. That is honest

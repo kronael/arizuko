@@ -21,7 +21,7 @@ import (
 
 // turnUsage is what routd stores of one submission's usage: the harness's
 // per-model report as its JSON, beside the harness and whether the instance is
-// metered (specs/6/39-gateway-owns-spend.md §"The turn usage record").
+// metered (routd/README.md).
 func turnUsage(folder, turnID, harness string, metered bool,
 	models map[string]apiv1.ModelUsage) (store.TurnUsage, error) {
 	u := store.TurnUsage{Folder: folder, TurnID: turnID, Harness: harness, Metered: metered}

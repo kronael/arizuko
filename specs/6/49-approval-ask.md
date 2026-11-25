@@ -1,7 +1,6 @@
 ---
 status: partial
-depends:
-  [../5/19-hitl-firewall, ../5/32-acl-unified, 26-personal-mode, 52-acl-layers]
+depends: [../5/19-hitl-firewall, ../5/32-acl-unified]
 ---
 
 # specs/6/49 — approvals: one line to ask, one rule to stop asking
@@ -63,9 +62,9 @@ A value stays exact, never a glob. A value with `,`, `*` or outer spaces
 refuses `/always` (`auth.ParamsSpec`, `auth/authorize.go:515`), and a
 non-scalar argument is never pinned. A key the call carries no scalar value
 for refuses `/always`. The row passes `auth.CheckGrant` like every other
-write to the rules (`52-acl-layers.md`). The row uses `deny` and commits with
+write to the rules (`auth/README.md`). The row uses `deny` and commits with
 the verdict
-(`6/26-personal-mode §"The mechanics behind `always`"`).
+(`reference/grants.html` of the operator docs).
 
 `/always` is offered on every hold of a tool that declares keys.
 
@@ -113,7 +112,7 @@ Three artifacts own the approval, each in one place:
 
 - **Hold policy** stays in `acl` rows read by `auth.CheckHold`
   (`auth/authorize.go:589`) and in the release defaults, one file
-  `auth/defaults.go` (`52-acl-layers.md`).
+  `auth/defaults.go` (`auth/README.md`).
 - **The hold shape** — how a call reads, and which arguments `/always` pins —
   is declared once, in `holdShapes` beside the renderer
   (§"The hold shape").
@@ -141,9 +140,9 @@ until the operator removes them after an audit.
 The floor lists `like`, `dislike`, `edit` and `delete`
 (`auth/defaults.go`), and Decision 5 delivers it. A folder that must hold one
 of them writes its own `hold:mcp:<verb>` row at `allow`; a local row decides
-before the skip list (`52-acl-layers.md`). BUGS `L273` closes on an instance
+before the skip list (`auth/README.md`). BUGS `L273` closes on an instance
 once its local copies of the skip rows are gone
-(`6/52-acl-layers §"The live rows after the deploy"`).
+(`reference/grants.html` of the operator docs).
 
 The platforms bind `edit` to the agent's own messages: Telegram
 `editMessageText` (`teled/bot.go:704`), Discord `ChannelMessageEdit`
@@ -191,7 +190,7 @@ stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
   keys per tool), the notice and the buttons.
 - `routd/steer.go` — the one-line acknowledgements.
 - `dashd/approvals_page.go` — shows `ask` and `rule_text`, derives nothing.
-- `auth/defaults.go` — the skip list (`52-acl-layers.md`).
+- `auth/defaults.go` — the skip list (`auth/README.md`).
 - `template/web/pub/arizuko/reference/grants.html` §"Holding a call for a
   human" and `routd/README.md` — the operator text.
 - `ant/skills/self/mcp.md` — the agent text delivered by the core package.
@@ -207,7 +206,7 @@ stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
 - The approvals page and the `/v1/pending_actions` row show the strings the
   chat showed, and dashd holds no function that reads `args`.
 - An instance whose `acl` holds no skip row answers `CheckHold` from the skip
-  list (`6/52-acl-layers §"Acceptance"`).
+  list (`auth/README.md`).
 - `TestWorld_HoldsOnlyWhatAPersonShouldSee` stays green.
 - `make build && make lint && go test ./... -short` green, tests in the
   shipping commit, and the agent text in the packaged manual.

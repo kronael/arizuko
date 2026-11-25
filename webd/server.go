@@ -124,7 +124,7 @@ func (s *server) handler() http.Handler {
 	tokenSurface("OPTIONS /slink/", func(http.ResponseWriter, *http.Request) {})
 
 	// MCP: single per-instance, user-grant-gated
-	// The operator dashboard (spec 6/28): webd's own /dash/ namespace, gated by
+	// The operator dashboard (dashd/README.md): webd's own /dash/ namespace, gated by
 	// the proxyd-stamped operator identity rather than the session gate.
 	mux.HandleFunc("GET /dash/webd/", s.handleDash)
 	mux.HandleFunc("POST /mcp", s.requireUser(s.handleMCP))
@@ -266,7 +266,7 @@ func (s *server) identified(r *http.Request) bool {
 // It replaces chatTransit, which asked the same question by a longer route: "did
 // proxyd resolve a route token to this same folder?". proxyd no longer resolves route
 // tokens — webd does, in lookupRouteToken — so the proof underneath is the whole
-// answer (specs/6/22 step 1).
+// answer (webd/README.md).
 func (s *server) transited(r *http.Request) bool {
 	if s.ks == nil {
 		return true // local dev

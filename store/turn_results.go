@@ -12,7 +12,7 @@ package store
 // after the read.
 //
 // The item also holds what the turn used, as the harness reported it
-// (specs/6/39-gateway-owns-spend.md §"The turn usage record"): written in the
+// (routd/README.md): written in the
 // claim's own Put, so a recorded turn and its usage land together or not at
 // all.
 //
