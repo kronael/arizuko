@@ -58,7 +58,7 @@ the slot limit allows it. Two turns then share the folder home: the clone,
 the repo; append-only diary) before it is safe.
 **Type:** design — owner sign-off.
 
-## L917 — deep refine rounds 1-2: 26 findings that change a contract wait for sign-off (2026-11-22, open)
+## L917 — deep refine rounds 1-2: 25 findings that change a contract wait for sign-off (2026-11-22, open)
 
 Six read-only audits (one per area) and six fixers ran on v0.75.20; 101 findings
 shipped as commits on `main`. These were confirmed but not built, because each
@@ -78,18 +78,17 @@ changes a documented contract, schema or cross-daemon flow:
 12. proxyd: dashboard mutations bypass resource execution (`proxyd/dash.go:62`).
 13. proxyd: forward-auth refresh needs cookie propagation across the proxy (`proxyd/README.md:163`).
 14. auth: `JSSafe` is unused but exported (`auth/web.go:26`).
-15. ant/runed: the steer transport has no production reader (Turn and wire contract).
-16. ant: harness capability fields other than `manual` have no reader (`HarnessProfile`).
-17. webd: a documented endpoint answers `saved` without writing (`webd/me.go:453`, `webd/README.md:342`).
-18. whapd: pair completion swaps sockets directly (`whapd/src/bot.ts:161`); connection ownership.
-19. adapters: reaction ids omit the actor, so two users' reactions collide (persisted ids).
-20. chanlib: `ProxyFile` answers a capped download as success (`chanlib/chanlib.go:474`).
-21. whapd: registers once; recovery needs recurring cross-daemon calls.
-22. chanlib: dashboard capability rendering runs live mutation probes (`chanlib/dash.go:134`).
-23. emaid: thread lookups turn engine errors into misses (`emaid/emaistore/email_threads.go:36`).
-24. whapd: forwarding sends an id placeholder (`whapd/src/server.ts:476`).
-25. chanlib: the dedup store's `Close` is a no-op in an exported API (`chanlib/dedup.go:33`).
-26. onbod (round 2): two concurrent `create_world` POSTs both pass `mayCreateFirstWorld` before either writes; bind the check to the write with `auth.ReadPolicy` + retry on `ErrScopeMoved`, as the invited path does. Route add/delete gating is `L494`.
+15. ant: harness capability fields other than `manual` have no reader (`HarnessProfile`).
+16. webd: a documented endpoint answers `saved` without writing (`webd/me.go:453`, `webd/README.md:342`).
+17. whapd: pair completion swaps sockets directly (`whapd/src/bot.ts:161`); connection ownership.
+18. adapters: reaction ids omit the actor, so two users' reactions collide (persisted ids).
+19. chanlib: `ProxyFile` answers a capped download as success (`chanlib/chanlib.go:474`).
+20. whapd: registers once; recovery needs recurring cross-daemon calls.
+21. chanlib: dashboard capability rendering runs live mutation probes (`chanlib/dash.go:134`).
+22. emaid: thread lookups turn engine errors into misses (`emaid/emaistore/email_threads.go:36`).
+23. whapd: forwarding sends an id placeholder (`whapd/src/server.ts:476`).
+24. chanlib: the dedup store's `Close` is a no-op in an exported API (`chanlib/dedup.go:33`).
+25. onbod (round 2): two concurrent `create_world` POSTs both pass `mayCreateFirstWorld` before either writes; bind the check to the write with `auth.ReadPolicy` + retry on `ErrScopeMoved`, as the invited path does. Route add/delete gating is `L494`.
 
 **Measured:** the per-area reports and fixer logs of 2026-11-21/22 (job scratch);
 each fixer re-checked its finding against the code before keeping it here.
@@ -579,7 +578,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
 - `L920` — one folder runs one turn, so a repo's PRs queue in one line; per-topic admission needs sign-off.
 - `L930` — the breaker repeats what a turn's own retry does for a failed run; delete it for run failures (a), the whole entity (b), or keep it (c); needs sign-off.
-- `L917` — 26 refine findings that change a contract or schema; one owner decision per line.
+- `L917` — 25 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
@@ -821,8 +820,8 @@ reads those words now.
   every onboarded world's agent gets a read-only share: exact match, and
   delete `share_mount(readonly)`?
 **Found while measuring `L535` (2026-10-23).**
-- `L543` — nothing writes the `_close` sentinel: delete the close path, or give
-  it a writer?
+- `L543` — the chassis sets no `turn.signal`: delete the claude and pi readers,
+  or give them a writer?
 - `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
   Dockerfile says latest: pin the lockfiles, or bust the cache?
 **Found while migrating the Telegram DMs (2026-10-25).**
@@ -3039,8 +3038,7 @@ next, 12:17:28.551, is refused.
 
 Not the cause: `permissionMode: 'bypassPermissions'` (`claude.ts:489`) — no
 permission request is made; the abort controller (`claude.ts:445`) — never
-aborted; `turn.signal` — fed only by the `_close` sentinel, which nothing
-writes (`L543`).
+aborted; `turn.signal` — the chassis sets none (`L543`).
 
 The CLI reports `session_state_changed: idle` at turn end only when no
 background agent or workflow runs and no notification is queued, once
@@ -3151,16 +3149,12 @@ sloth was not read.
 
 ## L570 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
 
-MEASURED in code at `5f9e1d8b`: the steer channel into a live guest exists end
-to end — `runed/vmctl.go:251` `ctlSession.steer`, `kernel/guest-init/main.go:728`,
-ant drains `/run/ipc/input` mid-turn (`ant/src/index.ts:210`, `claude.ts:521`).
-runed stores each run's callback (`runed/manager.go:438` `SetSteer`), but only
-the deadline warning calls it (`runed/qemu.go:589`). routd never sends a batch
-to a running turn: runed refuses a second run for a busy folder
-(`runed/manager.go:132`) and the rows wait above the cursor for the next turn.
-Nothing sets `RunOutcome.Steered`, so `routd/dispatch.go:454` and `endSteered`
-never run. The owner expects rows that arrive while a turn runs to reach it
-(2026-10-24).
+READ 2026-11-25: routd never sends a batch to a running turn. runed refuses a
+second run for a busy folder and topic (`runed/manager.go` `admit`) and the
+rows wait above the cursor for the next turn. No transport into a live guest
+exists: `ctl` carries `{turn}` and `{stop}` from the host (`runed/vmctl.go`),
+and ant reads one stdin payload (`ant/src/index.ts`). The owner expects rows
+that arrive while a turn runs to reach it (2026-10-24).
 
 MEASURED again 2026-11-08 on sloth: `journalctl -u arizuko_sloth --since
 "2026-11-08 19:40" --until "2026-11-08 21:05"` records root `sloth` dispatching
@@ -3182,13 +3176,13 @@ that the reported user message reached that spool. This is further evidence
 for this entry, not a separate Codex root cause.
 
 - **Fix (proposal):** when a batch dispatches to a folder with a live run,
-  routd hands the batch to runed, which calls the run's steer callback; on ack
-  the rows are consumed, on refusal they wait as today. This adds a verb to the
-  runed boundary (`runed.Runtime` is `Run` + `Kill`, CLAUDE.md port rule), so it
-  needs an approved plan first.
+  routd hands the batch to runed, which writes it into the live guest; on the
+  guest's ack the rows are consumed, on refusal they wait as today. This adds a
+  verb to the runed boundary (`runed.Runtime` is `Run` + `Kill`, CLAUDE.md port
+  rule) and a `ctl` frame the guest reads, so it needs an approved plan first.
 - **Status:** open — needs sign-off (runed port change); no test — design.
-  **Options:** (a) approve forwarding through the existing guest steering path
-  and verify delivery on every harness; (b) retain queued delivery after the
+  **Options:** (a) build a transport into the live guest and verify delivery
+  on every harness; (b) retain queued delivery after the
   active run. **Default if nothing is decided:** new user messages wait;
   the existing command handling remains unchanged.
 
@@ -3203,25 +3197,23 @@ run in another person's folder. If true, it is a cross-folder leak.
   resolve the folder per sender run.
 - **Status:** open — premise not measured.
 
-## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
+## L543 — the chassis sets no `turn.signal`, so the claude and pi readers of it never fire (2026-10-23, open — needs sign-off)
 
-READ at `e6f9e9c7`. ant reads `IPC_INPUT_CLOSE_SENTINEL` (`_close` in the IPC
-input dir, `ant/src/index.ts:39`, read by `shouldClose` at `:192`) and ends the
-turn when it appears: the controller abort feeds `turn.signal`, which ends the
-prompt stream (`ant/src/claude.ts:457`), and `closedDuringQuery` stops `main`'s
-loop (`ant/src/index.ts:299-308`, `:514`). No Go code and no ant code creates
-the file. A search of the tree (`.go`, `.ts`, `.sh`, `.yml`, `.md`, outside
-`node_modules` and worktrees) for `_close` finds the reader, `ant/README.md:166`
-and `ant/skills/self/migrations/030-chat-bound-sessions.md:11`, which say a
-sentinel "is written" — and no writer. The close path is dead, so the platform
-has no way to wind a running guest down gracefully; a stop is runed's kill.
+READ 2026-11-25. `Turn.signal` (`ant/src/backend.ts`) has one writer:
+`runCodexStream` (`ant/src/codex.ts`) passes its own controller to the inner
+run for the checkpoint interrupt. `runAttempt` (`ant/src/index.ts`) sets no
+signal. `ant/src/claude.ts` adds an `abort` listener on `turn.signal` that ends
+the prompt stream, and `ant/src/pi.ts` passes `turn.signal` to `driveCli`;
+neither can fire. The platform has no way to wind a running guest down
+gracefully; a stop is runed's `{stop}` frame and `SIGTERM`.
 
-- **Severity:** low — dead code with a live-looking contract.
-- **Options:** (a) delete the sentinel, `turn.signal` and `closedDuringQuery`;
-  (b) write it from runed on `/stop`, so ant can end a turn and post what it
-  has.
-- **Default if nothing is decided:** the sentinel stays and nothing writes it.
-- **Status:** open — needs sign-off (delete it, or give it a writer).
+- **Severity:** low — two readers with no writer.
+- **Options:** (a) delete the claude listener and the pi pass-through, and keep
+  the field for codex; (b) give the chassis a writer on `SIGTERM`, so a stopped
+  turn ends its prompt stream and posts what it has.
+- **Default if nothing is decided:** the readers stay and nothing fires them.
+- **Status:** open — needs sign-off (delete the readers, or give them a
+  writer); no test — design.
 
 ## L544 — the ant image carries SDK 0.3.278 from a cached layer while the Dockerfile says it takes the latest (2026-10-23, open — needs sign-off)
 
