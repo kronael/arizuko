@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
@@ -59,8 +61,9 @@ func TestHarnessCarry(t *testing.T) {
 	}
 	t.Cleanup(func() { runDB.Close() })
 	var got string
+	var env map[string]string
 	runtime := runed.FakeRuntime{Fn: func(_ context.Context, turn runed.Turn) runed.RunResult {
-		got = turn.Env["ARIZUKO_HARNESS"]
+		got, env = turn.Env["ARIZUKO_HARNESS"], turn.Env
 		return runed.RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	manager := runed.NewManager(runDB, runtime, runed.ManagerConfig{Instance: "test", Cfg: cfg, Folders: &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}})
@@ -131,6 +134,20 @@ func TestHarnessCarry(t *testing.T) {
 		t.Fatal(err)
 	}
 	check()
+	// A group without a document runs on the instance defaults: its parent
+	// document and top-level model or effort settings select nothing.
+	if err := db.PutGroup(core.Group{Folder: "demo/child"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.store().WriteEntities(ctx, nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo/child"}, Attrs: map[string]string{"config": `{"model":"flat-model","effort":"flat-effort"}`}}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := loop.dispatchRun(ctx, "demo/child", "topic", "web:child", "turn-child", "timed-isolated:test", "hello", false, false, ""); err != nil || out.Outcome != runedv1.OutcomeOK {
+		t.Fatalf("child dispatch: %+v %v", out, err)
+	}
+	if _, ok := env["ARIZUKO_HARNESS"]; ok || strings.Contains(fmt.Sprint(env), "flat-") {
+		t.Fatalf("child env = %v, want no harness and no flat setting", env)
+	}
 	if err := db.store().WriteEntities(ctx, nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{`}}); err != nil {
 		t.Fatal(err)
 	}
