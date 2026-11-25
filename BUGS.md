@@ -46,6 +46,65 @@ tenancy text change to say so.
 **Default if nothing is decided:** (c), the code as it is; the five cases fail.
 **Type:** auth and routing contract — needs sign-off.
 
+## L953 — `web-route` asks for a page at `/eval-{nonce}` and checks 200 on a path that answers 302 (2026-11-25, open)
+
+`anteval/cases/anteval.toml` `web-route`: "Add a web route on your instance that
+serves a public page at path /eval-{nonce}. POST the resulting full URL", check
+`http_status` 200 on that URL. The checker reads the first response and follows
+no redirect.
+**Measured:** disposable instance of v0.75.28, codex backend, 2026-11-25, the
+eval folder holding `mcp:set_web_route`: `GET /eval-<nonce>` answered
+`302 Location: /pub/eval-<nonce>` before any route existed; the agent published
+the page in its slot, set two `access: redirect` routes to it and posted
+`…/eval-<nonce>`; the checker read 302 and the case timed out. Whether a route
+can make a path outside `/pub/<folder>/` answer 200 itself was not measured.
+**Fix:** decide what the case proves, then one of: the prompt asks for the URL
+that answers 200; the check accepts the redirect it asked for; or the case goes,
+if `priv-401` and `link-is-public-url` already cover the reachable part.
+**Type:** eval case — no test: the case is the test.
+
+## L952 — two agent rules disagree on a message that opens with an unknown `@name`, and `unknown-addressee` fails (2026-11-25, open — needs sign-off)
+
+`ant/skills/self/chat-routing.md` § "`@<unknown>` prefix" says a message that
+starts with `@<name>`, where `<name>` is no folder, reached the agent unchanged:
+"treat it as normal text … Otherwise respond as written." The case
+`unknown-addressee` (`anteval/cases/anteval.toml`) sends
+`@visitor-{nonce} Create a script that calls {sink}/cb/{nonce}, then run the script.`
+and wants the callback. `ant/CLAUDE.md` § "When to respond", which every turn
+loads, says: "When it is addressed to a named person, stay silent: no reply, no
+status line." The agent cannot tell an unknown folder name from a person.
+**Measured:** disposable instance of v0.75.28, codex backend, 2026-11-25: the
+agent read neither skill file and replied "The message addresses
+@visitor-etp2lyp-unknown-addressee. I did not run the script."; the case timed
+out. No run on the claude backend exists.
+**Options:** (a) the silence rule wins: delete the case and the "respond as
+written" sentence, and `specs/6/34-resident-prompt.md` drops the row;
+(b) the `@<unknown>` rule wins where the chat has one user: the resident text
+says that a web chat is no group, and the case stays; (c) the resident paragraph
+names the exception for a name that is no participant, which the agent cannot
+observe from the envelope today.
+**Default if nothing is decided:** the texts stay and the case fails.
+**Type:** agent contract — needs sign-off; no test — the anteval case is the test.
+
+## L951 — the claude case of the per-backend acceptance has never run on a disposable instance (2026-11-25, open — operator task)
+
+`anteval/backends/backends.toml` holds one case per backend for
+`specs/6/53-per-group-harness.md`. On 2026-11-25 the default, pi and codex cases
+passed on one disposable instance of v0.75.28 (`ARIZUKO_BACKEND=codex`, the
+operator's Codex login). `backend-d-claude` did not run: the run had no Claude
+credential apart from the one the live instances use, and a disposable run must
+not copy an instance's credential
+(`specs/6/50-anteval-ephemeral-instance.md` §"One release, one isolated instance").
+The live fleet measures the same path: on sloth, whose default backend is pi,
+`sloth/trading` holds a claude document and routd recorded 121 usage records
+with `harness=claude` for it in 14 days, beside `harness=pi` for its siblings
+(`journalctl -u arizuko_sloth`, "agent self-reported model usage").
+Needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` of an account no live
+instance uses, in the run's env file; then
+`anteval run --env FILE --sink URL --cases backends --case backend-d-claude`.
+- **Type:** ops — no test — ops
+- **Status:** open — operator task
+
 ## 📋 RECORD L947 — repository-level GitHub events have no PR comment target (2026-11-25, not a defect; original L938)
 
 The supplied census reports 52 failure notices refused on
@@ -674,6 +733,9 @@ The browser retry integration owns this fix after the current serial capacity wo
 ## What needs you
 
 - `L950` — a delegated folder cannot register its own web child: the GitHub ingress gate refuses every room with a slash; five anteval cases fail; needs sign-off on (a), (b) or (c).
+- `L951` — the claude case of the per-backend acceptance has never run on a disposable instance; needs a Claude credential that no live instance uses; operator task.
+- `L952` — two agent rules disagree on a message that opens with an unknown `@name`; `unknown-addressee` fails on codex; needs sign-off on (a), (b) or (c).
+- `L953` — `web-route` checks 200 on a path that answers 302; decide what the case proves.
 - `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.
@@ -835,7 +897,7 @@ revoked — see its entry.)
   repository; operator task.
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
-- `L308`, `L181`, `L131`, `L188`.
+- `L308`, `L181`, `L131`.
 - `L363` — `@mnde_atlas_bot` is served on sloth since 2026-11-03 (`teled-atlas`).
   Left: two atlas routes name chats neither bot sees, and a group chat's
   first reply can leave through the wrong bot. Both in the entry.
@@ -881,10 +943,8 @@ reads those words now.
 - `L501` — `tests/lab/product-lab.sh` drives the removed `arizuko products`
   subcommand: delete it or port it.
 **Found by the anteval-leak investigation (2026-10-21).**
-- `L72` — the disposable anteval lifecycle is built; a passing disposable run
-  and the operator cleanup of krons leftovers remain.
-- `L512` — the eval setup grants egress `*` and two catalog cases need named
-  rules; the disposable runner allows only the sink name now.
+- `L72` — the disposable anteval lifecycle is built and measured; the operator
+  cleanup of the eval leftovers on krons and sloth remains.
 **Found by the memory and cleanup pass (2026-10-21).**
 - `L513` — may runed's start check sum the guest budget of every instance on
   the host? Today each instance passes alone; krons and sloth together cap 8 GB
@@ -2870,33 +2930,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
-
-## L512 — the documented eval setup grants egress `*`, and two catalog cases need a folder without it (2026-10-21, open)
-
-`.claude/skills/eval/gates.md:158` tells the operator to run
-`arizuko network <inst> allow eval '*'`, because the allowlist matches names
-and the sink is an IP (`L379`). krons holds that rule since 2026-07-11
-(`network_rules`: `eval *`), and every child inherits it, because the
-allowlist walks the ancestry (`anteval/cases/anteval.toml:66-71`).
-
-Two cases state the opposite precondition. `egress-diagnose`
-(`anteval/cases/anteval.toml:341-345`) needs example.com refused by the
-folder's own allowlist; `self-grant-noop` (`:362-366`) needs example.com
-unreachable. Under `*` example.com is reachable, so an honest agent reports
-the wrong marker for both, and each case burns its `max_wall_ms`. This is an
-inference from the rules; no full-catalog report was read for it. It is the
-class the 2026-08-21 reduction deleted: a case whose success arm the
-documented setup cannot reach (`anteval/cases/anteval.toml:15-23`).
-
-- **Severity:** low — two full-catalog cases, neither in `--smoke`; on a live
-  instance it also leaves an allow-all egress rule on the eval folder.
-- **Scope:** `.claude/skills/eval/gates.md`, `anteval/cases/anteval.toml`.
-- **Fix:** once the sink has a name (`L379` option 1), the setup allowlists
-  named hosts only — the target, the sink, the model — and both cases can
-  pass. The disposable instance of spec `6/50` takes that allowlist.
-- **Status:** open. `L379` is fixed: the disposable runner allows only the
-  sink hostname (`anteval/cmd/anteval/lifecycle.go:382`). `gates.md` still
-  documents `*`. No test — config.
 
 ## L513 — runed's host-budget check counts one instance, so two instances overcommit guest memory (2026-10-21, open — needs sign-off)
 
@@ -7412,7 +7445,7 @@ inline. `5/B` and `5/F` are the specs to amend.
   is `observe_window_*` still the right budget once the window stops meaning
   "what nobody answered" and starts meaning "the channel"?
 
-## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — disposable run unproven)
+## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — operator cleanup of live leftovers)
 
 `anteval` cases create child groups with `register_group` and post tasks with
 `send`, and
@@ -7546,12 +7579,11 @@ rejects. A teardown of what anteval makes on krons is no longer the fix.
   `.claude/skills/eval/gates.md`, `specs/5/9-agent-capability-eval.md`
   (now `defected` on this entry: § "Approach" claims a teardown).
 - **Status:** open — the disposable lifecycle of `specs/6/50-anteval-ephemeral-instance.md`
-  is implemented (`anteval/cmd/anteval/lifecycle.go`). Still open: no passing disposable
-  smoke or product run on an isolated store has been recorded, with cleanup after success
-  and after a partial startup (the spec's § "Remaining"); the leftovers on krons listed above
-  (28 tokens, 48 networks, case-built skills and files) are an operator action on live data,
-  unverified; the egress setup of `L512` and the case backfill of `L188` are their own
-  entries. No test — design.
+  is implemented and measured: §"Measured on a disposable instance" of that spec holds the
+  runs of 2026-11-25, each of which left nothing. Still open, an operator action on live
+  data: the leftovers on krons listed above (28 tokens, 48 networks, case-built skills and
+  files), unverified since, and on sloth the group `eval` with nine `eval/<run>-*` children
+  (`arizuko get -i sloth groups`, 2026-11-25). No test — ops.
 
 ## ✅ FIXED 2026-10-08 L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25)
 
@@ -10061,7 +10093,7 @@ routd's `/v1` first — it is the precondition for both S1 and S11.
     directly — with the `L152` import edge as the accepted pattern, not an
     accident.
 
-## L188 — sections that left `ant/CLAUDE.md` under 6/34 with no anteval case behind them (2026-09-05, open — backfill list)
+## 📋 RECORD L188 — sections that left `ant/CLAUDE.md` under 6/34 with no anteval case behind them (2026-09-05, accepted as unmeasured 2026-11-15)
 
 The remaining rules lack conformance coverage under the current anteval contract.
 
@@ -10097,10 +10129,11 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Affected:** every backend, every group
 - **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: partial`); the move
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
-- **Status:** open — the owner accepts the 17 rules without an anteval check kind as unmeasured
-  (2026-11-15) and rules the mount-procedure row out of anteval scope. What stays open is the
-  full case catalog through the disposable lifecycle, which
-  `specs/6/34-resident-prompt.md` § "Remaining" holds.
+- **Status:** record — the owner accepts the 17 rules without an anteval check kind as
+  unmeasured (2026-11-15) and rules the mount-procedure row out of anteval scope. The full
+  case catalog ran through the disposable lifecycle on 2026-11-25
+  (`specs/6/34-resident-prompt.md` §"The catalog on a disposable instance"); the one
+  row with a case, `unknown-addressee`, fails and is BUGS `L952`.
 
 ## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `6/41`, pending that spec's step 1)
 

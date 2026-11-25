@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [../5/9-agent-capability-eval, 41-qemu-substrate, 42-dynamo-over-postgres]
 ---
@@ -13,14 +13,9 @@ hook starts it.
 runs its cases against that instance, and removes the instance when the run
 ends. It never reaches an instance that serves users.
 
-The CLI lifecycle and fake-based tests are implemented.
 The device, artifact, image, memory and allocation checks run before creation.
-Live cleanup acceptance covers case failure and handled interruption,
-including instance files, Compose resources, the store account and its tables.
-
-## Remaining
-
-- Prove passing disposable smoke/product runs on an isolated external test store, including cleanup after success and partial startup (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`).
+`anteval/cmd/anteval/lifecycle_test.go` covers each path with fake CLI commands;
+§"Measured on a disposable instance" holds the runs against real ones.
 
 ## Problem — measured on krons 2026-10-21
 
@@ -83,6 +78,10 @@ anteval run (changed)
 `anteval/cmd/anteval/main.go` selects cases and handles signals.
 `anteval/cmd/anteval/lifecycle.go` composes the existing CLI commands.
 `anteval/cmd/anteval/host_preflight.go` checks devices, artifacts, cached images and host allocations. The allocation checks are point-in-time.
+It checks the gateway images only for a run that installs the gateway.
+Under `sudo` the lifecycle hands `SUDO_UID` to each CLI call: `package sync`
+reads the `HOST_APP_DIR` checkout through git, and git refuses a checkout that
+another user owns unless that variable names the owner.
 `create` seeds files; `store enroll` enrolls the new account; foreground `run`
 generates Compose and starts services. After the first boot creates the owners'
 tables, `package add litellm` installs the gateway. The runner restarts
@@ -98,6 +97,8 @@ The selected product is installed for the eval group through `package sync`.
 `cmd/arizuko/rm.go` owns instance removal. Anteval stops and reaps its child
 before calling `rm` with an uncanceled cleanup context. Cleanup runs on success,
 case failure, setup failure after creation, and handled interruption.
+A `create` that left no data directory has nothing to remove, and the lifecycle
+calls no `rm` for it.
 It completes before the entry point exits, including paths that call `os.Exit`.
 
 ### One release, one isolated instance
@@ -137,6 +138,8 @@ The MCP reader uses the folder supplied by setup. Anteval imports no daemon
 or storage package and carries no JID parser.
 
 Product cases use `arizuko create --product`; the same lifecycle runs them.
+`--product` takes a package source in the form `create` accepts: the absolute
+path of the product tree, a `github.com/<owner>/<repo>` reference or a `.tgz`.
 The manual-only rule remains: no deploy gate, timer, hook or CI starts an eval.
 The run never reads, mutates, drains or removes a serving instance.
 A disposable run certifies the release, not another instance's data.
@@ -158,10 +161,71 @@ remain untouched. `anteval/cmd/anteval/lifecycle_test.go` exercises these paths
 through fake CLI commands, including a real SIGINT and a fake foreground child.
 The tests start no instance and claim no live capability result.
 
+## Measured on a disposable instance
+
+Runs of 2026-11-25 on the production host, daemon image v0.75.28, the CLI and
+`anteval` built from the tree, `ARIZUKO_BACKEND=codex` with the operator's Codex
+login. The store was a PostgreSQL 17 and an ExtendDB 0.1.13 container started
+for the runs, on their own Docker network and port, serving no instance.
+
+After each run a script looked for what the instance owned: its private data
+directory, Compose project, containers, networks, volumes, guests, tap
+addresses and systemd unit on the host, and the IAM users, access keys and
+tables of the test store. Every run below left none.
+
+| Path                          | What happened                                                                            | Result                         |
+| ----------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------ |
+| create failure                | `--product helpdesk` named no package source; `create` failed before it made a directory | error, no `rm` call needed     |
+| partial startup, interrupted  | SIGINT when all eight containers were created and none was running                       | "wait for services … canceled" |
+| setup failure after startup   | `package sync` failed after the daemons were healthy and the account was enrolled        | error                          |
+| case failure                  | one case, the guest exited 1                                                             | 0/1, exit 1                    |
+| success                       | `--case rest-roundtrip`                                                                  | 1/1, exit 0                    |
+| success, per-group harness    | `--cases backends`: three cases, two harness documents written and cleared               | 3/3, exit 0                    |
+| success, product              | `--product <tree>/packages/helpdesk --smoke` with the product's own suite                | 2/2, exit 0                    |
+| smoke                         | `--smoke`, nine cases, 43 minutes                                                        | 6/9, exit 1                    |
+| catalog                       | all 24 cases, 112 minutes                                                                | 14/24, exit 1                  |
+| success, after the case fixes | `--dimension egress`, three cases                                                        | 3/3, exit 0                    |
+
+The runs found these defects in the runner and its cases. Each is fixed with a
+test that fails without the fix:
+
+- the preflight asked for the gateway images on a run that installs no gateway
+  (`TestPreflightSkipsGatewayImagesOnDirectRun`);
+- the lifecycle dropped `SUDO_UID`, so `package sync` could not read the
+  checkout (`TestLifecycleFreshNameAndSetup`);
+- a failed `create` that left no directory ended in a failed `rm`
+  (`TestLifecycleCleanup`);
+- a check without `chat` read the empty chat and got HTTP 400, so every product
+  suite failed (`TestOmittedChatIsTheRunChat`);
+- a prompt with a brace the runner cannot expand failed before its inject
+  (`TestValidateRefusesABraceTheRunnerCannotExpand`);
+- a case could not put a host on the eval folder's allowlist; `requires` takes
+  `egress:<host>` (`TestLifecycleFreshNameAndSetup`);
+- `web-route` required a tool name that no tool has
+  (`TestCaseRequiresTheRegisteredTool`, `routd/anteval_catalog_test.go`).
+
+They found two defects in runed, fixed with root-only tests: it created a new
+group's `.codex` and its world's `share` as root, so the first codex turn of the
+group failed on `hooks.json` (`TestBuildMountsNewGroupHomeWritable`), and it
+staged `~/.claude/skills` and `~/.claude/hooks` as root, so the agent could add
+no skill (`TestStageTargetsInsideAHomeBelongToTheRunUID`).
+
+Three failures stay open as BUGS entries, each a decision: `L950`
+(`register_group` refuses a delegated folder its own web child; five catalog
+cases, two of them in the smoke), `L952` (`unknown-addressee`) and `L953`
+(`web-route`). `34-resident-prompt.md` §"The catalog on a disposable instance"
+holds the result of each case.
+
+The runed fixes are in the tree and not in the v0.75.28 image. Every later run
+that reached a turn therefore had a host process beside it that gave the
+directories runed had made as root in each group home of the instance to
+uid 1000: `.codex`, and from the passing product run on also `.claude/skills`
+and `.claude/hooks`. That is what the fixed runed does. A run on an image that
+holds the fixes needs no such process, and no such run exists yet.
+
 ## Ties
 
-`BUGS L72` (the leak, and the entry this spec answers), `L511` (what the
-removal of the leak cost), `L512` (two egress cases that the documented
-setup cannot pass), `L379` (the sink a guest cannot reach — this spec does
-not change it, and the run's egress allowlist waits on its decision), `L188`
-(the case backfill that `L72` blocks).
+BUGS `L72` (the leak, and the entry this spec answers; it holds the operator
+cleanup of what the live runs left), `L188` (the record of the moved rules
+that no case can observe), `L950`, `L952` and `L953` (the failures the measured
+runs left open).

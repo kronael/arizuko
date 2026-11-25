@@ -39,6 +39,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   older events of their own log at start and then once a day. It is the one
   table that expires; messages and every other log stay without limit.
 
+- `anteval/backends/backends.toml` holds one case per backend for the group
+  harness document (`anteval run --cases backends`).
+- The `codex` grant and the conversion of flat `model` and `effort` settings
+  left the trip manifest, the oracle skill, the upgrade procedure and the CLI
+  reference. No code reads either.
+- Post-deploy gate 5 holds the command of the run that creates and removes its
+  instance (`.claude/skills/eval/gates.md`).
+
 ### Removed
 
 - routd's in-memory BM25 message index, its boot walk, the `index_warming`
@@ -68,6 +76,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   requires for a model outside its own list. Without it no Claude turn could
   show a checklist (L935). The `reply` and `send` tool texts name the native
   checklist. Needs a new agent image.
+
+- runed gives the `.codex` directory of a new group and the `share` directory
+  of its world to the agent uid. A group made on the VM substrate had both as
+  root, so its first Codex turn failed on `hooks.json` (`runed/mounts.go`).
+- runed gives the directories it stages inside a group home to the agent uid.
+  `~/.claude/skills` of a new group was root-owned, and the agent could add no
+  skill (`runed/vmtree.go`).
+- The anteval catalog loads only cases the runner can expand, `web-route`
+  requires the tool that exists, and a case puts a host on the eval allowlist
+  with `requires = ["egress:<host>"]`.
+- `anteval run` starts a run that installs no gateway on a host without the
+  gateway images, and reads the operator's checkout under `sudo`.
+- `anteval run` ends a failed `create` without a failed removal.
+- An anteval check that names no `chat` reads the chat of the run. Every
+  product suite omits the field, and each case failed on HTTP 400.
 
 ## [v0.75.28] — 2026-11-24
 

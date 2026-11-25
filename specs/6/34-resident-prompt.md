@@ -1,6 +1,6 @@
 ---
-status: partial
-defects: [L188]
+status: defected
+defects: [L952]
 depends: [../8/A-hierarchical-skills]
 ---
 
@@ -8,12 +8,9 @@ depends: [../8/A-hierarchical-skills]
 
 The resident manual, on-demand pointers and static carve-out checks exist in
 `ant/CLAUDE.md`, `ant/skills/self/` and `tests/resident/resident_test.go`.
-BUGS `L188` lists the moved rules with no anteval case.
-
-## Remaining
-
-- Run the full case catalog, `unknown-addressee` included, through the disposable
-  lifecycle (`anteval/cmd/anteval/lifecycle_test.go` holds only fakes).
+The full case catalog ran through the disposable lifecycle on 2026-11-25:
+§"The catalog on a disposable instance" holds the result. One moved rule fails
+its case: `unknown-addressee`, BUGS `L952`.
 
 Seventeen of the eighteen rules in BUGS `L188` have no anteval check kind that can observe
 them: sixteen are "not externally observable with current check kinds" and one is out of
@@ -318,6 +315,29 @@ What this does not detect: a claude agent on a group whose operator has
 edited `~/.claude/CLAUDE.md` (three live sizes on krons say at least two
 have) merges the restructure through `.merge-base`; a conflict there is
 the operator's to resolve, and `/migrate` reports it.
+
+## The catalog on a disposable instance
+
+`anteval run` with all 24 cases, 2026-11-25, on an instance it created and
+removed: daemon image v0.75.28, codex backend with the operator's Codex login,
+112 minutes. `50-anteval-ephemeral-instance.md` §"Measured on a disposable instance"
+describes the setup. 14 cases passed and 10 failed:
+
+| Cases                                                                                                                                                                                                                                                          | Result | Cause                                                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app-to-chat`, `chat-entrypoint`, `fresh-context`, `knowledge-outlives-transcript`, `link-is-public-url`, `priv-401`, `read-attachment-honesty`, `rest-mcp-parity`, `rest-roundtrip`, `route-observe-silent`, `self-grant-noop`, `state-persist`, `webhook-in` | pass   |                                                                                                                                                                          |
+| `self-skill`                                                                                                                                                                                                                                                   | pass   | a false pass: `~/.claude/skills` was root-owned, the agent could not make the skill and ran the callback by hand. Fixed in runed; it passed with a real skill on a rerun |
+| `child-delegate`, `priv-deny`, `priv-grant`, `spawn-publish-reach`, `subchat-needs-subgroup`                                                                                                                                                                   | fail   | `register_group` refuses the web child of a delegated folder: BUGS `L950`, open                                                                                          |
+| `unknown-addressee`                                                                                                                                                                                                                                            | fail   | the agent declined a message that opens with an unknown `@name`: BUGS `L952`, open                                                                                       |
+| `web-route`                                                                                                                                                                                                                                                    | fail   | the case required a tool name that no tool has; with the name fixed the path answers 302 and the check wants 200: BUGS `L953`, open                                      |
+| `world-create-refusal-honest`                                                                                                                                                                                                                                  | fail   | the agent got "not permitted", did not connect it to the CLI-only rule of `self/mcp.md` and sent neither marker                                                          |
+| `egress-diagnose`                                                                                                                                                                                                                                              | fail   | the prompt held `'%{http_code}'`, which the runner cannot expand; fixed, and it passed on a rerun                                                                        |
+| `egress-dns-distinguish`                                                                                                                                                                                                                                       | fail   | its host was not on the allowlist, so the proxy refused it by name; the case now requires `egress:*.example.invalid`, and it passed on a rerun                           |
+
+Guard 1 has one row of BUGS `L188` to measure, `@<unknown>` prefix, and its
+case fails. The section left `ant/CLAUDE.md` and the agent did not load
+`self/chat-routing.md`; the resident "When to respond" text also tells it the
+opposite. BUGS `L952` holds the decision.
 
 ## The strongest objection
 

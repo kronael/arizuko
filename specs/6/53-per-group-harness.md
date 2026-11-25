@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Each group carries one harness document
@@ -19,15 +19,10 @@ needs the Codex login (`HOST_CODEX_DIR`) and the hosts `chatgpt.com` and
 `auth.openai.com`, and the eval bearer gains `routes:write:own_group` only for a run
 with such a case (`anteval/cmd/anteval/lifecycle.go`).
 
-## Remaining
-
-- Owner decision: dashd saves the harness through the store as the operator, and
-  this spec says it calls `/v1` (BUGS `L903`). The default is the store.
-- Build the packaged agent image and run a case of each backend on one disposable
-  instance with explicit egress, using the `harness` case field (LIVE;
-  `Makefile`, `anteval/cases/anteval.toml`).
-- Review flat overrides and Codex grant/deny rows in operator data before rollout
-  (`cmd/arizuko/README.md`; operator review).
+`anteval/backends/backends.toml` holds one case per backend. On 2026-11-25 the
+default, pi and codex cases passed on one disposable instance of v0.75.28 whose
+default backend was codex; §"Contract" holds the measurement. The claude case
+has not run on a disposable instance: BUGS `L951` holds that run.
 
 ## The platform must carry the document without interpreting it
 
@@ -39,8 +34,9 @@ adapter startup. Go does not interpret backend names, models or effort.
 ## One opaque value reaches ant
 
 ```text
-dashd (changed) ──► groups update / derived MCP (new)
-                              │ harness document (new)
+dashd store write (changed)    groups update / derived MCP (new)
+              │                       │
+              └── harness document (new) ──┘
                               ▼
                      groups.config.harness (new)
                               │ raw JSON (new)
@@ -138,7 +134,7 @@ No Go type declares the document's backend, model or effort fields.
 - path: dashd/groups_admin.go (changed)
   job: edit backend, model and effort as fields and one "Use instance defaults" control
   names: [handleGroupSettingsSave]
-  never: validate backend, model or effort values (the write path is BUGS L903)
+  never: validate backend, model or effort values, or send the write through routd
 - path: store/acl.go (changed)
   job: remove codex from accepted grant actions after approval
   names: [ACLActionChoices, ValidateACLAction]
@@ -161,6 +157,30 @@ An absent setting means instance defaults. A present setting replaces the
 defaults as a whole, including when its backend matches the instance backend.
 There is no parent-folder lookup. A missing optional model or effort leaves
 the selected adapter's native default; neither value inherits from the instance.
+
+### Two levels set the harness, and nothing else does
+
+```text
+instance .env ──► ARIZUKO_BACKEND, ARIZUKO_DEFAULT_MODEL, ARIZUKO_DEFAULT_EFFORT
+                      │ a group without a document
+                      ▼
+groups.config.harness ──► one document; it replaces the three defaults whole
+```
+
+The instance defaults are infrastructure configuration and stay in `.env`.
+The group document is the only setting below them. These have no reader:
+
+- a top-level `model` or `effort` key in a group's `config`;
+- an ACL row with the action `codex`: `store.ValidateACLAction` refuses a new
+  one, and `arizuko group ungrant` removes a stored one;
+- the document of a parent folder. Every document on krons and sloth is on a
+  folder with no child (`krons/public/marble`, `rhias/nemo`, `rhias/trip`,
+  `sloth/trading`, read 2026-11-25), so a lookup would change no group.
+
+`TestHarnessCarry` (`routd/harness_carry_test.go`) dispatches a child group
+that holds flat keys under a parent with a document, and fails when the guest
+env carries a harness or a flat value. `TestTurnEnvEmissions`
+(`runed/render_test.go`) fixes the full set of keys a turn receives.
 
 Ant requires an object with a nonempty `backend` string. Optional `model` and
 `effort` must be nonempty strings when present. Ant rejects unknown fields,
@@ -220,16 +240,23 @@ for affected topics. Session conversion and automatic resets are outside scope.
 The runtime port and its `Turn` value remain unchanged; `Turn.Env` already
 carries the document (specs/6/41-qemu-substrate.md §"The seam").
 
-## One groups update serves the dashboard and agents
+## One store write serves the dashboard, REST and agents
 
 ```text
-dashd free-text fields (changed) ──► PATCH /v1/groups/{folder} (new)
-agent ──► derived MCP update (new) ──► shared handler (changed)
-                                           │ authorized replacement (new)
-                                           ▼
-                                      groups.config
+REST ──► PATCH /v1/groups/{folder} (new) ──┐
+agent ──► derived MCP update (new) ────────┼─► shared handler (changed)
+                                           │        │ authorized replacement (new)
+dashd free-text fields (changed)           │        ▼
+        │ operator, admin-gated            │   Store.SetGroupSettings (changed)
+        └──────────────────────────────────┼──────► │ settings + audit row, one batch
+                                                    ▼
+                                               groups.config
 dashd SetGroupModel write (removed)
 ```
+
+Each daemon reaches the store itself. routd's handler and dashd's settings page
+both call `Store.SetGroupSettings` (`store/groups.go`), so the replacement rule,
+the preservation of other settings and the audit row have one implementation.
 
 The cold-tier `groups` resource gains `resreg.ActionUpdate` and its derived
 MCP action. Its input uses `GroupsRow.Config`'s existing JSON-text form:
@@ -255,12 +282,13 @@ dashd uses free-text backend, model and effort fields, plus one explicit
 optional fields are omitted, and a document needs its backend. There are no
 backend, effort or model lists, per-key inheritance controls, or
 effective-value resolver in Go. GET exposes the saved document for reload.
-dashd saves through the store as the operator (`dashd/groups_admin.go`), not
-through `/v1`. The two docs disagree: `dashd/README.md` § "Which door each page reads
-through" keeps operator writes on the store so the audit row names the
-operator, which a `service:dashd` bearer cannot do, and this spec says dashd
-calls the groups update through `/v1` with the caller's authority. That is the
-owner's decision (BUGS `L903`); until it is made the write stays on the store.
+dashd writes the document to the store itself, as the operator
+(`handleGroupSettingsSave` in `dashd/groups_admin.go`, through
+`Store.AsUser(sub).SetGroupSettings`), and sends routd no request. The audit row
+names the operator; a `service:dashd` bearer on `/v1` cannot carry that name
+(`dashd/README.md`, "Writes stay direct on the owner's tables").
+`TestGroupHarnessDashboard` (`dashd/chat_settings_test.go`) fails when the save
+reaches routd or when the audit row names another actor.
 No new CLI setter or MCP tool.
 Bulk `arizuko apply` retains its existing interchange role and raw config
 format; it neither resolves defaults nor validates ant's schema.
@@ -310,8 +338,7 @@ if cfg.HostCodexDir != "" && cfg.ModelGatewayURL == "" {
 ```
 
 The `codex` action and `RunRequest.Codex` are absent.
-Existing grant and deny rows for that action have no enforcement effect;
-an operator must review them before rollout. The spec authorizes no live edits.
+A stored row for that action has no enforcement effect.
 Other capability grants, folder containment and caller-secret ownership stay intact.
 
 Direct Codex also requires allowlist rules for the endpoints its login and
@@ -321,8 +348,7 @@ network rules; a configured gateway retains its existing egress allowance.
 
 The flat group model/effort fields, Go effort vocabulary and Codex grant
 flag are absent. Instance defaults and `HOST_CODEX_DIR` keep their readers.
-Before rollout, operators must review flat overrides and Codex ACL rows;
-Go must not infer an override's backend.
+Go does not infer a backend from a model name.
 
 ## Contract
 
@@ -348,7 +374,17 @@ Go must not infer an override's backend.
   argument on exec and resume; Pi is selectable as a backend.
 - Credential tests cover a direct Codex turn without a codex grant, caller
   API-key delivery, operator-login staging and gateway withholding of both
-  credential forms. Keep egress denial independent of selection. A disposable
-  smoke proves Claude and Codex replies on one instance with explicit network
-  prerequisites. Shipping also requires `specs/CLAUDE.md`'s documentation,
-  dashboard, image and verification gates; no live-instance anteval run.
+  credential forms. Keep egress denial independent of selection.
+- `anteval/backends/backends.toml` proves a reply on each backend on one
+  disposable instance with explicit network prerequisites. Each case names the
+  agent program from the guest's process table, so a turn on the wrong backend
+  fails. Measured 2026-11-25, v0.75.28, default backend codex; the lifecycle
+  allowed the sink host, `chatgpt.com` and `auth.openai.com` for the eval folder:
+  `backend-a-default` answered `codex` in 38 s, `backend-b-pi` (document
+  `{"backend":"pi","model":"openai-codex/gpt-6.1-sol"}`) answered `pi` in 30 s,
+  `backend-c-codex` (document `{"backend":"codex","effort":"low"}`) answered
+  `codex` in 43 s; routd's usage record of each turn carries the same harness.
+  The run used the `.codex` ownership stand-in that
+  `specs/6/50-anteval-ephemeral-instance.md` §"Measured on a disposable instance"
+  describes. `backend-d-claude` waits for a credential (BUGS `L951`).
+  No anteval run reaches a live instance.
