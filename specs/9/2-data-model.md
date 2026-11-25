@@ -1,6 +1,5 @@
 ---
 status: draft
-depends: specs/5/17-openapi-mcp.md
 ---
 
 # specs/9/2 — the cold / warm / hot tier model

@@ -1675,7 +1675,7 @@ func TestClientIP(t *testing.T) {
 	}
 }
 
-// --- WebDAV JWT auth flow (spec M-webdav.md) ----------------------------------
+// --- WebDAV JWT auth flow (proxyd/README.md § WebDAV write-block) -------------
 
 // aclStore returns an in-memory store where the principal holds an allow acl
 // row for each given scope. ES256 tokens carry no groups claim, so group and

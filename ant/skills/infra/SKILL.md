@@ -32,5 +32,3 @@ add an explicit alias to the instance `.env`:
 proxyd consults the alias map before deriving. Aliases are the small
 configured exception to the derived default — operator env, not a
 web-dir file.
-
-Spec: `specs/5/V-web-vhosts.md`.
