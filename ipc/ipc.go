@@ -92,7 +92,7 @@ type RoutdFns struct {
 	HostingDomain string
 	VhostAliases  map[string]string
 
-	// Slack assistant-pane controls (spec 8/D-slack-agent-pane). Both stage values on the
+	// Slack assistant-pane controls (slakd/README.md § Assistant pane). Both stage values on the
 	// owning adapter; values fire after the next outbound into the pane.
 	// Adapters without pane semantics return chanlib.ErrUnsupported.
 	PaneSetPrompts func(jid string, prompts []core.PanePrompt) error

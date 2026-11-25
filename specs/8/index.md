@@ -9,14 +9,13 @@ buyer's security review. Phase 5 builds the surfaces; this phase makes them
 defensible. Group compositions and the minimum runtime also belong to this phase.
 The package contract lives in [6/59-local-daemons](../6/59-local-daemons.md).
 
-| Spec                                                       | Status  | Summary                                                                                                                                                                                      |
-| ---------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-hierarchical-skills.md](A-hierarchical-skills.md)       | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all 93 SKILL.md frontmatters. Per-turn O(depth).                                             |
-| [D-slack-agent-pane.md](D-slack-agent-pane.md)             | shipped | Slack AI sidebar: persisted `pane_sessions`, thread-started/context-changed handlers, staged title + suggested prompts, pane context in prompt.; facts in `slakd/README.md` § Assistant pane |
-| [E-encryption-at-rest.md](E-encryption-at-rest.md)         | partial | AES-256-GCM on `secrets.value` under a `SECRETS_KEY` keyring (shipped). `messages.db` content columns deferred — it trades away SQL search.                                                  |
-| [X-sso-saml.md](X-sso-saml.md)                             | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                   |
-| [40-groups-without-agents.md](40-groups-without-agents.md) | draft   | Optional agent binding; primary posts and external access without dispatch.                                                                                                                  |
-| [60-minimum-arizuko.md](60-minimum-arizuko.md)             | draft   | What a core-only instance must do: four acceptance checks, each owned by another spec.                                                                                                       |
+| Spec                                                       | Status  | Summary                                                                                                                                          |
+| ---------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [A-hierarchical-skills.md](A-hierarchical-skills.md)       | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all 93 SKILL.md frontmatters. Per-turn O(depth). |
+| [E-encryption-at-rest.md](E-encryption-at-rest.md)         | partial | AES-256-GCM on `secrets.value` under a `SECRETS_KEY` keyring (shipped). `messages.db` content columns deferred — it trades away SQL search.      |
+| [X-sso-saml.md](X-sso-saml.md)                             | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.       |
+| [40-groups-without-agents.md](40-groups-without-agents.md) | draft   | Optional agent binding; primary posts and external access without dispatch.                                                                      |
+| [60-minimum-arizuko.md](60-minimum-arizuko.md)             | draft   | What a core-only instance must do: four acceptance checks, each owned by another spec.                                                           |
 
 ## Scope note
 
@@ -40,6 +39,6 @@ There is no secret-broker spec in this phase: the broker is specced in
 
 ## Deleted 2026-11-07
 
-| was                        | why                                                                                                        |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `39-programmable-turns.md` | A workflow is messages between groups under ACLs and routing, as [7/58](../7/58-group-posts.md) specifies. |
+| was                        | why                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `39-programmable-turns.md` | A workflow is messages between groups under ACLs and routing, as `ipc/README.md` § "Who may call what" states. |
