@@ -175,7 +175,7 @@ func TestLifecycleCleanup(t *testing.T) {
 func TestLifecycleFreshNameAndSetup(t *testing.T) {
 	opts := lifecycleFixture(t)
 	opts.name, opts.product, opts.nonce = "", "support", "chosen-nonce"
-	opts.cases[0].Requires = []string{"mcp:register_group"}
+	opts.cases[0].Requires = []string{"mcp:register_group", "egress:*.example.invalid"}
 	opts.md = filepath.Join(t.TempDir(), "report.md")
 	opts.json = filepath.Join(t.TempDir(), "report.json")
 	input, err := os.OpenFile(opts.envFile, os.O_APPEND|os.O_WRONLY, 0600)
@@ -243,6 +243,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 		"create -i " + f.name + " --product support",
 		"group -i " + f.name + " add web:eval eval --product support",
 		"group -i " + f.name + " grant folder:eval eval/** mcp:register_group",
+		"network -i " + f.name + " allow eval *.example.invalid",
 	} {
 		if !strings.Contains(strings.Join(f.calls, "\n"), call) {
 			t.Errorf("missing %q in %v", call, f.calls)

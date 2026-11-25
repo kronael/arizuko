@@ -113,8 +113,9 @@ operator conversation, no stray group-context crons) and re-run. A sticky
 `#topic` set on the eval chat also breaks isolation (it overrides every
 case's topic); leave the eval chat unpinned.
 
-Each case declares `requires = [...]`. The runner grants its MCP actions to
-the eval folder before cases start. A timeout includes the declared requirements.
+Each case declares `requires = [...]`. Before cases start the runner grants
+each `mcp:<tool>` entry to the eval folder and allows each `egress:<host>` entry
+on its allowlist. A timeout includes the declared requirements.
 
 A case may set `harness`, the group's harness document as JSON text (a JSON
 object, for example `{"backend":"codex"}`). The runner writes it to the eval
@@ -131,7 +132,8 @@ Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 
 Templates expand per run: `{nonce}` (unique per run+case), `{sink}`, `{target}`,
 `{chat}`, and `{cb.KEY}` — a query param the agent handed back through the
-callback sink (e.g. a freshly minted chat-link token). Checkers:
+callback sink (e.g. a freshly minted chat-link token). A prompt or check with
+any other brace fails to load, because the runner cannot expand it. Checkers:
 
 - `callback` — the agent wired an artifact (skill, MCP tool, app, webhook,
   child) that fires `{sink}/cb/{nonce}`; firing is the proof.

@@ -419,6 +419,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	if _, err = command(ctx, "group", "grant", "folder:eval", "eval/**", "hold:*", "--effect", "deny"); err != nil {
 		return err
 	}
+	hosts := append([]string{sink.Hostname()}, modelHosts...)
 	for _, c := range opts.cases {
 		for _, required := range c.Requires {
 			if strings.HasPrefix(required, "mcp:") {
@@ -426,9 +427,12 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 					return err
 				}
 			}
+			if host, ok := strings.CutPrefix(required, "egress:"); ok {
+				hosts = append(hosts, host)
+			}
 		}
 	}
-	for _, host := range append([]string{sink.Hostname()}, modelHosts...) {
+	for _, host := range hosts {
 		if _, err = command(ctx, "network", "allow", "eval", host); err != nil {
 			return err
 		}
