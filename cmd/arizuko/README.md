@@ -30,12 +30,11 @@ Instance:
 
 Groups and access:
 
-Before a harness rollout, inspect exported group configs for flat `model` and
-`effort` overrides. Write an explicit `harness` document through the group
-settings page or groups PATCH; Go does not infer a backend. Review stored
-`codex` allow and deny rows: model login follows the model-credential policy,
-and these rows confer no authority. End active runs before changing a
-backend. These checks concern operator data; generation does not rewrite it.
+The CLI has no verb for a group's backend, model and effort. They are one
+`harness` document in the group's settings: write it on the dashboard settings
+page or with `PATCH /v1/groups/{folder}`, and `apply` of a rows file carries it
+in `config`. A group without one uses the instance defaults in `.env`. End
+active runs before changing a backend.
 
 - `arizuko group [-i NAME] list | add <jid> <folder> [-p|--product <source>] | rm <folder> | grant | ungrant | grants | rename`. `add` also writes the first route for the JID. With `-p`, `add` reads the `arizuko.yml` of the package source and writes one `installed_packages` selection row for the folder with that source. The files arrive on the next `arizuko package sync`. A Discord guild channel gets a `verb=mention` rule and a catch-all `?observe` rule, so that messages without a mention only add context.
 - `arizuko chat [-i NAME] thread-replies <jid> [on|off|default]` reads or changes the chat's thread reply setting. Reset enables threads for group chats and disables them for direct messages.
