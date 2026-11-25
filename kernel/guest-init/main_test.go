@@ -100,6 +100,10 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
     {
       "path": "/opt/arizuko",
       "ro": true
+    },
+    {
+      "path": "/tmp",
+      "ro": false
     }
   ],
   "tmpfs": [
@@ -116,6 +120,7 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
 			{Path: "/home/node", RO: false},
 			{Path: "/home/node/.codex/auth.json", RO: true},
 			{Path: "/opt/arizuko", RO: true},
+			{Path: "/tmp", RO: false},
 		},
 		Tmpfs: []string{"/run/ipc"},
 	}
@@ -129,7 +134,7 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
 	// root because that is the only / the agent has.
 	want := []mountOp{
 		{Source: "root", Target: "/lower", FS: "virtiofs", Flags: syscall.MS_RDONLY},
-		{Source: "tmpfs", Target: "/overlay", FS: "tmpfs", Data: "size=512m"},
+		{Source: "tmpfs", Target: "/overlay", FS: "tmpfs", Data: "size=128m"},
 		{Source: "overlay", Target: "/newroot", FS: "overlay",
 			Data:  "lowerdir=/lower,upperdir=/overlay/upper,workdir=/overlay/work",
 			Needs: []string{"/overlay/upper", "/overlay/work"}},
@@ -152,6 +157,10 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
 			Flags: syscall.MS_BIND | syscall.MS_REC},
 		{Target: "/newroot/opt/arizuko",
 			Flags: syscall.MS_REMOUNT | syscall.MS_BIND | syscall.MS_RDONLY},
+		// /tmp is a family like any other: the host's per-turn dir on disk,
+		// bound writable, so the agent's scratch is not guest RAM.
+		{Source: "/turn/tmp", Target: "/newroot/tmp",
+			Flags: syscall.MS_BIND | syscall.MS_REC},
 		{Source: "tmpfs", Target: "/newroot/run/ipc", FS: "tmpfs", Data: "size=16m", Own: true},
 	}
 	got := rootPlan(m)
@@ -171,6 +180,21 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
 	if !strings.HasPrefix(got[2].Data, "lowerdir="+got[0].Target+",") {
 		t.Errorf("the overlay's lowerdir is %q, not the root share's mount point %q",
 			got[2].Data, got[0].Target)
+	}
+}
+
+// Every tmpfs the guest mounts before the turn is RAM inside -m, so each carries
+// a size. /dev/shm held 1g of the 2G guest before /tmp left the overlay.
+func TestBaseMountsSizeEveryTmpfs(t *testing.T) {
+	want := map[string]string{"/run": "size=64m", "/dev/shm": "size=256m"}
+	got := map[string]string{}
+	for _, m := range baseMounts {
+		if m.fs == "tmpfs" {
+			got[m.dst] = m.opts
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("base tmpfs mounts are %v, want %v", got, want)
 	}
 }
 

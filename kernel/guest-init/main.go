@@ -100,11 +100,15 @@ const (
 	// guestRoot so the agent's root holds nothing but the agent's own tree.
 	lowerDir   = "/lower"
 	overlayDir = "/overlay"
-	// upperSize bounds the agent's writable layer. It is RAM inside -m, so the
-	// size is explicit: a write past it is ENOSPC in the guest, never a host
-	// reclaiming under pressure (spec §"The host budget"). 512m against the 2G
-	// RUNED_GUEST_MEM default leaves the agent its RSS and /dev/shm its gigabyte.
-	upperSize = "size=512m"
+	// upperSize bounds the agent's writable layer outside its shares. It is RAM
+	// inside -m, so the size is explicit: a write past it is ENOSPC in the guest,
+	// never a host reclaiming under pressure (spec §"The host budget"). /tmp is
+	// not in it: the host serves /tmp from a per-turn dir on disk
+	// (runed/vmtree.go prepareTmp), so this layer holds only writes to the
+	// release's own paths.
+	upperSize = "size=128m"
+	// shmSize bounds /dev/shm, which is RAM inside -m for the same reason.
+	shmSize = "size=256m"
 	// tmpfsSize bounds each guest-local tmpfs the manifest names — today the ipc
 	// dir, which holds the MCP socket — for the same reason.
 	tmpfsSize = "size=16m"
@@ -270,24 +274,27 @@ func main() {
 	off()
 }
 
-// mountBase mounts what the guest needs before the turn: proc and sys for the
-// runtime, devtmpfs for the console, and a sized tmpfs for the overlay upper.
-// The upper is RAM inside -m, so its size is explicit: a write past it is
-// ENOSPC in the guest, never a host reclaiming under pressure (spec §"The host
-// budget").
+// baseMounts are what the guest needs before the turn: proc and sys for the
+// runtime, and the two sized tmpfs mounts. A tmpfs is RAM inside -m, so its size
+// is explicit: a write past it is ENOSPC in the guest, never a host reclaiming
+// under pressure (spec §"The host budget").
+//
+// /dev is NOT in this list, and the kernel does not populate it either:
+// CONFIG_DEVTMPFS_MOUNT has no effect on an initramfs boot, so /dev is exactly
+// the set of real nodes kernel/Dockerfile puts in the initrd (BUGS `L374`).
+// Mounting devtmpfs over it here is not the fix — that cost a whole debug cycle
+// on 2026-09-24, when re-mounting /dev invalidated the console fd the kernel had
+// already handed PID 1 as stdout and the guest powered off in silence.
+var baseMounts = []struct{ src, dst, fs, opts string }{
+	{"proc", "/proc", "proc", ""},
+	{"sysfs", "/sys", "sysfs", ""},
+	{"tmpfs", "/run", "tmpfs", "size=64m"},
+	{"tmpfs", "/dev/shm", "tmpfs", shmSize},
+}
+
+// mountBase mounts baseMounts and the turn share.
 func mountBase(probe map[string]string) {
-	// /dev is NOT in this list, and the kernel does not populate it either:
-	// CONFIG_DEVTMPFS_MOUNT has no effect on an initramfs boot, so /dev is exactly
-	// the set of real nodes kernel/Dockerfile puts in the initrd (BUGS `L374`).
-	// Mounting devtmpfs over it here is not the fix — that cost a whole debug cycle
-	// on 2026-09-24, when re-mounting /dev invalidated the console fd the kernel had
-	// already handed PID 1 as stdout and the guest powered off in silence.
-	for _, m := range []struct{ src, dst, fs, opts string }{
-		{"proc", "/proc", "proc", ""},
-		{"sysfs", "/sys", "sysfs", ""},
-		{"tmpfs", "/run", "tmpfs", "size=64m"},
-		{"tmpfs", "/dev/shm", "tmpfs", "size=1g"},
-	} {
+	for _, m := range baseMounts {
 		_ = os.MkdirAll(m.dst, 0o755)
 		if err := syscall.Mount(m.src, m.dst, m.fs, 0, m.opts); err != nil {
 			probe["mount_"+m.fs+"_error"] = err.Error()
@@ -416,11 +423,13 @@ type mountOp struct {
 // without a hypervisor.
 func rootPlan(m treeManifest) []mountOp {
 	ops := []mountOp{
-		// The release rootfs, read-only, as the overlay's LOWER. A virtio-fs
-		// share works as an overlayfs lower and NOT as an upper
-		// (kata-containers how-to-run-docker-with-kata.md), which is why the
-		// writable layer below is a tmpfs and why the agent's every write dies
-		// with the guest — Persistence stays mounted_home (spec §"The files").
+		// The release rootfs, read-only, as the overlay's LOWER. The turn share
+		// does not work as an overlayfs UPPER: overlayfs makes its workdir mode
+		// 000 and relies on the mounter's DAC override there, which the clamped,
+		// unprivileged virtiofsd does not have, so the mount is EACCES (measured
+		// 2026-11-25, spec §"The files"). The writable layer below is therefore a
+		// small tmpfs, and the agent's writes outside its shares die with the
+		// guest. /tmp is one of the families, served from a per-turn dir on disk.
 		{Source: shareRoot, Target: lowerDir, FS: "virtiofs", Flags: syscall.MS_RDONLY},
 		{Source: "tmpfs", Target: overlayDir, FS: "tmpfs", Data: upperSize},
 		{Source: "overlay", Target: guestRoot, FS: "overlay",
