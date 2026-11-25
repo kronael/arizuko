@@ -4,14 +4,8 @@ status: shipped
 
 # specs/4 — dashboards, memory, scheduler, personas
 
-## Memory
-
-- [28-memory-levels.md](28-memory-levels.md) — **shipped** — one flat file format per lens (`~/diary/`, `~/episodes/`), one `compact-memories` technique, the newest level pushed on a new task
-
-## Authorization
-
-- [19-action-grants.md](19-action-grants.md) — **superseded in part** — rule grammar + structured unsupported errors survive; the `grants/` package is deleted, storage → [`../5/32`](../5/32-acl-unified.md), derivation → [`../5/33`](../5/33-paths-roles.md)
-- [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — **superseded in part** — four pages designed, one folder-scoped page shipped
+No spec is open in this phase. Agent memory is in `diary/README.md`; the
+authorization model is in `auth/README.md`.
 
 Merged or moved out of this phase:
 

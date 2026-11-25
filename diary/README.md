@@ -49,7 +49,9 @@ layer="work">`, with no truncation and no age check. A stale file is the
   level as `<memory scope="folder">`, at most six entries. The block covers
   the whole folder, not one thread, so the manual says never to continue
   another thread's topic from it. A later prompt of the same session adds
-  nothing: the block is already in the transcript.
+  nothing: the block is already in the transcript. The period is the file
+  name and the frontmatter holds `type:`, so a subdirectory per level would
+  state the level twice, and the block never grows with history.
 - **People.** The platform puts `<user id="…"/>` in the prompt. The hook
   reads `~/users/<id>.md` for that id and emits the whole file as
   `<user-memory>`.
