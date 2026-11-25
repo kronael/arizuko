@@ -4,8 +4,8 @@ status: draft
 
 # whapd auth-dir auto-rotate on 401 storms
 
-Sibling to `specs/11/15-whapd-self-rebind.md`. Independent concern,
-deliberately separate spec.
+Sibling to the operator re-pair flow (`whapd/README.md` § "Re-pairing
+without the log"). Independent concern, deliberately separate spec.
 
 ## Problem
 
@@ -13,13 +13,13 @@ When WhatsApp invalidates a session server-side, whapd loops
 `401 session invalidated, delete auth dir and re-pair` indefinitely
 — Baileys' default reconnect backoff is bounded but the loop never
 gives up. Outcome: CPU churn, journal pollution, and the operator
-must SSH in to recover (covered by spec 11/15 for the recovery side).
+must SSH in to recover (the dashd re-pair flow covers the recovery side).
 
 ## What ships
 
 After **N consecutive 401s within W seconds**, whapd:
 
-1. Acquires `WhapdBot.pairing.mu` (shared with spec 11/15's pair flow).
+1. Acquires `WhapdBot.pairing.mu` (shared with the re-pair flow).
    If state != `idle`, skip rotation this cycle — pairing in flight,
    rotation would race the handshake.
 2. Stops the reconnect loop (sets `suspended = true`).
@@ -27,18 +27,17 @@ After **N consecutive 401s within W seconds**, whapd:
    `whatsapp-auth.bak.<unix-ts>/`), recreates an empty
    `whatsapp-auth/`.
 4. Sets internal state to `unauthenticated`.
-5. Writes an audit row to `messages` (same shape as 11/15, see that
-   spec's "Audit" section — synthetic JID `arizuko:admin/whapd`,
+5. Writes an audit row to `messages` (synthetic JID `arizuko:admin/whapd`,
    `sender='whapd:auth-rotate'`, `verb='admin.auth-rotate'`,
    `content='rotated after N×401 in W seconds'`).
 6. Releases the mutex.
 
-That state is what `GET /v1/pair/status` reports (per spec 11/15).
+That state is what `GET /v1/pair/status` reports (`whapd/README.md`).
 The operator sees "unauthenticated" in dashd and clicks Start.
 
 ## Why a separate spec
 
-The dashd re-pair flow (11/15) works whether or not auth-rotate ships
+The dashd re-pair flow works whether or not auth-rotate ships
 — operator can just wait through the 401 loop, click pair, done. The
 rotation is a hygiene fix (kills the CPU loop) that's nice but not
 required for the recovery story.
@@ -63,8 +62,8 @@ trip.
 
 ## Open questions
 
-1. ~~`messages` vs `channel_events` table?~~ Decided jointly with
-   11/15: stay in `messages` with synthetic JID `arizuko:admin/whapd`.
+1. ~~`messages` vs `channel_events` table?~~ Decided: stay in
+   `messages` with synthetic JID `arizuko:admin/whapd`.
    No new schema; both specs adopt the same convention.
 2. Should the rotation hand off to a follow-up "operator notification"
    (DM the operator group with "WhatsApp needs re-pair, /dash/
@@ -74,8 +73,8 @@ trip.
 
 ## What this is NOT
 
-- NOT the re-pair UI. See spec 11/15.
+- NOT the re-pair UI (`whapd/README.md` § "Re-pairing without the log").
 - NOT a way to recover sessions that 401-blip transiently. The
   threshold is intentionally high enough to not trip on noise.
-- NOT a generic adapter pattern. Same scoping caveat as 11/15 — one
-  adapter today; abstract when a second one needs it.
+- NOT a generic adapter pattern. Same scoping caveat as the re-pair
+  flow — one adapter today; abstract when a second one needs it.

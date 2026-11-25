@@ -13,7 +13,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// Spec 11/15. Operator-only re-pair surface — dashd renders the page, proxies
+// Operator-only re-pair surface (whapd/README.md § Re-pairing without the log) — dashd renders the page, proxies
 // POST to whapd /v1/pair/start presenting its service:dashd ES256 token (whapd
 // verifies it; HMAC retire step 5), and emits an audit_log event.
 

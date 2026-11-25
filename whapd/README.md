@@ -122,6 +122,7 @@ code instead of a QR scan. `GET /v1/pair/status` reports the state: `idle`,
   reconnect loop is suspended while a flow runs.
 - **At most 5 starts per rolling hour** per process, then 429 "too many
   attempts". WhatsApp bans a number that makes too many link attempts.
+  The count is in memory, and a whapd restart resets it.
 
 The dashboard shows the pair-flow state as its own section (`src/dash.ts`).
 
