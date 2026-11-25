@@ -3,42 +3,9 @@ package objstore
 import (
 	"context"
 	"fmt"
-	"sync"
 )
 
 type Version string
-
-// Snapshot values are immutable after load. Every reuse verifies the scope's
-// settled version; errors return no value, including while a replace is held.
-type Snapshot[T any] struct {
-	mu      sync.Mutex
-	version Version
-	value   T
-}
-
-func (c *Snapshot[T]) Read(ctx context.Context, s Store, sc Scope, load func(context.Context) (T, error)) (T, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var zero T
-	marker, err := settledMarker(ctx, s, sc)
-	if err != nil {
-		return zero, err
-	}
-	if c.version == Version(marker.version) {
-		return c.value, nil
-	}
-	var value T
-	version, err := ReadConsistent(ctx, s, sc, func(ctx context.Context) error {
-		var err error
-		value, err = load(ctx)
-		return err
-	})
-	if err != nil {
-		return zero, err
-	}
-	c.version, c.value = version, value
-	return value, nil
-}
 
 // ReadConsistent runs read between two point reads of the scope's marker, and
 // runs it again if the scope moved in between. It detects exactly the writers

@@ -31,6 +31,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - routd's in-memory BM25 message index, its boot walk, the `index_warming`
   refusal and the feed beside each message write. On sloth the index held
   473 MB of heap for 320,798 messages and took 56 s of boot work.
+- `objstore.Snapshot`, the copy of a table that proxyd, dashd and googd kept
+  between two reads. proxyd reads `proxyd_routes` for each request and
+  `web_routes` for each `/pub/*` request, dashd reads the route table and the
+  task list for each page, and googd reads the Drive bindings on each poll
+  tick. Each read is `objstore.ReadConsistent`, so a held replace still
+  answers 503. A read costs two marker reads and one table read, where the
+  copy cost one marker read.
 
 - The mid-turn steer chain, which no code called: `Turn.RegisterSteer`,
   `Manager.SetSteer`, `RunOutcome.steered`, the `steer` and `steer_ack` frames

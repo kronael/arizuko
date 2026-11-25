@@ -37,7 +37,10 @@ func (c *dashCounter) Query(ctx context.Context, q objstore.Query) ([]objstore.I
 	}
 	return c.Store.Query(ctx, q)
 }
-func TestDashboardRefreshReadsOnlyChangedState(t *testing.T) {
+
+// dashd holds no copy of routd's tables: each call reads the route table and
+// the task list from the store again.
+func TestDashboardReadsTheStoreOnEachCall(t *testing.T) {
 	db := routdDB(t)
 	for i := range 40 {
 		seedScheduledTask(t, db, core.Task{ID: fmt.Sprint(i), Owner: "alpha", Status: core.TaskActive})
@@ -60,8 +63,9 @@ func TestDashboardRefreshReadsOnlyChangedState(t *testing.T) {
 	if got := d.jidFolder("chat:0"); got != "alpha" {
 		t.Fatal(got)
 	}
-	if c.rows != 2 || c.walks != 0 {
-		t.Fatalf("unchanged: rows=%d walks=%d", c.rows, c.walks)
+	if c.walks != 2 {
+		t.Fatalf("the second call walked %d tables, want the route table and the task list",
+			c.walks)
 	}
 	seedScheduledTask(t, db, core.Task{ID: "new", Owner: "beta", Status: core.TaskActive})
 	if tasks, err := d.tasksViaRoutd(t.Context()); err != nil || len(tasks) != 41 {
@@ -86,7 +90,7 @@ func TestDashboardRefreshReadsOnlyChangedState(t *testing.T) {
 	}
 }
 
-func TestTaskSnapshotRecoversAfterReadFailure(t *testing.T) {
+func TestTaskReadRecoversAfterReadFailure(t *testing.T) {
 	db := routdDB(t)
 	seedScheduledTask(t, db, core.Task{ID: "exists", Owner: "alpha", Status: core.TaskActive})
 	c := &dashCounter{Store: db, failTasks: true}

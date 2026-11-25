@@ -58,7 +58,10 @@ func updatePoll(t *testing.T, p *poller, id string, attrs map[string]string) {
 		t.Fatalf("update poll: %v %v", ok, err)
 	}
 }
-func TestPollReadsOnlyDueRows(t *testing.T) {
+
+// A sweep holds no copy of the bindings: it reads the bindings and the poll
+// rows once each, and it polls only the files that are due.
+func TestSweepReadsTheBindingsAndPollsOnlyDueFiles(t *testing.T) {
 	calls := 0
 	ids := make([]string, 41)
 	for i := range ids {
@@ -75,13 +78,13 @@ func TestPollReadsOnlyDueRows(t *testing.T) {
 	}
 	c.rows, c.walks = 0, 0
 	p.sweep(t.Context(), now)
-	if calls != 2 || c.rows > 8 || c.walks != 0 {
-		t.Fatalf("calls=%d rows=%d walks=%d", calls, c.rows, c.walks)
+	if calls != 2 || c.walks != 2 {
+		t.Fatalf("calls=%d walks=%d", calls, c.walks)
 	}
-	c.rows = 0
+	c.walks = 0
 	p.sweep(t.Context(), now)
-	if calls != 2 || c.rows != 1 || c.walks != 0 {
-		t.Fatalf("idle calls=%d rows=%d walks=%d", calls, c.rows, c.walks)
+	if calls != 2 || c.walks != 2 {
+		t.Fatalf("idle calls=%d walks=%d", calls, c.walks)
 	}
 }
 func TestPollRestartKeepsBackoffAndCursor(t *testing.T) {

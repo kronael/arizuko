@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/httputil"
 	"slices"
 	"strings"
 	"sync"
@@ -19,18 +18,11 @@ import (
 )
 
 type routesResource struct {
-	st     *store.Store
-	routes objstore.Snapshot[routeSnapshot]
-	web    objstore.Snapshot[[]store.WebRoute]
+	st *store.Store
 
 	manualMu        sync.RWMutex
 	manualRoutes    []store.ProxydRoute
 	manualWebRoutes []store.WebRoute
-}
-
-type routeSnapshot struct {
-	routes  []store.ProxydRoute
-	proxies map[string]*httputil.ReverseProxy
 }
 
 func newRoutesResource(st *store.Store, initial []store.ProxydRoute) *routesResource {
@@ -42,56 +34,48 @@ func newRoutesResource(st *store.Store, initial []store.ProxydRoute) *routesReso
 	return rr
 }
 
-func (rr *routesResource) snapshot() ([]store.ProxydRoute, map[string]*httputil.ReverseProxy, error) {
-	var routes []store.ProxydRoute
-	if rr.st != nil {
-		state, err := rr.routes.Read(context.Background(), rr.st.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) (routeSnapshot, error) {
-			stored, err := rr.st.AllProxydRoutes()
-			if err != nil {
-				return routeSnapshot{}, err
-			}
-			return buildSnapshot(stored), nil
-		})
-		if err != nil {
-
-			slog.Error("proxyd: read proxyd_routes", "err", err)
-			return nil, nil, err
-		}
-		return state.routes, state.proxies, nil
-	} else {
+// readRoutes reads `proxyd_routes` from the store. The read is refused while a
+// replace holds routd's scope, because the table is then part-replaced.
+func (rr *routesResource) readRoutes() ([]store.ProxydRoute, error) {
+	if rr.st == nil {
 		rr.manualMu.RLock()
-		routes = append([]store.ProxydRoute(nil), rr.manualRoutes...)
-		rr.manualMu.RUnlock()
+		defer rr.manualMu.RUnlock()
+		return append([]store.ProxydRoute(nil), rr.manualRoutes...), nil
 	}
-	state := buildSnapshot(routes)
-	return state.routes, state.proxies, nil
-}
-
-func buildSnapshot(routes []store.ProxydRoute) routeSnapshot {
-
-	procs := make(map[string]*httputil.ReverseProxy, len(routes))
-	for _, r := range routes {
-		if r.RedirectTo == "" {
-			procs[r.Path] = buildRouteProxy(r)
-		}
-	}
-	return routeSnapshot{routes, procs}
-}
-
-func (rr *routesResource) webSnapshot() ([]store.WebRoute, error) {
-	if rr.st != nil {
-		stored, err := rr.web.Read(context.Background(), rr.st.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) ([]store.WebRoute, error) {
-			return rr.st.AllWebRoutes()
+	var routes []store.ProxydRoute
+	_, err := objstore.ReadConsistent(context.Background(), rr.st.Obj(),
+		store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
+			var err error
+			routes, err = rr.st.AllProxydRoutes()
+			return err
 		})
-		if err != nil {
-			slog.Error("proxyd: read web_routes", "err", err)
-			return nil, err
-		}
-		return stored, nil
+	if err != nil {
+		slog.Error("proxyd: read proxyd_routes", "err", err)
+		return nil, err
 	}
-	rr.manualMu.RLock()
-	defer rr.manualMu.RUnlock()
-	return append([]store.WebRoute(nil), rr.manualWebRoutes...), nil
+	return routes, nil
+}
+
+// readWebRoutes reads `web_routes` from the store, under the rule readRoutes
+// states.
+func (rr *routesResource) readWebRoutes() ([]store.WebRoute, error) {
+	if rr.st == nil {
+		rr.manualMu.RLock()
+		defer rr.manualMu.RUnlock()
+		return append([]store.WebRoute(nil), rr.manualWebRoutes...), nil
+	}
+	var routes []store.WebRoute
+	_, err := objstore.ReadConsistent(context.Background(), rr.st.Obj(),
+		store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
+			var err error
+			routes, err = rr.st.AllWebRoutes()
+			return err
+		})
+	if err != nil {
+		slog.Error("proxyd: read web_routes", "err", err)
+		return nil, err
+	}
+	return routes, nil
 }
 
 func (rr *routesResource) installManualWeb(routes []store.WebRoute) {
@@ -144,7 +128,7 @@ func argRoute(args resreg.Args) (store.ProxydRoute, error) {
 }
 
 func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, error) {
-	routes, _, err := rr.snapshot()
+	routes, err := rr.readRoutes()
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusServiceUnavailable, "route state unavailable: %v", err)
 	}

@@ -1541,7 +1541,7 @@ func installRoute(s *server, r store.ProxydRoute) {
 	if s.rr == nil {
 		s.rr = newRoutesResource(nil, nil)
 	}
-	cur, _, err := s.rr.snapshot()
+	cur, err := s.rr.readRoutes()
 	if err != nil {
 		panic(err)
 	}

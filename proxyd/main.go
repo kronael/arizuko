@@ -117,29 +117,21 @@ func (s *server) untrustedEdgeOnce(peer string) {
 		"peer", peer, "fix", "add "+peer+" to TRUSTED_PROXIES")
 }
 
-// routeSnapshot returns ONE consistent view of the route table and the proxies
-// built from it. Every dispatch takes it once and passes it down: the route a
-// request matched and the backend it is forwarded to must come from the same
-// read of `proxyd_routes`, or a concurrent mutation pairs one route's auth
-// policy with another's backend (BUGS P3). Slices/maps returned are never
-// mutated in place, so a caller can use them without holding a lock.
-func (s *server) routeSnapshot() ([]store.ProxydRoute, map[string]*httputil.ReverseProxy, error) {
-	if s.rr == nil {
-		return nil, nil, nil
-	}
-	return s.rr.snapshot()
-}
-
+// routes reads the route table from the store. A dispatch reads it once: the
+// route a request matched carries its own backend, so the auth policy and the
+// backend come from one read of `proxyd_routes` (BUGS P3).
 func (s *server) routes() ([]store.ProxydRoute, error) {
-	r, _, err := s.routeSnapshot()
-	return r, err
+	if s.rr == nil {
+		return nil, nil
+	}
+	return s.rr.readRoutes()
 }
 
 func (s *server) webRoutes() ([]store.WebRoute, error) {
 	if s.rr == nil {
 		return nil, nil
 	}
-	return s.rr.webSnapshot()
+	return s.rr.readWebRoutes()
 }
 
 func matchWebRoute(routes []store.WebRoute, urlPath string) (store.WebRoute, bool) {
@@ -219,7 +211,7 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 // `arizuko generate` writes the release's routes into it and proxyd re-reads it
 // per request. There is no env var and no seeding, so there is no window in which
 // config stops applying — PROXYD_ROUTES_JSON was seed-once and cost krons seven
-// routes (BUGS L45). Dispatch takes a fresh snapshot per request.
+// routes (BUGS L45). Dispatch reads the table for each request.
 func loadInitialRoutes(st *store.Store) []store.ProxydRoute {
 	if st == nil {
 		return nil
@@ -521,12 +513,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ONE snapshot for the whole dispatch: matching and proxy selection read the
-	// same version of `proxyd_routes`, or a request could be matched against one
-	// and forwarded (or 404'd) against another: old auth policy paired with a new
-	// backend, or a false 404 when the matched path was gone by the second read
-	// (BUGS P3).
-	routes, proxies, err := s.routeSnapshot()
+	routes, err := s.routes()
 	if err != nil {
 		http.Error(w, "Route state unavailable", http.StatusServiceUnavailable)
 		return
@@ -534,7 +521,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Path == "/dav" || strings.HasPrefix(r.URL.Path, "/dav/") {
 		if rt := MatchRoute(routes, "/dav/"); rt != nil {
-			s.dispatchRoute(rt, proxies, w, r)
+			s.dispatchRoute(rt, w, r)
 		} else {
 			http.Error(w, "WebDAV not configured", http.StatusNotFound)
 		}
@@ -542,7 +529,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rt := MatchRoute(routes, r.URL.Path); rt != nil {
-		s.dispatchRoute(rt, proxies, w, r)
+		s.dispatchRoute(rt, w, r)
 		return
 	}
 
@@ -558,25 +545,16 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
-// dispatchRoute applies per-route auth + bespoke handling and forwards via the
-// cached ReverseProxy. It takes the proxy map from the SAME snapshot rt was
-// matched in — never re-reads it — so route and backend cannot come from two
-// versions of the table (BUGS P3).
-func (s *server) dispatchRoute(rt *store.ProxydRoute, proxies map[string]*httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
+// dispatchRoute applies per-route auth + bespoke handling and forwards to the
+// backend rt itself names. It never reads the table again, so the route and the
+// backend cannot come from two versions of it (BUGS P3).
+func (s *server) dispatchRoute(rt *store.ProxydRoute, w http.ResponseWriter, r *http.Request) {
 	if rt.RedirectTo != "" {
 		http.Redirect(w, r, rt.RedirectTo, http.StatusFound)
 		return
 	}
-	rp := proxies[rt.Path]
+	rp := buildRouteProxy(*rt)
 	if rp == nil {
-
-		// Unreachable: snapshot() builds a proxy for every non-redirect route in
-		// the same read rt was matched from, and the redirect case returned
-		// above. Matching and proxy selection must read one table version (BUGS
-		// P3). A 404 here would blame the caller for a proxyd bug, so say what
-		// it is.
-		slog.Error("proxyd: matched route has no proxy in its own snapshot",
-			"path", rt.Path, "url", r.URL.Path)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}

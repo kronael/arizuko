@@ -31,7 +31,6 @@ import (
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
-	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 )
@@ -291,9 +290,6 @@ func upstreamErr(daemon string, status int, body []byte) string {
 }
 
 type dash struct {
-	taskSnapshot  objstore.Snapshot[[]resources.ScheduledTasksRow]
-	routeSnapshot objstore.Snapshot[[]core.Route]
-
 	routd objstore.Store
 
 	onbod     objstore.Store

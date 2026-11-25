@@ -32,10 +32,8 @@ type poller struct {
 	router   interface {
 		SendMessage(chanlib.InboundMsg) error
 	}
-	name       string
-	interval   time.Duration
-	snapshot   objstore.Snapshot[*[]store.GDriveFile]
-	reconciled *[]store.GDriveFile
+	name     string
+	interval time.Duration
 }
 
 func pollInterval() time.Duration {
@@ -234,7 +232,7 @@ func (p *poller) dashSection() chanlib.DashSection {
 		section.Rows = append(section.Rows, [2]string{"error", err.Error()})
 		return section
 	}
-	for _, file := range *files {
+	for _, file := range files {
 		rows, err := p.db.Query(context.Background(), objstore.Query{Entity: googstore.PollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
 		if err != nil {
 			section.Rows = append(section.Rows, [2]string{file.FileID, "error: " + err.Error()})

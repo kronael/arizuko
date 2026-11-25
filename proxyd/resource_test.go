@@ -103,9 +103,8 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 		t.Fatalf("POST status = %d body=%s", w.Code, w.Body.String())
 	}
 
-	// route must be visible immediately via the DB-backed snapshot
-	if cur, _, err := rr.snapshot(); err != nil || len(cur) != 1 || cur[0].Path != "/slack/" {
-		t.Errorf("rr.snapshot() = %+v", cur)
+	if cur, err := rr.readRoutes(); err != nil || len(cur) != 1 || cur[0].Path != "/slack/" {
+		t.Errorf("rr.readRoutes() = %+v", cur)
 	}
 
 	w = doJSON(t, mux, "GET", "/v1/proxyd_routes", nil)
@@ -132,7 +131,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("PATCH = %d body=%s", w.Code, w.Body.String())
 	}
-	cur, _, err := rr.snapshot()
+	cur, err := rr.readRoutes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,8 +143,8 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d", w.Code)
 	}
-	if cur, _, err := rr.snapshot(); err != nil || len(cur) != 0 {
-		t.Errorf("rr.snapshot() after delete = %+v", cur)
+	if cur, err := rr.readRoutes(); err != nil || len(cur) != 0 {
+		t.Errorf("rr.readRoutes() after delete = %+v", cur)
 	}
 
 	// delete is idempotent
@@ -297,7 +296,7 @@ func TestRoutesResource_Durable(t *testing.T) {
 		t.Fatalf("stored = %+v err=%v", stored, err)
 	}
 	rr2 := newRoutesResource(st, stored)
-	if cur, _, err := rr2.snapshot(); err != nil || len(cur) != 1 || cur[0].Backend != "http://api:8080" {
+	if cur, err := rr2.readRoutes(); err != nil || len(cur) != 1 || cur[0].Backend != "http://api:8080" {
 		t.Errorf("rehydrated = %+v", cur)
 	}
 }
@@ -334,18 +333,17 @@ func jsonOf(v any) string {
 	return string(b)
 }
 
-// On a store read error snapshot must not panic and must return NOTHING rather
-// than a stale partial — the error is logged so a transient fault is a visible
-// outage, not silent 404s.
-func TestRoutesResource_SnapshotStoreError(t *testing.T) {
+// On a store read error a read must not panic and must return NOTHING — the
+// error is logged so a transient fault is a visible outage, not silent 404s.
+func TestRoutesResource_ReadStoreError(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	rr := newRoutesResource(st, nil)
 	testutils.BreakStore(t, st, store.ProxydRoutes, store.WebRoutes)
-	if routes, procs, err := rr.snapshot(); err == nil || routes != nil || procs != nil {
-		t.Errorf("snapshot on DB error = (%+v, %+v), want (nil, nil)", routes, procs)
+	if routes, err := rr.readRoutes(); err == nil || routes != nil {
+		t.Errorf("readRoutes on DB error = %+v, want nil", routes)
 	}
-	if wr, err := rr.webSnapshot(); err == nil || wr != nil {
-		t.Errorf("webSnapshot on DB error = %+v, want nil", wr)
+	if wr, err := rr.readWebRoutes(); err == nil || wr != nil {
+		t.Errorf("readWebRoutes on DB error = %+v, want nil", wr)
 	}
 }
 

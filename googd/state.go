@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -31,21 +30,24 @@ func pollState(it objstore.Item) (*filePoll, error) {
 	return s, nil
 }
 
-func (p *poller) boundFiles(ctx context.Context) (*[]store.GDriveFile, error) {
-	return p.snapshot.Read(ctx, p.bindings.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) (*[]store.GDriveFile, error) {
-		files, err := p.bindings.ListGDriveFiles("")
-		return &files, err
-	})
+func (p *poller) boundFiles(ctx context.Context) ([]store.GDriveFile, error) {
+	var files []store.GDriveFile
+	_, err := objstore.ReadConsistent(ctx, p.bindings.Obj(), store.OwnerScope(store.OwnerRoutd),
+		func(context.Context) error {
+			var err error
+			files, err = p.bindings.ListGDriveFiles("")
+			return err
+		})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func (p *poller) reconcileBindings(ctx context.Context) error {
 	files, err := p.boundFiles(ctx)
 	if err != nil {
 		return err
-	}
-	if p.reconciled != nil && slices.Equal(*p.reconciled, *files) {
-		p.reconciled = files
-		return nil
 	}
 	rows, err := p.db.Query(ctx, objstore.Query{Entity: googstore.PollEntity, Partition: p.name})
 	if err != nil {
@@ -56,7 +58,7 @@ func (p *poller) reconcileBindings(ctx context.Context) error {
 		existing[row.Key.Sort] = row
 	}
 	var writes []objstore.Write
-	for _, file := range *files {
+	for _, file := range files {
 		old := existing[file.FileID]
 		delete(existing, file.FileID)
 		created := core.TS(file.CreatedAt)
@@ -85,6 +87,5 @@ func (p *poller) reconcileBindings(ctx context.Context) error {
 		}
 		writes = writes[n:]
 	}
-	p.reconciled = files
 	return nil
 }

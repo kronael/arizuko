@@ -25,7 +25,7 @@ request
 │                  │                    redirect, deny, auth or local files
 │                  │   /priv/*          requireAuth, MatchSlot, local files
 └────────┬─────────┘
-         ▼ one snapshot of proxyd_routes per request
+         ▼ one read of proxyd_routes per request
 ┌──────────────────┐   /dav/*           requireAuth, davAllow, davd
 │ MatchRoute       ├──►"/x/" prefix, "/x" exact, longest wins
 │                  │   redirect_to      302
@@ -59,7 +59,7 @@ The figure shows the order in `server.route` (`proxyd/main.go`). Each stage exis
 - **proxyd's own mux** answers the paths that proxyd serves itself. These paths never reach `route`, so `/dash/proxyd/` carries its own `requireAuth`. Without it, the route table and its write forms would serve an anonymous caller. `/auth/forward` sits before the `/auth/*` proxy, so proxyd answers it and authd never sees it. An `/auth/*` path that no mux entry serves falls through to `route`. `route` treats it as a private surface and gates it with `requireAuth`, so it bounces to `/auth/login` and not to the public `/pub/` redirect.
 - **The header strip** runs once, before any decision. No identity header that a client supplies survives ingress, so nobody outside can feed one to a backend that reads it.
 - **The hard-wired paths** stay in Go because a row cannot express them. `/pub/*` probes `PUB_REDIRECT_URL` and serves local files for websocket upgrades. `/priv/*` checks the scopes of the caller against the folder that owns the slot. `/` front-doors a mapped host.
-- **One snapshot** of `proxyd_routes` serves the whole request. The matched route and its backend come from the same read. Each request verifies the settled owner version by key. A changed version rebuilds the snapshot consistently; a held replacement or read error fails closed.
+- **One read** of `proxyd_routes` serves the whole request, and proxyd keeps no copy of the table between two requests. The matched route names its own backend, so the auth policy and the backend come from the same read. The read is `objstore.ReadConsistent`: it reads the owner marker before and after the table and reads again when the version moved. A held replacement, a missing marker or a read error fails closed.
 - **The final catch-all** turns any unmatched path into a public URL. Every reserved prefix is dispatched above it, so the host redirect here cannot shadow `/dash`, `/chat` or any other surface on any host.
 
 ### A world's host redirects to its public slot
@@ -93,7 +93,7 @@ The path prefix is the coordinate of the row. The attributes are:
 
 `public` and no match serve local files. `auth` runs `requireAuth` of proxyd first. `deny` answers 403. `redirect` answers 302 with the matched prefix replaced by `redirect_to`.
 
-Agents add and remove rows with the MCP tools `set_web_route`, `del_web_route` and `list_web_routes` (`routd/web_routes_resource.go`). routd makes every write. proxyd verifies the owner version on each request and reloads `store.AllWebRoutes` only after a change. `matchWebRoute` selects the longest prefix from that snapshot.
+Agents add and remove rows with the MCP tools `set_web_route`, `del_web_route` and `list_web_routes` (`routd/web_routes_resource.go`). routd makes every write. proxyd reads `store.AllWebRoutes` for each `/pub/*` request, under the same consistent read as `proxyd_routes`. `matchWebRoute` selects the longest prefix from that read.
 
 One URL has one backing store. The slot of a group is `/pub/<folder>/`, and these rules keep every other path from becoming a second copy of it.
 
@@ -294,7 +294,7 @@ There is no MCP/IPC socket or durable request queue. webd forwards operator MCP 
 Backends come from rows, including `dashd`, `webd`, `onbod`, `authd`, `runed`, `davd`, and installed adapters.
 The code opens routd's store directly; it does not ask routd over HTTP for every request.
 Store setup or initial route-read failure exits at boot. A runtime route or web-rule read failure returns 503.
-A missing or held owner marker also fails closed. The next request verifies the marker again; cached snapshots never bypass a failed check.
+A missing or held owner marker also fails closed. The next request reads the marker and the table again.
 Check those logs before interpreting an unexpected redirect or public-file response.
 An unreachable proxy backend normally returns 502. There is no application replay or request-retention queue.
 An authd outage can prevent refresh or a new transit token even while locally verified access tokens remain valid.

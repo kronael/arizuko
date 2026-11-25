@@ -9,6 +9,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
 )
@@ -84,9 +85,13 @@ func (d *dash) jidFolder(jid string) string {
 		}
 		return groupfolder.JidFolder(jid)
 	}
-	routes, err := d.routeSnapshot.Read(context.Background(), d.routd, store.OwnerScope(store.OwnerRoutd), func(context.Context) ([]core.Route, error) {
-		return d.routdStore().RouteTable()
-	})
+	var routes []core.Route
+	_, err := objstore.ReadConsistent(context.Background(), d.routd,
+		store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
+			var err error
+			routes, err = d.routdStore().RouteTable()
+			return err
+		})
 	if err != nil {
 		slog.Error("read dashboard routes", "err", err)
 		return ""

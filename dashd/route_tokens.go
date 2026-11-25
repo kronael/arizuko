@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -123,10 +124,20 @@ func (d *dash) tasksViaRoutd(ctx context.Context) ([]resources.ScheduledTasksRow
 	if d.routd == nil {
 		return nil, fmt.Errorf("routd store unavailable")
 	}
-	return d.taskSnapshot.Read(ctx, d.routd, store.OwnerScope(store.OwnerRoutd), d.loadTasks)
+	var tasks []resources.ScheduledTasksRow
+	_, err := objstore.ReadConsistent(ctx, d.routd, store.OwnerScope(store.OwnerRoutd),
+		func(ctx context.Context) error {
+			var err error
+			tasks, err = d.loadTasks(ctx)
+			return err
+		})
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
-func (d *dash) loadTasks(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
 
+func (d *dash) loadTasks(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/tasks", nil)
 	if err != nil {
 		return nil, err

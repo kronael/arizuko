@@ -1183,20 +1183,24 @@ quota release, owner-version races and archive restoration. Eleven disabled
 guards fail their tests; stale-notice, archive-loss and delivery-metadata races
 also fail before their fixes.
 
-## Versioned snapshots
+## Config reads are consistent and hold no copy
 
 Config writers already bump their owner's scope marker in the same transaction.
-`objstore.Snapshot` retains an immutable value and its settled version. Each
-reader checks that marker by key. An unchanged version reuses the value; a new
-version rebuilds under `ReadConsistent`. Missing, held or unreadable markers
-return an error. There is no time-based expiry or stale-on-error fallback.
-Proxyd's route data and proxy map are one snapshot; web routes use the same
-protocol. Authorization continues to read current grants independently.
-Snapshot errors propagate to HTTP 503, including the public-file path; an
-unreadable access-rule table never means an empty rule set. With forty routes,
-`TestRouteSnapshotsReadOnlyChangedState` measures one marker row and no table
-read on reuse. Six mutations fail: reuse, version comparison, held marker,
-consistent reload, missing version and HTTP error propagation.
+A reader of config holds no copy of it between two reads (`CLAUDE.md`, "No
+caches"). proxyd reads `proxyd_routes` for each request and `web_routes` for
+each `/pub/*` request. dashd reads the route table and the task list for each
+page. googd reads the Drive bindings on each poll tick. Each read runs under
+`objstore.ReadConsistent`: one marker read, the table read, one marker read,
+and the table read again when the version moved. Missing, held or unreadable
+markers return an error. There is no stale-on-error fallback. A matched proxyd
+route names its own backend, so the auth policy and the backend come from one
+read. Authorization continues to read current grants independently. Read
+errors propagate to HTTP 503, including the public-file path; an unreadable
+access-rule table never means an empty rule set.
+`TestRoutesAreReadFromTheStoreOnEachCall` rewrites a row without a marker bump
+and reads the new row. A read that keeps a copy and skips the marker fails
+four tests in `proxyd/route_reads_test.go`: the read on each call, the held
+marker, the consistent reload and the missing version.
 
 ## WhatsApp retained files
 

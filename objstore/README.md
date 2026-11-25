@@ -84,10 +84,10 @@ Three of the four protocols rest on one item per scope: `Replace`, `ReadConsiste
 
 `EnsureScope` creates the marker where a daemon already calls `CreateEntity`. A bounded writer adds `Bump(scope)` to its own batch so that an export can see the write. `ReadConsistent` detects exactly the writers that carry that `Bump` and no others. That is a discipline and not a guarantee of the engine, and the suite asserts it as such so that nobody reads more into it.
 
-`Snapshot[T].Read` retains an immutable result for one store and scope. Reuse
-reads the settled marker by key; a changed version reloads under
-`ReadConsistent`. A missing version, held replacement or read error returns no
-value. Callers must propagate that failure rather than treat it as empty data.
+This package holds no copy of a read. A caller that needs one state of a scope
+runs its queries under `ReadConsistent` on each request. A missing version, a
+held replacement or a read error returns an error. Callers must propagate that
+failure rather than treat it as empty data.
 
 **What `Replace` costs `resreg.Apply`.** A marker-gated sequence has no pre-image to roll back to. A replace that dies half-way leaves the scope part-written with its claim held. Recovery is to run it again and never to undo it. That is the price of an unbounded row set.
 
