@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.31] — 2026-11-26
+
+> arizuko v0.75.31 — phase 6 closed
+>
+> A folder can register its own child chats, and the agent answers an unknown `@name`.
+>
+> • Groups — a delegated folder registers the web chat of its child without an operator.
+> • Replies — one rule for a message that opens with an `@name`: answer it unless the name is another person the agent knows.
+> • Specs — every phase 1–6 spec is shipped, a costed decision, or moved to phase 9; 5/33 waits on one auth sign-off (L538).
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Fixed
 
 - `register_group` writes the route `platform=<platform> room=<room>`, so a
@@ -26,6 +38,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `public` web route and wants 200; the new `web-route-private` puts an `auth`
   route on such a page and wants the 303 to the login. The earlier prompt named
   a path outside `/pub/`, which answers 302 whatever the route table holds.
+- Agent skills no longer tell the agent to reason inside `<think>` tags; the
+  manual's delivery contract has no such tag.
+
+### Changed
+
+- Specs 6/45, 6/47 and 6/48 close as costed decisions; 6/54, 6/55, 6/56 and
+  6/59 move to phase 9. Specs 5/9 and 6/34 are shipped.
 
 ## [v0.75.30] — 2026-11-26
 
