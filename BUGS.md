@@ -49,35 +49,19 @@ PR association.
 refusal reaches status logs; the failed notice remains in the delivery store.
 Choosing a PR from a repository event would require a new, explicit target.
 **Measured:** source establishes supported PR placement and unsupported
-repository placement; the 52 live inputs are outside this task's data scope,
-so their individual event types are not inferred.
+repository placement. The sloth store since 2026-11-10 holds 62 final status
+rows on GitHub: the 52 on `github:vumilan/morha` have no platform id, the 10 on
+a `pr/<n>` JID each have one. The prompts stored for `sloth/morha` show what
+arrives on the repository chat, counted as occurrences: `workflow_run` (853), `check_run`
+(779), `workflow_job` (673), `check_suite` (323) and `push` (7), read on
+2026-11-26; no assignment and no review request arrives there. A turn on that
+chat is therefore a CI event or a push, and its failure notice has no thread.
 **Type:** traceability; intentional refusal. `gitd/bot_test.go::TestSend_EventNoticeTarget`
 maps PR and push fixtures through `Send`: the PR posts to issue comments for
 PR 12; the push returns a permanent, descriptive refusal without any GitHub
 request. Current correct behavior has no pre-fix red. Removing the repository
 guard fails this regression (an HTTP 404 replaces the explicit refusal).
 The restored guard passes the focused race tests.
-
-## L938 — a failure notice for a GitHub turn on the repository chat is never posted (2026-11-25, open)
-
-A turn whose chat is the repository JID (`github:vumilan/morha`) ends with a
-final notice (`Agent could not produce a reply. Automatic retries stopped.`).
-`applyStatus` (`routd/turn_status.go`) sends it to that JID, and gitd refuses
-it: `github:vumilan/morha has no comment thread; reply on a pr/<n> or
-issue/<n> jid`. The refusal is permanent, so the row keeps no platform id and
-the person on the pull request sees nothing.
-**Measured:** the sloth store since 2026-11-10 holds 62 final status rows on
-GitHub, all on addressed turns. The 52 on `github:vumilan/morha` have no
-platform id; the 10 on a `pr/<n>` JID each have one.
-`journalctl -u arizuko_sloth` for 2026-11-22 to 2026-11-24 shows
-`status operation queued` with that gitd error 31 times, all on
-`github:vumilan/morha`. Three more refusals in that window are Discord
-(`pass title to start a Discord thread`, chat
-`discord:837270552959516682/837270552959516687`).
-**Not measured:** which trigger gives a turn the repository JID with no pull
-request (an assignment or review-request event is the candidate), and where
-its notice belongs.
-**Type:** correctness — no test yet; the fix needs the trigger shape first.
 
 ## L937 — an operator who also holds a local row loses the delegation root inside that row's scope (2026-11-25, open — needs sign-off)
 
@@ -103,30 +87,6 @@ operator must hold no narrower local row.
 **Default if nothing is decided:** (b), and the stored `role:operator * **`
 row stays on krons and sloth.
 **Type:** correctness — auth evaluator change, needs sign-off.
-
-## L936 — a Codex turn that ant starts has no `update_plan` tool (2026-11-25, open — cause unmeasured)
-
-The stored Codex rollouts of krons and sloth for November hold 135 sessions
-that carry the turn prompt (`<messages>`), at `codex-cli` 0.164.0 and 0.167.0.
-None lists `update_plan` among its tools. Of 43 sessions an agent started
-itself with `codex exec`, 30 list it, at the same versions and the same model
-(`gpt-6.1-sol`). After the checklist reminder the agents searched their tool
-list for it (`ALL_TOOLS.filter(...update_plan...)`, krons 2026-11-15) and found
-only `reply`. So a Codex turn cannot show a checklist, and the reminder names a
-tool that is absent.
-**Measured:** `tests/lab/checklist_adoption.py` on 2026-11-25: 5 long Codex
-turns on krons after 2026-11-11, 5 reminded, 0 with a plan; the store holds no
-checklist status row (`store` read of 1,113 turns since 2026-11-10).
-**Not measured:** which argument of `codexArgs` (`ant/src/codex.ts`) removes the
-tool; `--json`, `--ignore-user-config` and the `mcp_servers` overrides are the
-candidates. Since `codex-cli` 0.164 a session reaches the tool as
-`tools.update_plan(...)` inside `exec`; the reducer (`routd/progress_reducer.go`)
-and its fixtures expect a PostToolUse event named `update_plan`, and no stored
-turn shows which name the hook receives.
-**Probe:** in a guest, `codex exec` with the arguments of `codexArgs` and a
-`hooks.json` that writes its stdin to a file; ask for one plan update; repeat
-without each candidate argument.
-**Type:** correctness — no test, needs a live Codex session.
 
 ## L930 — the breaker repeats what a turn's own retry already does for a failed run (2026-11-23, open — needs sign-off)
 
@@ -662,9 +622,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
-- `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
-- `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
 - `L920` — one folder runs one turn, so a repo's PRs queue in one line; per-topic admission needs sign-off.

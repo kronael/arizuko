@@ -13,15 +13,14 @@ A supported chat shows one message where the answer will go.
 This spec is `partial`. The shared producer, bounded rendering, checklist reminder,
 message lifecycle, browser deletion and active replay have code and tests.
 The one temporary message works on krons and sloth with `<status>` text.
-No checklist has reached a chat: the agents had no checklist tool
+No checklist has reached a chat. Until v0.75.29 the agents had no checklist
+tool; since then no long Claude or Codex turn has run
 (§"Measured on krons and sloth").
 D1 and D2 define rendering; D3 is declined.
 
 ## Remaining
 
-- Release an agent image that holds the Claude task-tool opt-in (`sessionEnv`, `ant/src/claude.ts`), then run `tests/lab/checklist_adoption.py` on the turns after the deploy and read the store for checklist status rows. Adoption acceptance fails on the turns measured so far.
-- Give a Codex turn that ant starts the `update_plan` tool, and measure the hook event name of a plan update (BUGS `L936`; `ant/src/codex.ts`, `routd/progress_reducer.go`).
-- Post the failure notice of a GitHub turn on the repository chat (BUGS `L938`; `routd/turn_status.go`).
+- Take the adoption sample again when krons and sloth hold long Claude and Codex turns that started after 2026-11-26 00:18 UTC: `tests/lab/checklist_adoption.py <groups> -s 2026-11-26T00:18:00+00:00`, and read the store for checklist status rows. The 7.5 hours after the deploy hold none (§"Measured on krons and sloth").
 - Probe whether Drive's `replies.update` changes a reply's `content` (§"Unverified"). The owner must first enable the Drive API in the Cloud project of the service-account key.
 
 ## Problem
@@ -186,12 +185,12 @@ The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 | Addressed publication gate at receiver                                | built       | `routd/mcp.go` checks addressed, closure, mute and capabilities                                                                                                                                                                                 |
 | One reminder at eight calls or 180 seconds                            | built       | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                                                                                                                                                                                     |
 | Progress skill, manual sentence and solve routing                     | present     | in the live image and in each instance's core package; loaded in 23 Claude turns after 2026-11-11, with no checklist tool to use                                                                                                                |
-| Claude checklist tools in the session                                 | built       | `sessionEnv` sets `CLAUDE_CODE_ENABLE_TODO_TOOLS`; `ant/src/claude.test.ts` reads the tools the installed CLI announces; not in an image yet                                                                                                    |
-| Codex `update_plan` in a turn that ant starts                         | absent      | BUGS `L936`: 0 of 135 stored sessions list the tool                                                                                                                                                                                             |
+| Claude checklist tools in the session                                 | built       | `sessionEnv` sets `CLAUDE_CODE_ENABLE_TODO_TOOLS`; `ant/src/claude.test.ts` reads the tools the installed CLI announces; live since v0.75.29, where a session lists the four task tools as deferred tools that `ToolSearch` loads               |
+| Codex `update_plan` in a turn that ant starts                         | built       | `codexArgs` passes `tools.update_plan.enabled=true` (`ant/src/codex.test.ts`); the hook of the guest's `codex-cli` 0.172.0 gets `tool_name` `update_plan`, the shape of the reducer fixture; live since v0.75.29, no Codex turn since           |
 | D3 Typing port change                                                 | declined    | no port change                                                                                                                                                                                                                                  |
 | GitHub and Drive edit/delete                                          | built       | `gitd/bot.go`, `googd/main.go`, `routd/turn_status_test.go`                                                                                                                                                                                     |
 | pi checklist                                                          | unavailable | pi is selectable (`selectHarness`, `ant/src/backend.ts`) and has no native checklist tool: `registerWith` binds the table with an empty turn id, so its `completion` row sends no snapshot and no reminder; pi shows `<status>` fallback blocks |
-| Cross-harness acceptance and krons adoption                           | failed      | §"Measured on krons and sloth": 0 of 39 long Claude turns and 0 of 5 long Codex turns made a checklist                                                                                                                                          |
+| Cross-harness acceptance and krons adoption                           | unmeasured  | §"Measured on krons and sloth": until v0.75.29, 0 of 39 long Claude turns and 0 of 5 long Codex turns made a checklist, for want of the tool; no long Claude or Codex turn has run since                                                        |
 
 ## The declaration
 
@@ -661,8 +660,10 @@ and the turns load it from `/home/node/.claude/skills/progress`.
   in phase `progress`.
 - The longest status text is 148 bytes. The most edited row has revision 19.
 - No row holds a checklist.
-- 52 final notices on the GitHub repository chat were refused by gitd
-  (BUGS `L938`); the 10 on a pull-request chat were posted.
+- 52 final notices on the GitHub repository chat were refused by gitd; the
+  10 on a pull-request chat were posted. The repository chat carries CI
+  events and pushes, which name no pull request, so the refusal is the
+  designed answer (BUGS record `L947`).
 - The store keeps the final state of a row, so it does not show the
   five-second interval between edits. `routd/progress_coalesce_test.go`
   covers that. Reconnect is covered by `webd/browser_test.go`.
@@ -687,13 +688,47 @@ the skill. No turn makes a checklist, because the tool is missing:
 - Claude Code 2.1.331 announces 22 tools for `claude-opus-5-5` and
   `claude-fable-5-2`, and none of `TaskCreate`, `TaskUpdate`, `TaskList`,
   `TaskGet` or `TodoWrite`. With `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` it
-  announces the four task tools. `sessionEnv` now sets that key; the fix
-  reaches an instance with the next agent image.
-- A Codex session that ant starts lists no `update_plan` (BUGS `L936`).
+  announces the four task tools. `sessionEnv` sets that key.
+- A Codex session that ant started listed no `update_plan`; `codexArgs` now
+  enables it.
 - pi has no checklist tool and gets no reminder, as §"Build state" says.
 
-The adoption rule of §"Acceptance" therefore fails for Claude and Codex until
-a new image is live and the sample is taken again.
+**After the image.** v0.75.29 went live on both instances on 2026-11-26 at
+00:18 UTC with both fixes, and v0.75.30 later that morning
+(`rootfs-9fff8cf75eec` holds them in `/app/src/claude.ts` and
+`/app/src/codex.ts`). The sampler read both instances for the window
+2026-11-26 00:18 to 07:45 UTC:
+
+| Harness | Turns | Long | With a checklist | Reminded |
+| ------- | ----- | ---- | ---------------- | -------- |
+| Claude  | 14    | 0    | 0                | 2        |
+| Codex   | 0     | 0    | 0                | 0        |
+| pi      | 15    | 1    | 0                | 0        |
+
+- No checklist was made, and no turn in the window could show adoption: no
+  Claude turn was long, no Codex turn ran, and the one long turn was pi
+  (`sloth/morha`, 21 calls, 1,237 seconds).
+- The two reminded Claude turns (`sloth/trading` 02:04, `krons/public/marble`
+  02:00) got the reminder at the eighth call, 43 and 22 seconds into the turn.
+  One made no more calls and the other one more, and each then ended: the
+  work was done, which the reminder text allows.
+- A Claude session now lists `TaskCreate`, `TaskUpdate`, `TaskList` and
+  `TaskGet`, as deferred tools: Claude Code 2.1.332 announces the names and
+  loads a schema when the agent calls `ToolSearch` with `select:TaskCreate`.
+  The agents use that door: 1,161 transcript files of `krons` and
+  `sloth/trading` hold a `ToolSearch` call, and on 2026-11-10 the agent of
+  `rhias/nemo` selected `TodoWrite,TaskCreate,TaskUpdate,WebFetch,WebSearch`
+  and got the two web tools only.
+  No turn has loaded a task tool since the deploy.
+- The Codex hook was measured outside a turn, with the guest's own
+  `codex-cli` 0.172.0, the arguments of `codexArgs` and a `hooks.json` that
+  stores its input: a plan update reaches `PostToolUse` as `tool_name`
+  `update_plan`, `tool_input.plan` with `step` and `status`, and
+  `tool_response` `"Plan updated"`. `routd/progress_reducer_test.go` feeds the
+  reducer that shape.
+
+The adoption rule of §"Acceptance" is therefore unmeasured for Claude and
+Codex: the sample needs long turns that started after the deploy.
 
 ## Unverified
 
