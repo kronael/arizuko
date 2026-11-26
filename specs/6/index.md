@@ -28,12 +28,6 @@ from its own `/v1` (`dashd/README.md`, `chanlib/README.md`).
 `7` owns the contracts; `1` owns the strategy. `24` (the per-spawn egress
 proxy) is the concrete component spec.
 
-## GitHub feature workflow review
-
-| Spec                                                                 | Status  | Covers                                                                                                                                           |
-| -------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [48-github-feature-improvement.md](48-github-feature-improvement.md) | shipped | Decision: ordinary feature work uses existing groups, skills and GitHub records; no core coordinator, paid experiment or self-release mechanism. |
-
 ## Ties
 
 `concepts/primitives.html` of the operator docs (positioning) · `anteval/README.md` (the agent conformance basis) · `chanlib/README.md` (channel protocol) · `USELESS.md` (the honest gaps this

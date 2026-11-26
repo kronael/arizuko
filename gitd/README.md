@@ -9,6 +9,21 @@ The channel posts, edits and reacts only to its own comments. A change to
 another party's state therefore passes the connector's `mcp:github_<tool>`
 grant and hold, and a second channel path would bypass both.
 
+## Feature work uses linked GitHub records
+
+The selected group's instructions and grants define its feature workflow.
+gitd maps signed events to messages; routd selects the group and topic;
+runed executes the turn; ant runs the selected harness with the same delivery
+tools. GitHub issues, linked PRs, checks and reviews carry work status.
+Issue and PR chats use different topics, so a workflow follows their explicit
+link. A root label grants no access to another group's reports.
+`ant/skills/arizuko-issue/SKILL.md` records group-local reports.
+
+The [architecture decision](../ARCHITECTURE.md#decided-and-why) owns the core
+orchestration boundary. Package installation uses the common
+[installer](../EXTENDING.md#installing-packages); recording a revision alone
+provides no exact-revision activation or recovery guarantee.
+
 ## Delivery sources
 
 A **source** is one webhook secret, registered against a folder. Three kinds,
