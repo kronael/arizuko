@@ -1,11 +1,6 @@
 ---
 status: draft
-relates-to:
-  [
-    ../6/59-local-daemons,
-    ../7/57-group-handler,
-    ../7/26-single-world-deployment,
-  ]
+relates-to: [../7/57-group-handler, ../7/26-single-world-deployment]
 ---
 
 # specs/8/60 — minimum arizuko
@@ -23,8 +18,11 @@ spec that owns its mechanism.
    A send to an ungranted group fails.
 3. An agent adds a skill in its workspace, and its next turn uses that skill
    (`ant/skills/`, group skills take precedence).
-4. An operator adds a package by its `run` command, and routd finds it by its
-   socket ([6/59-local-daemons](../6/59-local-daemons.md)).
+4. An operator installs an outside package through `arizuko package add`.
+   Its declared artifacts use the existing package lifecycle in
+   [EXTENDING.md](../../EXTENDING.md#installing-packages). A channel registers
+   through the existing authenticated adapter contract. Socket discovery is
+   outside this minimum; it needs a separately approved service contract.
 
 ## Boundaries
 

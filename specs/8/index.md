@@ -8,7 +8,7 @@ The trust layer — the hardening that makes arizuko survive a regulated
 buyer's security review. Phase 5 builds the surfaces; this phase makes them
 defensible. Group compositions and the minimum runtime also belong to this phase,
 and so do the QEMU substrate and the store server under them.
-The package contract lives in [6/59-local-daemons](../6/59-local-daemons.md).
+The installed package contract lives in [EXTENDING.md](../../EXTENDING.md#installing-packages).
 
 | Spec                                                       | Status  | Summary                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

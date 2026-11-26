@@ -10,6 +10,23 @@ The agent reaches the machine as a Unix user with an SSH key.
 Machine provisioning and image creation belong to Hive, a separate project.
 Groups, messages, routes and grants retain their arizuko owners.
 
+## Deferred until storage and power contracts are approved
+
+This phase-9 draft is a real future feature, not shipped persistence.
+At `880119f1b75548b3d3fdbab40d4eda526f3fd060`, `kernel/guest-init/main.go:434`
+uses a tmpfs upper and `runed/qemu.go:241` tears down each turn's guest.
+Persistent home files do not preserve installed system software.
+Private disks replace the temporary root upper. Keeping ordinary processes
+between turns also changes the power and cancellation contract.
+The owner has not approved that lifecycle or destructive reset authority.
+
+Estimated cost: **8–15 engineering days**, including disk isolation, base-image
+compatibility, reset controls and restart/cancellation tests. Capacity and
+provisioning remain operator costs. Implement only after the owner selects the
+machine lifecycle and a concrete workload needs installed software to persist.
+Runtime stays `Run` and `Kill`. No store cache or message/log expiry is allowed;
+only `audit_log` keeps its existing 90-day expiry.
+
 ## Installed software disappears at the turn boundary
 
 Source baseline: `a3769cd56b9a01c51815cd25f400541ab2d82ad3`.
@@ -158,7 +175,7 @@ Selected package records retain dirty checks, removal, sync, rename/delete and o
 The machine needs neither a second package inventory nor a special native-layer format.
 The fragment, resource, env and grant handlers retain their authorization.
 
-[Per-group harness](53-per-group-harness.md) owns the opaque document and ant's validation.
+[Per-group harness](../6/53-per-group-harness.md) owns the opaque document and ant's validation.
 That document selects the harness, not the machine's OS or installed software.
 [Identity-held credentials](55-identity-held-credentials.md) owns model credential selection.
 [Identity-held tools](56-identity-held-tools.md) owns tool account selection and consent.

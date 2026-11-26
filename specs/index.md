@@ -40,8 +40,8 @@ arizuko's self-learning pointed outward. Since 2026-08-27 it also
 carries the operator cockpit (`dashd/README.md`, `chanlib/README.md`): a daemon nobody can watch
 alone has not shipped alone.
 
-Phase 6 also defines the agent's customizable persistent machine and runtime,
-and identity-held model credentials and tool accounts.
+Phase 9 holds the unsigned persistent-machine, identity-held credential and
+local-daemon proposals. These proposals are not phase-6 implementation claims.
 **Phase 7** composes the core modules into one process for a single world,
 and defines the functional minimum.
 
@@ -51,9 +51,9 @@ MITM-isolated egress. The trust primitives make arizuko
 credible to regulated buyers. Phase 8 also contains packages,
 programmable turns and groups without agents.
 
-**Phase 9** owns the data model: tier separation (cold / warm / hot), which
+**Phase 9** owns later features and the data model: tier separation (cold / warm / hot), which
 is the vocabulary `CLAUDE.md` leans on for "every cold-tier entity is a resreg
-resource". That is its one remaining action. MCP+REST unification shipped in
+resource". MCP+REST unification shipped in
 phase 5 (`resreg/README.md`). Git as truth is DECLINED: the store is
 authoritative and YAML a transport dump (`cmd/arizuko/README.md`), so committing a `dump` to git is fine and a
 continuously-synced working tree is not the model (`specs/9/index.md`).
@@ -71,23 +71,23 @@ combination is the platform thesis arizuko ships toward.
 
 ## Phase table
 
-| Phase            | Description                                                                                                                                                                                           | Status     |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [3/](3/)         | permissions, cleanup, gaps                                                                                                                                                                            | shipped    |
-| [4/](4/)         | dashboards, memory, scheduler, personas — core architecture (ACL → `5/33`)                                                                                                                            | shipped    |
-| [5/](5/)         | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                         | partial    |
-| [6/](6/)         | split arizuko into parts — the environment contracts, crackbox                                                                                                                                        | **active** |
-| [7/](7/index.md) | single-world deployment — one core process and the functional minimum                                                                                                                                 | queued     |
-| [8/](8/)         | enterprise hardening, the QEMU substrate (`8/41`), DynamoDB over PostgreSQL (`8/42`), packages, workflows and groups without agents                                                                   | queued     |
-| [9/](9/)         | the data model — cold / warm / hot tiers, [state transitions](9/21-state-transitions.md), and operator-extensible `<autocalls>`; git-as-truth is declined and MCP+REST unification ships in `resreg/` | drafting   |
-| [10/](10/)       | self-healing — Aeon mechanism incorporation                                                                                                                                                           | queued     |
-| [11/](11/)       | operator tools — branding, usage limits                                                                                                                                                               | queued     |
-| [12/](12/)       | _dissolved 2026-07-14 → consolidated into [8/](8/) (`8/41`); self-learning (`ARCHITECTURE.md` § Decided, and why) and skill-guard → `SECURITY.md`_                                                    | dissolved  |
-| [13/](13/)       | standalone + reusable — ant, workflows, self-eval                                                                                                                                                     | planned    |
-| [14/](14/)       | future features — pinned, CLI, dynamic channels                                                                                                                                                       | planned    |
-| [15/](15/)       | later — committed direction, not scheduled                                                                                                                                                            | planned    |
-| [16/](16/)       | multiplayer — shared sessions, durable streams, presence                                                                                                                                              | drafting   |
-| [17/](17/)       | products — persona templates, publishing surface                                                                                                                                                      | queued     |
+| Phase            | Description                                                                                                                                        | Status     |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [3/](3/)         | permissions, cleanup, gaps                                                                                                                         | shipped    |
+| [4/](4/)         | dashboards, memory, scheduler, personas — core architecture (ACL → `5/33`)                                                                         | shipped    |
+| [5/](5/)         | platform core — surfaces, identity, routing, tenancy, runtime                                                                                      | partial    |
+| [6/](6/)         | split arizuko into parts — the environment contracts, crackbox                                                                                     | **active** |
+| [7/](7/index.md) | single-world deployment — one core process and the functional minimum                                                                              | queued     |
+| [8/](8/)         | enterprise hardening, the QEMU substrate (`8/41`), DynamoDB over PostgreSQL (`8/42`), packages, workflows and groups without agents                | queued     |
+| [9/](9/index.md) | Later features: persistent machines, personal model/tool accounts, local daemon discovery, and the cold / warm / hot data model.                   | drafting   |
+| [10/](10/)       | self-healing — Aeon mechanism incorporation                                                                                                        | queued     |
+| [11/](11/)       | operator tools — branding, usage limits                                                                                                            | queued     |
+| [12/](12/)       | _dissolved 2026-07-14 → consolidated into [8/](8/) (`8/41`); self-learning (`ARCHITECTURE.md` § Decided, and why) and skill-guard → `SECURITY.md`_ | dissolved  |
+| [13/](13/)       | standalone + reusable — ant, workflows, self-eval                                                                                                  | planned    |
+| [14/](14/)       | future features — pinned, CLI, dynamic channels                                                                                                    | planned    |
+| [15/](15/)       | later — committed direction, not scheduled                                                                                                         | planned    |
+| [16/](16/)       | multiplayer — shared sessions, durable streams, presence                                                                                           | drafting   |
+| [17/](17/)       | products — persona templates, publishing surface                                                                                                   | queued     |
 
 **A retired spec number is burnt.** Numbering continues past the highest ID its
 phase has ever held; reusing one turns every old pointer to it into a
@@ -102,15 +102,9 @@ order at all. `queued` is committed and waiting its turn; `drafting` is still
 being designed; `planned` is a placeholder with no specs written. `partial`
 marks a phase with unfinished implementation or acceptance. Phase 6 is active.
 
-**Composition boundaries.** Phase 6 defines independently usable components and the agent's persistent machine.
-
-## Phase 6 defines the agent's machine and identity-held credentials
-
-| Spec                                                                   | Status | Summary                                                                                                                           |
-| ---------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| [6/54-agent-machine.md](6/54-agent-machine.md)                         | draft  | A Unix user reaches a customizable persistent machine through SSH; private disk, installed software and explicit reset.           |
-| [6/55-identity-held-credentials.md](6/55-identity-held-credentials.md) | draft  | A user's model subscription pays for the turns that user starts; delivery, enrollment and internal funding await owner decisions. |
-| [6/56-identity-held-tools.md](6/56-identity-held-tools.md)             | queued | Tools act as a user's OAuth identity only under an explicit grant; the agent's own login stays the default.                       |
+**Composition boundaries.** Phase 6 defines independently usable components.
+The [phase 9 index](9/index.md) holds the unsigned machine, personal-account
+and service-discovery contracts with estimated costs and approval boundaries.
 
 The [phase 7 index](7/index.md) holds single-world deployment and the
 functional minimum. The [phase 8 index](8/index.md) holds packages,
@@ -122,9 +116,10 @@ The linked specs name each remaining item and the files it needs.
 
 | Spec                                                                     | Status  | Summary                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [6/53-per-group-harness.md](6/53-per-group-harness.md)                   | shipped | One harness document per group over the instance defaults; no other setting selects backend, model or effort, and dashd writes the document to the store itself. The default, pi and codex cases of `anteval/backends` passed on one disposable instance; the suite holds no claude case (BUGS record `L951`).                                                                 |
-| [6/46-turn-progress.md](6/46-turn-progress.md)                           | partial | Shared reducer, native snapshots, bounded progress, one reminder and browser replay/deletion are tested, the page in Chrome. Measured: one temporary `<status>` message works; the Claude task tools and the Codex plan tool are live since v0.75.29 and no long Claude or Codex turn has run since. Remaining: the adoption sample on such turns, the Drive probe (owner).    |
-| [6/50-anteval-ephemeral-instance.md](6/50-anteval-ephemeral-instance.md) | shipped | `anteval run` creates, drives and removes its instance. Measured on a disposable instance against a scratch store: every path left nothing, a product run passed 2/2, the smoke 6/9 and the catalog 14/24; the three decisions behind seven failed cases are fixed in the tree.                                                                                                |
+| [6/45-gdrive-comments-channel.md](6/45-gdrive-comments-channel.md)       | shipped | Decision: keep the tested reply channel and Sheets read tool. L910 approval and exact live Google acceptance remain owner blockers.                                                                                                                                                                                                                                            |
+| [6/53-per-group-harness.md](6/53-per-group-harness.md)                   | shipped | One harness document per group over the instance defaults; no other setting selects backend, model or effort, and dashd writes the document to the store itself. The default, pi and codex cases of `anteval/backends` passed on one disposable instance; the claude case waits for a credential (BUGS `L951`).                                                                |
+| [6/46-turn-progress.md](6/46-turn-progress.md)                           | partial | Shared reducer, native snapshots, bounded progress, one reminder and browser replay/deletion are tested, the page in Chrome. Measured: one temporary `<status>` message works; no checklist reaches a chat. Remaining: an image with the Claude task-tool opt-in and a new sample, the Codex plan tool (L936), the GitHub repository-chat notice (L938), the Drive probe.      |
+| [6/50-anteval-ephemeral-instance.md](6/50-anteval-ephemeral-instance.md) | shipped | `anteval run` creates, drives and removes its instance. Measured on a disposable instance against a scratch store: every path left nothing, a product run passed 2/2, the smoke 6/9 and the catalog 14/24; BUGS `L950`, `L952` and `L953` hold the open case failures.                                                                                                         |
 | [6/47-voluntary-reply.md](6/47-voluntary-reply.md)                       | shipped | Decision: keep the delivery check and one nudge; correct packaged instructions. Image rollout, live acceptance and the weekly outcome rate remain unmeasured.                                                                                                                                                                                                                  |
 | [6/49-approval-ask.md](6/49-approval-ask.md)                             | shipped | Approval text and declared standing keys share one renderer. krons and sloth store no copy of a skip default.                                                                                                                                                                                                                                                                  |
 | [8/42-dynamo-over-postgres.md](8/42-dynamo-over-postgres.md)             | partial | Driver, protocols, message search and SQL deletion are built; the store server is external. PostgreSQL-backed ExtendDB policy enforcement and race conformance pass, on SQLite and DynamoDB Local too. Remaining, all live: the soak, `make test` wall time, transaction latency and `EXPLAIN`, the opposite-order body on PostgreSQL-backed ExtendDB, the daemon image build. |

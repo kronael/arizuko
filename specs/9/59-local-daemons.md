@@ -2,12 +2,33 @@
 status: draft
 ---
 
-# specs/6/59 — one package contract for local daemons
+# specs/9/59 — one package contract for local daemons
 
 A package supplies files, skills or a service through arizuko's existing
 install lifecycle. Every core daemon uses that contract too.
 Package identity does not require a separate process.
 [7/26-single-world-deployment](../7/26-single-world-deployment.md) owns consolidation.
+
+## Deferred until enrollment and discovery authority are approved
+
+This phase-9 draft proposes a future service contract, not shipped socket
+discovery. At `880119f1b75548b3d3fdbab40d4eda526f3fd060`,
+`resreg/engine.go:973` lacks the proposed service declaration.
+`authd/http.go:27` and `store/owner_reach.go:16` declare service scopes and
+store reach in code. `cmd/arizuko/packages.go:38` declares core dependencies.
+Replacing those declarations changes package schema, bootstrap authority and
+cross-daemon control flow. Discovery cannot safely invent a target resolver
+for a remote tool from OpenAPI alone.
+
+Estimated cost: **15–25 engineering days**, including manifest migration,
+bootstrap failure recovery, scoped enrollment, shared HTTP transport,
+discovery refusal tests and dashboard controls. The change replaces explicit
+registration and static enrollment; it must leave one declaration and one
+installation lifecycle. Implement only after owner approval of bootstrap,
+remote target authorization and discovery storage. No cache is approved.
+Messages and logs remain durable except the existing 90-day `audit_log` policy.
+Core folds and minimum package acceptance use the existing lifecycle in
+`EXTENDING.md`; they do not require these future sockets.
 
 ## Core wiring prevents outside packages from joining
 
@@ -366,8 +387,11 @@ routd enumerates at startup and reconciles during its existing health loop.
 Required core readiness fails when its declared endpoint cannot be discovered.
 A bounded connection and valid document establish availability.
 Stale inodes, failed health checks and missing sockets withdraw live entries.
-Reappearance refreshes the cached document. Duplicate service identities,
+Reappearance rereads the producer's document. Duplicate service identities,
 resource names or JID-prefix claims fail without replacing their owner.
+
+Discovery's durable state and per-use readers need a store design before
+approval. An in-memory registry or retained OpenAPI document is not permitted.
 
 The existing chanreg remains the channel view, not a second registry.
 Discovered `x-mcp-*` operations enter the existing turn view with schemas and gates.
@@ -401,7 +425,7 @@ The matrix's vited, timed and proxy-replacement recommendations do not override
    Optional packages use normal selection and Compose dependencies.
    This replaces core-name tables with one declaration.
 2. **Can upstream services use the same socket?** davd runs dufs through Compose
-   (`compose/compose.go:1386`), not an arizuko mux. The litellm package also
+   (`compose/compose.go:1294`), not an arizuko mux. The litellm package also
    starts a PostgreSQL helper (`template/services/litellm/litellm.yml:60`).
    Recommendation: keep it an ordinary package and use upstream socket support
    only after verifying it. Otherwise retain its declared TCP backend as an

@@ -6,7 +6,7 @@ status: partial
 
 Consolidation removes a process when an existing daemon can reuse its work.
 proxyd serves the web files; routd runs the task ticker.
-The package and daemon contract is [6/59-local-daemons](../6/59-local-daemons.md).
+The package lifecycle is [EXTENDING.md](../../EXTENDING.md#installing-packages).
 There is no requirement for one binary or one core process.
 Storage remains external (`INSTALL.md` § "The store server holds every table of the instance").
 
@@ -32,7 +32,7 @@ Remaining, all LIVE:
 
 - The per-fold memory record in § Contract. No before and after sample with
   identical packages, data and build exists, so no saving is claimed.
-- Check 5. No test runs an outside 6/59 package, the isolated guest and the
+- Check 5. No test runs an outside package, the isolated guest and the
   8/60 minimum behavior on the folded deployment.
 - Check 1's same-run proof: one fresh instance, with vited and timed absent,
   serves a file and fires a scheduled task in the same run.
@@ -106,7 +106,7 @@ A Go package boundary alone does not require a process.
   names: []
   never: keep a Vite healthcheck
 - path: cmd/arizuko/packages.go (changed)
-  job: remove vited and timed dependency claims until 6/59 removes the list
+  job: remove vited and timed dependency claims from the existing core list
   names: []
   never: retain nonexistent services
 - path: authd/http.go (changed)
@@ -322,7 +322,7 @@ Acceptance checks:
 4. Exercise one-shot and cron tasks, failed enqueue and reschedule, a repeated
    claim, router restart and shutdown. Preserve fire identity and task state.
    No loop continues after store closure; no internal scheduler HTTP call remains.
-5. Exercise an outside package under 6/59, the isolated guest and the minimum
+5. Exercise an outside package under the existing install lifecycle, the isolated guest and the minimum
    behavior in [8/60-minimum-arizuko](../8/60-minimum-arizuko.md).
    Consolidation changes neither table authority nor package discovery.
 6. Remove Vite and timed documentation, image hooks and stale links in the same

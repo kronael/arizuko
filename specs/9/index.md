@@ -2,20 +2,25 @@
 status: draft
 ---
 
-# specs/9 — data model
+# specs/9 — data model and later features
 
-What arizuko's state _is_, tier by tier, and what the agent passively sees.
+What arizuko's state is, tier by tier, and which unsigned features wait for later approval.
 
 Phase 9 opened in 2026-05 as a three-action platform program: MCP+REST
 unification, data-model sharpening, and git-as-truth. Two of the three have
-since resolved elsewhere, and what remains is the data model itself.
+since resolved elsewhere. Persistent machines, identity-held accounts and
+local service discovery also wait here for explicit contract approval.
 
-| Spec                                                       | Status  | Hook                                                                                                                                                                                                                                          |
-| ---------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [2-data-model.md](2-data-model.md)                         | draft   | the cold / warm / hot tier model — the vocabulary `CLAUDE.md` and `specs/CLAUDE.md` lean on for "every cold-tier entity is a resreg resource"                                                                                                 |
-| [7-configurable-autocalls.md](7-configurable-autocalls.md) | draft   | operator-extensible `<autocalls>`: a DB-backed resreg resource layered over the four builtins, with two bounded kinds (`template`, `query`)                                                                                                   |
-| [20-group-machine-size.md](20-group-machine-size.md)       | draft   | each group sizes its own guest with `mem`, `smp` and `timeout` keys in its `container_config`, tmpfs derived from `mem`, the host check per turn against `MemAvailable` (`L513`); build when a measured group needs more than 2 GB or 2 vCPUs |
-| [21-state-transitions.md](21-state-transitions.md)         | partial | Every work-producing write schedules its next transition; due keys replace polling scans.                                                                                                                                                     |
+| Spec                                                               | Status  | Hook                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [2-data-model.md](2-data-model.md)                                 | draft   | the cold / warm / hot tier model — the vocabulary `CLAUDE.md` and `specs/CLAUDE.md` lean on for "every cold-tier entity is a resreg resource"                                                                                                 |
+| [7-configurable-autocalls.md](7-configurable-autocalls.md)         | draft   | operator-extensible `<autocalls>`: a DB-backed resreg resource layered over the four builtins, with two bounded kinds (`template`, `query`)                                                                                                   |
+| [20-group-machine-size.md](20-group-machine-size.md)               | draft   | each group sizes its own guest with `mem`, `smp` and `timeout` keys in its `container_config`, tmpfs derived from `mem`, the host check per turn against `MemAvailable` (`L513`); build when a measured group needs more than 2 GB or 2 vCPUs |
+| [21-state-transitions.md](21-state-transitions.md)                 | partial | Every work-producing write schedules its next transition; due keys replace polling scans.                                                                                                                                                     |
+| [54-agent-machine.md](54-agent-machine.md)                         | draft   | Persistent root and optional background processes; 8–15 engineering days estimated; storage, reset and power contracts need approval.                                                                                                         |
+| [55-identity-held-credentials.md](55-identity-held-credentials.md) | draft   | Canonical personal payer and model enrollment; 12–20 engineering days estimated; billing, token exposure and internal funding need approval.                                                                                                  |
+| [56-identity-held-tools.md](56-identity-held-tools.md)             | draft   | Explicit human-account selection for tools; 5–8 engineering days estimated after the identity join; consent, audit and revocation need approval.                                                                                              |
+| [59-local-daemons.md](59-local-daemons.md)                         | draft   | Shared package declarations and socket discovery; 15–25 engineering days estimated; bootstrap, store enrollment and remote authorization need approval.                                                                                       |
 
 ## Where the other two actions went
 

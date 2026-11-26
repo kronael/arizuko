@@ -7,6 +7,25 @@ status: draft
 An identity-held model credential pays for the turn its owner initiates.
 Tool accounts and tool authority belong to [identity-held tools](56-identity-held-tools.md).
 
+## Deferred until billing and credential exposure are approved
+
+This phase-9 draft proposes a future billing contract; it is not implemented.
+At `880119f1b75548b3d3fdbab40d4eda526f3fd060`,
+`routd/sibling_db.go:98` reads a raw user's model rows and
+`runed/secrets.go:38` merges model credentials per key. A gateway removes
+those keys from the guest; attribution alone does not bind personal billing.
+The proposed canonical payer, no-operator-fallback rule, subscription enrollment
+and refusal of anonymous/hook execution change auth and dispatch contracts.
+Direct token delivery also exposes a later user's token to code in the shared
+group home. None of those choices receives approval through this move.
+
+Estimated cost: **12–20 engineering days**, plus provider permission, enrollment
+and independently funded two-account acceptance. The feature replaces per-key
+operator/user merging with one selected payer. Build only after the owner
+approves billing, token exposure or gateway binding, and internal-turn funding.
+Reuse existing identity, secrets and harness declarations. Add no cache,
+second credential store or message/log expiry beyond `audit_log` at 90 days.
+
 ## A sender must resolve to the account that owns the credential
 
 The owner authorized phase 7 design: "all for phase 6 is now being completed
@@ -52,7 +71,8 @@ contracts differ from the filing in these places:
 - `store.EnvProfileKeys` at `store/secrets.go:248` includes
   `ANTHROPIC_OAUTH_TOKEN` as well as the Claude and API-key names.
   It has no Codex subscription-cache or OpenRouter key entry.
-  `runed/mounts.go:174` lends operator Codex login files under a `codex` grant.
+  `runed/mounts.go:176` lends configured operator Codex login files when no
+  model gateway is configured; a `codex` grant does not select the harness.
   An OpenAI API key and a ChatGPT subscription login are different credentials.
 - `auth/surrogate/registry.go:22` embeds the provider files; only GitHub and
   Google files exist.
@@ -64,13 +84,13 @@ contracts differ from the filing in these places:
   overlays a raw caller's tool secrets, and `routd/mcp.go:594` refreshes them.
   Thus the filing's account of explicit surrogate grants is not proof that
   every use of a personal tool login needs separate consent. This draft must
-  not feed its canonical model subject into that path. 6/56 owns that review.
-- Pi refuses execution at `ant/src/backend.ts:116` because it cannot deliver
-  through MCP. Vendor quota behavior is not its only blocker.
+  not feed its canonical model subject into that path. [Identity-held tools](56-identity-held-tools.md) owns that review.
+- Pi supports the gated MCP tools through `ant/src/pi.ts` and is selected by
+  `ant/src/backend.ts`. Personal credential selection still needs a contract.
   The filing's dated gateway probes do not establish current provider support.
-- Ant selects the adapter at `ant/src/index.ts:482` through
+- Ant selects the adapter at `ant/src/index.ts:406` through
   `ant/src/backend.ts:112`. Credential selection follows whichever harness
-  selection path applies. [Per-group harness](53-per-group-harness.md)
+  selection path applies. [Per-group harness](../6/53-per-group-harness.md)
   is not a prerequisite; coordinate only its host-login mount condition.
   A future identity consumer reads the join below;
   it must not create another principal map.
@@ -311,7 +331,7 @@ assertions in the acceptance section.
   never: expose returned tokens in HTML or JSON reads
 ```
 
-Harness transport and removal of the `codex` grant are outside this change.
+Harness transport remains outside this change.
 The runtime port stays `Run` and `Kill`; the existing env, stdin and mounts
 carry all new data. No objstore method or managed entity is added. Existing secrets,
 connections and turn resources retain their handlers and authorization gates.
@@ -371,7 +391,7 @@ remain. No sender spelling, display name, email match, folder ancestry, or
 transitive ACL expansion establishes ownership. JWT subjects use the existing
 `auth.BareSub` boundary once; stored sender principals pass unchanged.
 
-`ResolveInitiator` is the one join available to 6/56 and any other identity consumer.
+`ResolveInitiator` is the proposed join for [identity-held tools](56-identity-held-tools.md) and any other identity consumer.
 No consumer may read `oauth_identities` directly from routd or invent
 another membership table. The join returns ownership, not an authorization
 verdict. ACL evaluation continues through `auth.Authorize` and the turn gate.
@@ -521,7 +541,7 @@ routd includes only that account's env-profile model rows in the personal
 model set. Existing explicitly granted shell keys retain their existing path.
 runed must not add host model env or `HOST_CODEX_DIR` to a personal request.
 At `runed/mounts.go:174`, require an admitted internal turn before lending
-host login files. Combine this condition with 6/53's mount rule if it lands.
+host login files. Preserve the configured host-login rule for internal turns.
 runed knows no backend names.
 
 The renderer always emits `ARIZUKO_MODEL_USER_SUB` as the request's
@@ -620,7 +640,7 @@ Do not add a model credential table or a provider association table.
 | Claude           | `CLAUDE_CODE_OAUTH_TOKEN` | Use the user's native subscription token only, when vendor permission permits enrollment.                                                           |
 | Claude           | `OPENROUTER_API_KEY`      | Use `ANTHROPIC_BASE_URL=https://openrouter.ai/api` and `ANTHROPIC_AUTH_TOKEN` derived from that key; clear Claude subscription and API credentials. |
 | Codex            | `CODEX_AUTH_JSON`         | Present a native ChatGPT login to Codex; never reinterpret `OPENAI_API_KEY` or `CODEX_API_KEY` as subscription access.                              |
-| Pi               | Any                       | Retain the existing explicit MCP refusal. No quota or identity workaround.                                                                          |
+| Pi               | Any                       | Personal authentication needs an explicit adapter contract; existing operator-funded Pi execution remains supported.                                |
 
 Claude accepts exactly one of its two compatible credentials. If both are
 connected, refuse with instructions to disconnect one. Codex ignores Claude
@@ -764,7 +784,7 @@ Each behavior test must fail when its named boundary is removed.
   quota errors set `terminal` on both failed events and CLI-exit results,
   including revoked tokens and mid-run expiry; dispatch must not retry them.
   `ant/src/codex.ts:151` and `ant/src/codex.ts:172` currently omit that field.
-  Pi retains its refusal.
+  Pi retains its existing operator-funded execution; personal execution needs approval.
 - Enrollment tests exercise the existing connections and secrets surfaces.
   Verify OpenRouter's JSON exchange, S256, subject-bound state, account-switch
   rejection, local disconnect and token-free lists. Native imports reject an
