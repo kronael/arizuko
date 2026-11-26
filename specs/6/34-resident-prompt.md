@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [L952]
+status: shipped
 depends: [../8/A-hierarchical-skills]
 ---
 
@@ -9,8 +8,9 @@ depends: [../8/A-hierarchical-skills]
 The resident manual, on-demand pointers and static carve-out checks exist in
 `ant/CLAUDE.md`, `ant/skills/self/` and `tests/resident/resident_test.go`.
 The full case catalog ran through the disposable lifecycle on 2026-11-25:
-§"The catalog on a disposable instance" holds the result. One moved rule fails
-its case: `unknown-addressee`, BUGS `L952`.
+§"The catalog on a disposable instance" holds the result of each case and the
+fix of each failure. The fixed cases have not run again: a rerun needs a
+release image that holds the fixes.
 
 Seventeen of the eighteen rules in BUGS `L188` have no anteval check kind that can observe
 them: sixteen are "not externally observable with current check kinds" and one is out of
@@ -28,8 +28,8 @@ never chose them:
 - `ant/CLAUDE.md` — 232 lines, 20,587 bytes, 24 sections. Seeded into
   every group as `~/.claude/CLAUDE.md`, which
   Claude Code reads on every turn because `settingSources` is
-  `['project', 'user']` (`ant/src/claude.ts:473`) and the turn's cwd is
-  the home (`ant/src/index.ts:243`).
+  `['project', 'user']` (`runClaude` in `ant/src/claude.ts`) and the turn's cwd is
+  the home (`ant/src/index.ts`).
 - `CLAUDE.md` at the repo root — 348 lines, 19,247 bytes, 16 sections.
   Read by every maintainer session and every subagent opened in the repo.
 
@@ -69,9 +69,9 @@ group, before the conversation itself:
 | `~/CLAUDE.md` (product regions, `EXTENDING.md`)               | 0 on five groups; 31,134–43,734 on four | each product's `CLAUDE.md` was concatenated                                                                    |
 | skill listing (name + description + when_to_use, ≤1,536 each) | ≈30,800 for the 93 stock skills         | Claude Code preloads every `~/.claude/skills/*/SKILL.md` frontmatter; live groups hold 84–116 skill dirs       |
 | MCP tool catalog                                              | 60 tools, ≥5,277 of description text    | `alwaysLoad: true` on the arizuko server (`8/A`); the live JSON schemas add parameter text                     |
-| output style                                                  | 952–1,492                               | `ant/src/index.ts:47` `buildSystemPrompt` = `SYSTEM.md` + the selected style                                   |
+| output style                                                  | 952–1,492                               | `ant/src/index.ts` `buildSystemPrompt` = `SYSTEM.md` + the selected style                                      |
 | `/resolve` body                                               | ≈2,700                                  | the `[resolve]` nudge invokes it on every prompt, so it is resident in practice                                |
-| envelope                                                      | variable                                | `routd/prompt.go:35`: system messages, `<autocalls>`, `<persona>` summary, `<observed>`, `<topic>`, messages   |
+| envelope                                                      | variable                                | `routd/prompt.go`: system messages, `<autocalls>`, `<persona>` summary, `<observed>`, `<topic>`, messages      |
 | memory layers                                                 | variable                                | `ant/hooks/prompt_context.py`: `work.md`, the sender's `users/<id>.md`                                         |
 
 Fixed text before the first user word is therefore ≈71–115 KB, and the
@@ -167,7 +167,7 @@ remainder, if any.
 | Tenancy model                       | 12 / 1861 | keep, trim         | 1    | resident: group = isolated home, path carries zero authorization, tool list = grant set, topic in one line. The `register_group` paragraph moves to `self/mcp.md` — the tool's own error says "call this"                                                                                       |
 | Autocalls                           | 4 / 269   | keep               | 1    | envelope; `self/autocalls.md` holds the long form                                                                                                                                                                                                                                               |
 | How messages arrive                 | 24 / 1306 | keep               | 1    | the envelope is the contract; nothing else names `<messages>` and `<reply-to>`                                                                                                                                                                                                                  |
-| When to respond                     | 18 / 1638 | keep               | 2    | silence on a mention, final-block-only delivery (`L149`), `<link-context>`: all silent. Already shaped right — it points at `chat-link.md` for the full rules                                                                                                                                   |
+| When to respond                     | 18 / 1638 | keep               | 2    | silence on a mention, final-block-only delivery (`L149`), `<link-context>`, and who a message that opens with an `@name` is for: all silent. It points at `chat-link.md` for the full rules                                                                                                     |
 | Greetings                           | 4 / 70    | move               | —    | `hello`'s frontmatter already routes on "hi/hello with no specific task"; the resident line is a second copy                                                                                                                                                                                    |
 | Resolve                             | 4 / 634   | keep, trim         | 3    | the nudge is the mechanism; one resident line names it. `ant/skills/solve/SKILL.md` requires reading the channel before claiming no context                                                                                                                                                     |
 | Task discipline                     | 5 / 408   | keep               | 2    | `AskUserQuestion` ends the turn silent. Leaves when a PreToolUse deny rule for it ships                                                                                                                                                                                                         |
@@ -188,7 +188,7 @@ remainder, if any.
 | CLAUDE.md ownership                 | 10 / 936  | move               | —    | matters only during `/migrate`; the migration instructions owned seeding and the 3-way merge                                                                                                                                                                                                    |
 | Web routing and auth                | 20 / 1506 | move               | —    | `self/web-routing.md` holds the same table                                                                                                                                                                                                                                                      |
 | Gateway commands                    | 11 / 368  | move               | —    | `self/commands.md`; "when asked for help, mention these" is `hello`'s third part                                                                                                                                                                                                                |
-| `@<unknown>` prefix                 | 4 / 418   | move               | —    | `self/chat-routing.md`; the message reaches the agent as visible text                                                                                                                                                                                                                           |
+| `@<unknown>` prefix                 | 4 / 418   | keep 1 line, move  | 2    | resident, in When to respond: answer unless the name is another person the agent knows; declining a request that is for the agent raises no error (`unknown-addressee` tests it). The typo forward stays in `self/chat-routing.md`                                                              |
 | Runtimes                            | 8 / 460   | move               | —    | `self/runtimes.md` holds the same list; bare `pip` fails loudly                                                                                                                                                                                                                                 |
 | Inbound media attachments           | 13 / 713  | keep, trim         | 1    | resident: the `<attachment>` shape and "no tag = the file did not arrive" (`read-attachment-honesty` tests it). The transcript and PDF notes move to `self/messages.md`                                                                                                                         |
 | Social actions                      | 11 / 1515 | move               | —    | `reply`'s description already says "THE DEFAULT way to respond" in 674 characters the agent reads every turn; the `platform_id` and `ErrUnsupported` rules belong in the verbs' descriptions, else `channels`                                                                                   |
@@ -291,9 +291,9 @@ guards, one per class of moved content:
    agent conformance basis (`5/9`), `--smoke` is gate 5 of every
    deploy, and the ≈$5 run is what turns "the agent still follows this"
    from a belief into a measurement. Of the sections marked move above,
-   these are covered by the 24 cases in `anteval/cases/anteval.toml`
+   these are covered by cases in `anteval/cases/anteval.toml`
    today: Publishing (`priv-401`, `priv-deny`, `priv-grant`, `web-route`,
-   `spawn-publish-reach`), Egress (`egress-diagnose`,
+   `web-route-private`, `spawn-publish-reach`), Egress (`egress-diagnose`,
    `egress-dns-distinguish`, `self-grant-noop`), attachments
    (`read-attachment-honesty`), local paths (`link-is-public-url`), the
    map (`self-skill`), storage (`state-persist`). **Not covered**: Social
@@ -323,21 +323,30 @@ removed: daemon image v0.75.28, codex backend with the operator's Codex login,
 112 minutes. `50-anteval-ephemeral-instance.md` §"Measured on a disposable instance"
 describes the setup. 14 cases passed and 10 failed:
 
-| Cases                                                                                                                                                                                                                                                          | Result | Cause                                                                                                                                                                    |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `app-to-chat`, `chat-entrypoint`, `fresh-context`, `knowledge-outlives-transcript`, `link-is-public-url`, `priv-401`, `read-attachment-honesty`, `rest-mcp-parity`, `rest-roundtrip`, `route-observe-silent`, `self-grant-noop`, `state-persist`, `webhook-in` | pass   |                                                                                                                                                                          |
-| `self-skill`                                                                                                                                                                                                                                                   | pass   | a false pass: `~/.claude/skills` was root-owned, the agent could not make the skill and ran the callback by hand. Fixed in runed; it passed with a real skill on a rerun |
-| `child-delegate`, `priv-deny`, `priv-grant`, `spawn-publish-reach`, `subchat-needs-subgroup`                                                                                                                                                                   | fail   | `register_group` refuses the web child of a delegated folder: BUGS `L950`, open                                                                                          |
-| `unknown-addressee`                                                                                                                                                                                                                                            | fail   | the agent declined a message that opens with an unknown `@name`: BUGS `L952`, open                                                                                       |
-| `web-route`                                                                                                                                                                                                                                                    | fail   | the case required a tool name that no tool has; with the name fixed the path answers 302 and the check wants 200: BUGS `L953`, open                                      |
-| `world-create-refusal-honest`                                                                                                                                                                                                                                  | fail   | the agent got "not permitted", did not connect it to the CLI-only rule of `self/mcp.md` and sent neither marker                                                          |
-| `egress-diagnose`                                                                                                                                                                                                                                              | fail   | the prompt held `'%{http_code}'`, which the runner cannot expand; fixed, and it passed on a rerun                                                                        |
-| `egress-dns-distinguish`                                                                                                                                                                                                                                       | fail   | its host was not on the allowlist, so the proxy refused it by name; the case now requires `egress:*.example.invalid`, and it passed on a rerun                           |
+| Cases                                                                                                                                                                                                                                                          | Result | Cause                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app-to-chat`, `chat-entrypoint`, `fresh-context`, `knowledge-outlives-transcript`, `link-is-public-url`, `priv-401`, `read-attachment-honesty`, `rest-mcp-parity`, `rest-roundtrip`, `route-observe-silent`, `self-grant-noop`, `state-persist`, `webhook-in` | pass   |                                                                                                                                                                                         |
+| `self-skill`                                                                                                                                                                                                                                                   | pass   | a false pass: `~/.claude/skills` was root-owned, the agent could not make the skill and ran the callback by hand. Fixed in runed; it passed with a real skill on a rerun                |
+| `child-delegate`, `priv-deny`, `priv-grant`, `spawn-publish-reach`, `subchat-needs-subgroup`                                                                                                                                                                   | fail   | `register_group` refused the web child of a delegated folder; the route now names the platform (`routd/groups_github_test.go`)                                                          |
+| `unknown-addressee`                                                                                                                                                                                                                                            | fail   | the agent declined a message that opens with an unknown `@name`; the manual now holds the one rule (`tests/resident/resident_test.go`)                                                  |
+| `web-route`                                                                                                                                                                                                                                                    | fail   | the case required a tool name that no tool has, and asked for a path outside `/pub/`, which answers 302; it now asks for a page in the public slot (`proxyd/anteval_web_route_test.go`) |
+| `world-create-refusal-honest`                                                                                                                                                                                                                                  | fail   | the agent got "not permitted", did not connect it to the CLI-only rule of `self/mcp.md` and sent neither marker                                                                         |
+| `egress-diagnose`                                                                                                                                                                                                                                              | fail   | the prompt held `'%{http_code}'`, which the runner cannot expand; fixed, and it passed on a rerun                                                                                       |
+| `egress-dns-distinguish`                                                                                                                                                                                                                                       | fail   | its host was not on the allowlist, so the proxy refused it by name; the case now requires `egress:*.example.invalid`, and it passed on a rerun                                          |
 
 Guard 1 has one row of BUGS `L188` to measure, `@<unknown>` prefix, and its
-case fails. The section left `ant/CLAUDE.md` and the agent did not load
-`self/chat-routing.md`; the resident "When to respond" text also tells it the
-opposite. BUGS `L952` holds the decision.
+case failed: the section had left `ant/CLAUDE.md`, the agent did not load
+`self/chat-routing.md`, and the resident "When to respond" text told it the
+opposite. The owner decided on 2026-11-26 that the agent answers such a message
+unless the name is another person it knows, and that the manual holds the rule.
+The answer rule is therefore resident and guard 1 has no moved rule left to
+measure; `unknown-addressee` now tests resident text.
+
+The seven cases of the three fixed rows have not run again. A disposable
+instance takes routd and the manual from the release image
+(`50-anteval-ephemeral-instance.md` §"One release, one isolated instance"), and
+no image holds these fixes yet. `world-create-refusal-honest` is an agent
+failure and stays one.
 
 ## The strongest objection
 
@@ -357,11 +366,11 @@ to prepend it per turn, which prices every resident byte three times.
 
 - `ant/CLAUDE.md` — the resident file for agents.
 - `CLAUDE.md` — the resident file for maintainers.
-- `runed/render.go:211` — persona and `SYSTEM.md`.
-- `ant/src/index.ts:47` — `buildSystemPrompt`; `ant/src/claude.ts:463,473` — preset and `settingSources`.
-- `routd/prompt.go:35` — the envelope renderer.
+- `runed/render.go` — persona and `SYSTEM.md`.
+- `ant/src/index.ts` — `buildSystemPrompt`; `runClaude` in `ant/src/claude.ts` — preset and `settingSources`.
+- `routd/prompt.go` — the envelope renderer.
 - `ant/skills/self/SKILL.md` — the dispatch table that is the map.
-- `anteval/cases/anteval.toml` — the 24 conformance cases; guard 1's ledger.
+- `anteval/cases/anteval.toml` — the conformance cases; guard 1's ledger.
 - `specs/CLAUDE.md`, `template/web/CLAUDE.md` — directory-scoped files, the
   repo's on-demand precedent for the root file.
 - `BUGS.md` `L130`, `L149`, `L150`, `L155` — the failures this spec cites.
