@@ -96,6 +96,27 @@ A malformed or missing key requires configuration repair and restart; the proces
 `/health` reports process availability even when the credential is unusable. Check API rows on `/dash/googd/`.
 Grep `service account credential unusable`, `read Drive bindings`, `poll Drive file`, and `save Drive status`.
 
+## Decided, and why
+
+| Decision                                               | Reason                                                                                                                                                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Keep polling, thread replies and the Sheets read tool. | Resolving, reopening, document editing and push delivery need a separately approved connector contract. An unrestricted model-supplied `action` cannot enforce a resolve-only grant; BUGS `L910` owns that decision. |
+
+## Thread replies and changes to the agent's own replies
+
+`gdrive:<fileId>` identifies a file for observation;
+`gdrive:<fileId>/c/<commentId>` identifies a replyable thread. The topic
+`c/<commentId>` selects a session, never a delivery address.
+`replies.create` posts a reply. Edit and delete accept the returned reply ID
+for that same thread, using `replies.update` with content only and
+`replies.delete`. A progress message uses those operations on its own reply.
+Resolving or reopening another party's thread needs its own granted tool.
+
+`gdrive_files` is a cold-tier resreg resource in routd. The service-account
+key is an infrastructure credential held by googd. The authenticated
+passthrough spends that key; routd gates each declared connector tool.
+Drive display names do not attest a sender's identity.
+
 ## Limits and verification
 
 The `gdrive:` channel advertises text, edit, and delete only after a successful Drive probe.
@@ -105,7 +126,32 @@ resolving or reopening a comment thread: each is a `replies.create` whose body c
 `action`, and a `rest` tool cannot fix a body field (BUGS `L910`).
 There is no push receiver. Polling determines inbound delivery.
 Passthrough can access every file the service account can access; connector grants must bound caller access.
-Tests use fake Google endpoints; live sharing, scopes, and delegated identity require an operator check.
+Tests use fake Google endpoints. [poll tests](poll_test.go) cover pagination,
+accepted delivery and cursor preservation on refusal or later-page failure.
+[send tests](send_test.go) cover returned reply IDs, refusals and
+`TestTurnStatusReplyLifecycle`; [passthrough tests](passthrough_test.go)
+cover the connector boundary. None proves a successful call to a real file.
+
+### Google acceptance needs operator credentials and files
+
+Live acceptance needs a service-account credential with the Drive API enabled,
+and real files shared with that account as Commenter. Current project settings
+are unverified. These probes remain unmeasured:
+
+1. Compare comment IDs across two files for uniqueness scope.
+2. Post a plain reply on a resolved comment without an `action` value.
+3. Inspect the service account's displayed author name in the editor.
+4. Share a consumer `@gmail.com` document with the service account.
+5. Measure quota units for one minute of `comments.list` polling.
+6. Poll twice at the same `startModifiedTime` for cursor inclusivity.
+7. Compare an editor's `PostAuthor.user` with the account's OIDC subject.
+8. Attempt a Workspace Events subscription on a My Drive file.
+9. Check whether a comment produces a `files.watch` notification.
+
+A disposable real thread must also receive a human comment and accept the
+agent's reply, edit and delete. The platform anteval catalog has no googd
+acceptance case. The push probes grant no push-delivery authority, and the
+identity comparison grants no sender authority.
 
 Sources: [entry point and actions](main.go), [tokens and probes](token.go), [polling](poll.go), [passthrough](passthrough.go); [shared runtime](../chanlib/run.go), [router client](../chanlib/chanlib.go),
 [HTTP handlers](../chanlib/handler.go), [store reach](../store/owner_reach.go).

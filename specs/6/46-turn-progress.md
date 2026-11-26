@@ -1,6 +1,5 @@
 ---
 status: partial
-depends: [45-gdrive-comments-channel]
 ---
 
 # Turn progress uses one checklist and one temporary message
@@ -374,8 +373,8 @@ render no presence. A sink with a native indicator does not add a mark.
 `typing` is not in webd's map: webd renders no presence, and a declared
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
 `typing` being the one verb it does not probe. googd and gitd edit and delete
-only the reply or comment they posted (`specs/6/45-gdrive-comments-channel.md`
-§"Decision 3", `gitd/README.md` § "Reply").
+only the reply or comment they posted (`googd/README.md`
+§"Thread replies and changes to the agent's own replies", `gitd/README.md` § "Reply").
 
 ## Checkpoint and continuation
 
@@ -557,11 +556,10 @@ The port stays `Typing(jid, on)` and the helper records the trigger candidate at
 passes (`RouterClient.postInbound`), which covers a message replayed from
 retention and keeps the two-messages-in-one-chat guess.
 
-## What this changes in gitd and 6/45
+## What this changes in gitd and googd
 
 `gitd/README.md` § "Reply" and
-`specs/6/45-gdrive-comments-channel.md §"Decision 3 — the thread reply, and
-changes to the agent's own replies"` carry the same line:
+`googd/README.md` §"Thread replies and changes to the agent's own replies" define the channel boundary:
 
 > The channel creates, edits and reacts to ITS OWN posts in the thread it was
 > addressed in. Every change to another party's state — resolve, reopen,
@@ -576,12 +574,12 @@ human's comment and `action=resolve` are not. Concretely:
   `delete` with the token, so GitHub shows the `👀` mark and one status
   comment. §"Typing indicator" there is the rendering (`👀` through the shared
   helper, the two reaction endpoints) and points here for the mechanism.
-- `6/45`: `capsFor` advertises `send_text`, `edit` and `delete` while the
+- googd: `capsFor` advertises `send_text`, `edit` and `delete` while the
   credential works; `Edit` is `replies.update` on a reply whose id googd
   minted (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and
   `Delete` removes that reply. `Typing` stays a no-op and `typing` stays out
-  of the map: there is nothing to render. The §"Not built" row "a second
-  channel verb" names resolve, reopen, a new thread and the body, not a change
+  of the map: there is nothing to render. The connector boundary
+  covers resolve, reopen, a new thread and the body, not a change
   to the agent's own reply.
 
 ## Tier

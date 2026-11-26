@@ -29,7 +29,7 @@ const (
 
 var gdriveFileIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// GDriveFile is one Drive file bound to a folder (specs/6/45-gdrive-comments-channel.md).
+// GDriveFile is one Drive file bound to a folder (googd/README.md).
 // TargetFolder is where its comments are routed; OwnerFolder bounds who may
 // revoke it.
 type GDriveFile struct {

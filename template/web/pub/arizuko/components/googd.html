@@ -53,8 +53,11 @@
     <p class="lede">googd is the Google Drive comments channel adapter. It can post a reply to an existing thread.</p>
     <h2>googd connects Drive comments to a channel</h2>
     <p>googd uses a service account to call the Drive API. The account must have access to the file.</p>
-    <h2>Inbound polling is not built</h2>
-    <p>The adapter cannot deliver new comments to routd yet. The file binding and message mapper exist.</p>
+    <h2>Polling delivers comments from bound files</h2>
+    <p>googd polls bound files and delivers comments to routd. The cursor advances after routd accepts delivery and the store saves the status.</p>
+    <p>The channel posts replies and edits or deletes its own replies. The connector declares only <code>read_sheet_range</code>. Resolve, reopen, document editing and push delivery need a separately approved contract.</p>
+    <p>Live Google acceptance remains unmeasured. It needs a service account with the Drive API enabled and files shared as Commenter.</p>
+    <p>Detailed probes and limits: <a href="https://github.com/kronael/arizuko/blob/main/googd/README.md#google-acceptance-needs-operator-credentials-and-files">[Google acceptance]</a>.</p>
     <h2>googd connects routd to Drive</h2>
     <div class="callout"><strong>Thread replies.</strong> routd sends a thread JID to googd. googd posts the reply to Drive.</div>
     <h2>googd depends on arizuko</h2>

@@ -351,8 +351,7 @@ The chassis and the other backends are unchanged and no dedupe set exists. Tests
 typed `param` fields only; a param is an argument the model supplies, and the
 connector-level `body` table renders credential placeholders for every tool of the
 connector. No schema field fixes a constant body value for one tool, so a tool declared
-to resolve would also reopen or reply, whatever the scope says. `specs/6/45-gdrive-comments-channel.md`
-names the resolve and reopen tools as part of the connector.
+to resolve would also reopen or reply, whatever the scope says. `googd/README.md` §"Decided, and why" keeps those actions behind approval.
 **Measured:** `grep -n "action" template/connectors/google.toml routd/ext.go` in `wharness`
 at `eda1a25caf7abd973903d47695a2dce4966abfc5` finds only the closing comment of the
 `.toml`; `extToolConfig` and `extParamConfig` (`routd/ext.go:37-56`) hold no constant body

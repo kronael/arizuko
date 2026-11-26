@@ -623,7 +623,7 @@ Authorization = "Bearer {secret:NOTION_TOKEN}"
 }
 
 // template/connectors/google.toml declares its tools over googd's passthrough
-// (spec 6/45). The prefix table lives in googd/passthrough.go as the cases of
+// (googd/README.md). The prefix table lives in googd/passthrough.go as the cases of
 // the switch on the API segment; reading it from source means a renamed prefix
 // breaks this test rather than the first agent call.
 func TestTemplateGoogleConnectorMatchesPassthrough(t *testing.T) {

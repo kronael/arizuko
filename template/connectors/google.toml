@@ -1,4 +1,4 @@
-# Google Sheets connector over googd's passthrough (spec 6/45). Operator copy:
+# Google Sheets connector over googd's passthrough (googd/README.md). Operator copy:
 # drop this block into <data_dir>/connectors.toml (multi-block file) and restart
 # routd.
 #
