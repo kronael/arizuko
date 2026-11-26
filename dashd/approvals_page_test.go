@@ -330,7 +330,7 @@ func TestApprovalResolve_AlwaysSendsStandingOnApprove(t *testing.T) {
 }
 
 // The page prints routd's `ask` and `rule_text` as they arrive — never a rule
-// or a phrase rendered here (specs/6/49-approval-ask.md).
+// or a phrase rendered here (routd/README.md).
 func TestApprovalsPage_ShowsTheStringsRoutdRendered(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = `{"pending":[

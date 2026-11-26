@@ -126,6 +126,21 @@ faces supply different callers and target bounds.
   carries no JWT claims. "Act as guest" is one row whose predicate names the
   guest, on a user principal; `packages install` refuses the folder form.
 
+## Hold defaults arrive with the binary
+
+`auth/defaults.go` owns the skip-approval list, including `like`, `dislike`,
+`edit` and `delete`. The release binary supplies that policy; `SeedRoutdFloor`
+writes no ACL rows. A local `hold:mcp:<verb>` allow can require approval even
+when the default skips it. A matching local skip row decides before the
+default and can prevent a local hold from applying, because deny wins in the
+selected layer.
+
+A stored copy of a release default is a local override. Audit stored rows with
+`arizuko group -i <instance> grants` and remove an unwanted copy with
+`arizuko group -i <instance> ungrant`. Local exceptions stay operator data.
+[Approval rendering](../routd/README.md#one-renderer-owns-approval-text-and-standing-rules)
+owns the notice and the exact standing rule written by `/always`.
+
 ## Purpose
 
 Shared auth primitives used across daemons. Four concerns:

@@ -163,6 +163,46 @@ and silent outcomes; local tests establish no weekly rate. Packaged instruction
 changes reach installations through the release image; source tests prove no
 fleet rollout.
 
+## One renderer owns approval text and standing rules
+
+The hold gate suspends the call and asks the human. The agent cannot ask
+through the suspended socket; a chat answer to the agent is no verdict.
+The reviewer needs `admin` on the held folder. The agent's MCP socket exposes
+no `pending_actions` resource.
+
+`holdShapes` beside `withMatcher` in `pending_actions.go` declares each call's
+ask template and standing keys. It belongs to routd, its only reader; neither
+`ipc.socialAct` nor `resreg.Resource` carries a second declaration.
+`withMatcher` derives `ask`, `matcher`, `rule_text` and `matcher_error` from the
+held args. These fields are never stored. Chat notices, acknowledgements,
+`/v1/pending_actions`, the approvals page and the verdict writer use the same
+renderer. dashd displays the strings without interpreting `args`.
+
+`like` pins only `reaction`, leaving `targetId` free. `/always` writes
+`hold:mcp:like` with exact `reaction` params and effect `deny` in the held
+folder. The rule passes `auth.CheckGrant` and commits with the verdict in one
+batch. A different reaction still holds. No declared keys means no Always
+button; an operator can write a rule on the grants page or with the CLI.
+Missing/non-scalar key values, commas, stars and outer spaces refuse an exact
+standing rule. Values are never converted to globs.
+
+`like`, `dislike`, `edit` and `delete` have ask templates; the map owns their
+keys. Other tools render their name and scalar arguments with no standing
+keys. Scalar display values stay on one line and stop at 40 characters;
+a missing placeholder stays visible. `expand.Expand` fills ask placeholders.
+
+The notice has the request line, the standing-rule explanation or refusal
+reason, and Approve/Reject buttons plus Always when available. Adapters
+without buttons receive typed verdict commands from `chanreg.foldOptions`.
+A verdict gets one acknowledgement; Always also names the rule and its revoke
+control. [Operator grants reference](../template/web/pub/arizuko/reference/grants.html#hold)
+owns the example and commands. [auth](../auth/README.md#hold-defaults-arrive-with-the-binary)
+owns default policy and local overrides.
+
+`hold_always_test.go` and `hold_e2e_test.go` cover exact standing rules,
+notice/verdict agreement and tools without keys.
+`dashd/approvals_page_test.go` checks that the page shows routd's strings.
+
 ## Provider refusals pause the instance
 
 `ProviderFailure` comes from an attempt-ending provider error. Authentication

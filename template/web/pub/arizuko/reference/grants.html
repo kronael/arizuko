@@ -85,6 +85,14 @@ params    = host=*.prod.example.com</code></pre>
       <li><strong><code>/always</code> requires declared keys.</strong> The tool declares which arguments a standing rule pins. Only <code>like</code> declares a key, <code>reaction</code>. A missing scalar value or a value that cannot form an exact matcher refuses the rule. The notice, REST row and writer use the same rendered rule. Tools without keys offer no Always button and refuse <code>/always</code>.</li>
     </ul>
 
+    <p>The gate asks in the agent&rsquo;s words. The notice states the exact standing rule it offers:</p>
+
+    <pre><code>rhias/nemo wants to react 👀 to message 156 — ok? (647ec18e)
+Always: every like call with reaction=👀 in rhias/nemo runs without asking.</code></pre>
+
+    <p><code>/always</code> on this call pins <code>reaction=👀</code> and leaves the message ID free. Another reaction still asks. Missing scalar values, commas, stars or outer spaces refuse an exact standing rule.</p>
+    <p>Chat, REST and the approvals page display the same strings. <a href="https://github.com/kronael/arizuko/blob/main/routd/README.md#one-renderer-owns-approval-text-and-standing-rules">[Approval renderer]</a> owns their declaration.</p>
+
     <p>Hold actions use the same evaluator as ordinary permissions. <code>actionCovers</code> accepts an exact hold action or <code>hold:mcp:*</code>. Other action grants do not cover holds. Matching local rows decide first. Defaults from <code>auth/defaults.go</code> decide only when no local row matches. Deny wins within the selected layer. A local hold can therefore override a default skip.</p>
 
     <p>If the policy read fails, the hold gate blocks the call. Approval still requires the tool's authorization check. <code>CheckGrant</code> checks the reviewer and standing rule before their batch proves the policy version.</p>

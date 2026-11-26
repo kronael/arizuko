@@ -159,6 +159,12 @@ decides whose message an agent may edit or delete. An adapter without the
 primitive returns a typed `chanlib.UnsupportedError` whose hint names an
 alternative, for example `like(emoji='👎')` for `dislike`.
 
+A default approval skip adds no authorship check. Slack and WhatsApp deletion
+is restricted to the bot's own messages by the platform request. Telegram and
+Discord can delete another author's message when the bot holds moderator
+permission. The adapters add no own-message guard. An own-only delete policy
+for those platforms is not implemented.
+
 Platform `send` and `send_file` use one `internalSend` for persistence and
 routing. A failed platform send returns the error to the agent and still records the undelivered row, `pending` or `failed`
 (`routd/README.md` § The turn in routd).

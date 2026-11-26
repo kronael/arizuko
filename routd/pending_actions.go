@@ -52,7 +52,7 @@ type PendingAction struct {
 	// DERIVED from Args, never stored: the ask line, what an `always` verdict
 	// would write and that rule in words, computed by the one renderer
 	// (withMatcher) so the notice, the acknowledgement, the REST row, the
-	// approvals page and the writer cannot disagree (specs/6/49-approval-ask.md).
+	// approvals page and the writer cannot disagree (routd/README.md).
 	Ask      string `json:"ask"`
 	Matcher  string `json:"matcher"`
 	RuleText string `json:"rule_text"`
