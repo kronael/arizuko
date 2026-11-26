@@ -123,8 +123,11 @@ folder through routd `PATCH /v1/groups/{folder}` before the case's first turn
 and clears it after the case's turns, so a later case without one runs on the
 instance defaults. A run with at least one such case mints the eval bearer with
 the extra scope `routes:write:own_group`; any other run does not.
-`backends/backends.toml` uses the field to answer on every backend on one
-instance: `--cases backends`, with `ARIZUKO_BACKEND=codex` in the env file.
+`backends/backends.toml` uses the field to answer on the default backend, on pi
+and on codex on one instance: `--cases backends`, with `ARIZUKO_BACKEND=codex`
+in the env file. It holds no claude case: a disposable run must not copy the
+credential of an instance, and no Claude account exists that no live instance
+uses.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 

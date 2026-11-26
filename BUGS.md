@@ -14,24 +14,26 @@
 > so counting one as open overstates the queue.
 
 
-## L951 — the claude case of the per-backend acceptance has never run on a disposable instance (2026-11-25, open — operator task)
+## 📋 RECORD L951 — the per-backend acceptance holds no claude case (2026-11-26, not a defect; owner decision)
 
-`anteval/backends/backends.toml` holds one case per backend for
-`specs/6/53-per-group-harness.md`. On 2026-11-25 the default, pi and codex cases
-passed on one disposable instance of v0.75.28 (`ARIZUKO_BACKEND=codex`, the
-operator's Codex login). `backend-d-claude` did not run: the run had no Claude
-credential apart from the one the live instances use, and a disposable run must
-not copy an instance's credential
-(`specs/6/50-anteval-ephemeral-instance.md` §"One release, one isolated instance").
-The live fleet measures the same path: on sloth, whose default backend is pi,
-`sloth/trading` holds a claude document and routd recorded 121 usage records
-with `harness=claude` for it in 14 days, beside `harness=pi` for its siblings
-(`journalctl -u arizuko_sloth`, "agent self-reported model usage").
-Needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` of an account no live
-instance uses, in the run's env file; then
-`anteval run --env FILE --sink URL --cases backends --case backend-d-claude`.
-- **Type:** ops — no test — ops
-- **Status:** open — operator task
+`anteval/backends/backends.toml` holds a case for the instance default, for pi
+and for codex, and none for claude. A disposable run must not copy the
+credential of an instance
+(`specs/6/50-anteval-ephemeral-instance.md` §"One release, one isolated instance"),
+and no Claude account exists that no live instance uses, so a claude case can
+only fail. The owner decided on 2026-11-26 to leave it out.
+**Measured:** on 2026-11-25 the default, pi and codex cases passed on one
+disposable instance of v0.75.28 (`ARIZUKO_BACKEND=codex`, the operator's Codex
+login). The live fleet shows the claude path of the same selector: on sloth,
+whose default backend is pi, `sloth/trading` holds a claude document and routd
+recorded 121 usage records with `harness=claude` for it in 14 days, beside
+`harness=pi` for its siblings (`journalctl -u arizuko_sloth`, "agent
+self-reported model usage").
+A claude case is the codex case with `harness = '{"backend":"claude"}'` and
+`{nonce}-claude`; it needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` of
+such an account in the env file of the run.
+`anteval/pkg/spec/catalog_test.go::TestBackendSuiteCoversEveryBackend` names
+the three backends the suite covers.
 
 ## 📋 RECORD L947 — repository-level GitHub events have no PR comment target (2026-11-25, not a defect; original L938)
 
@@ -660,7 +662,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
-- `L951` — the claude case of the per-backend acceptance has never run on a disposable instance; needs a Claude credential that no live instance uses; operator task.
 - `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.

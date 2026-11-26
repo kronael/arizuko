@@ -19,10 +19,11 @@ needs the Codex login (`HOST_CODEX_DIR`) and the hosts `chatgpt.com` and
 `auth.openai.com`, and the eval bearer gains `routes:write:own_group` only for a run
 with such a case (`anteval/cmd/anteval/lifecycle.go`).
 
-`anteval/backends/backends.toml` holds one case per backend. On 2026-11-25 the
-default, pi and codex cases passed on one disposable instance of v0.75.28 whose
-default backend was codex; §"Contract" holds the measurement. The claude case
-has not run on a disposable instance: BUGS `L951` holds that run.
+`anteval/backends/backends.toml` holds a case for the default backend, for pi and
+for codex. On 2026-11-25 the three passed on one disposable instance of v0.75.28
+whose default backend was codex; §"Contract" holds the measurement. The suite
+holds no claude case: a disposable run must not copy an instance's credential,
+and the live fleet runs claude beside pi (BUGS record `L951`).
 
 ## The platform must carry the document without interpreting it
 
@@ -386,5 +387,5 @@ Go does not infer a backend from a model name.
   `codex` in 43 s; routd's usage record of each turn carries the same harness.
   The run used the `.codex` ownership stand-in that
   `specs/6/50-anteval-ephemeral-instance.md` §"Measured on a disposable instance"
-  describes. `backend-d-claude` waits for a credential (BUGS `L951`).
+  describes. The suite holds no claude case (BUGS record `L951`).
   No anteval run reaches a live instance.
