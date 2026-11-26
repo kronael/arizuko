@@ -66,6 +66,12 @@ them on each request.
   CID, a tap — hangs off the handle and is never a field, so `Kill(handle)`
   finds all of it. A new per-turn fact changes the renderer, never the port.
 
+- **No caches**: a daemon NEVER keeps a cache, an in-memory index or a copy of
+  store data. It reads the store. When a read is slow, change the keys or add
+  an index so the store answers it cheaply. A cache is a second state that
+  drifts and holds memory: sloth's routd held 0.9 GB against krons' 115 MB
+  (2026-11-25).
+
 - **Strict, not magical**: no silent fallbacks for missing data
   (PERSONA.md without frontmatter returns empty, not "guess from body").
   No parent-folder inheritance for group-scoped files. Operator data
