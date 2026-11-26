@@ -38,9 +38,9 @@ proxy) is the concrete component spec.
 
 ## GitHub feature workflow review
 
-| Spec                                                                 | Status | Covers                                                                                            |
-| -------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------- |
-| [48-github-feature-improvement.md](48-github-feature-improvement.md) | draft  | Placement proposals, decision owners, GitHub feature experiments, and package revision boundaries |
+| Spec                                                                 | Status  | Covers                                                                                                                                           |
+| -------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [48-github-feature-improvement.md](48-github-feature-improvement.md) | shipped | Decision: ordinary feature work uses existing groups, skills and GitHub records; no core coordinator, paid experiment or self-release mechanism. |
 
 ## Ties
 
