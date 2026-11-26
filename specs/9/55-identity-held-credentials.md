@@ -90,8 +90,9 @@ contracts differ from the filing in these places:
   The filing's dated gateway probes do not establish current provider support.
 - Ant selects the adapter at `ant/src/index.ts:406` through
   `ant/src/backend.ts:112`. Credential selection follows whichever harness
-  selection path applies. [Per-group harness](../6/53-per-group-harness.md)
-  is not a prerequisite; coordinate only its host-login mount condition.
+  selection path applies. [Harness selection](../../ant/README.md#the-harness)
+  needs no change; coordinate only the host-login mount condition in
+  [runed](../../runed/README.md#what-runed-does).
   A future identity consumer reads the join below;
   it must not create another principal map.
 
@@ -292,7 +293,7 @@ assertions in the acceptance section.
 - path: runed/mounts_test.go (changed)
   job: prove personal turns receive no host Codex login
   names: [TestPersonalCodexMounts]
-  never: require 6/53 or lend host authentication to a personal turn
+  never: require a harness-selection change or lend host authentication to a personal turn
 - path: runed/env_contract_test.go (changed)
   job: pin the Go producer and ant consumer of the payer env
   names: [ARIZUKO_MODEL_USER_SUB]

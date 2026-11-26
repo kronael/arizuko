@@ -175,7 +175,8 @@ Selected package records retain dirty checks, removal, sync, rename/delete and o
 The machine needs neither a second package inventory nor a special native-layer format.
 The fragment, resource, env and grant handlers retain their authorization.
 
-[Per-group harness](../6/53-per-group-harness.md) owns the opaque document and ant's validation.
+[Group settings](../../store/README.md#group-settings-preserve-the-harness-document)
+owns the opaque document; [ant](../../ant/README.md#the-harness) owns validation.
 That document selects the harness, not the machine's OS or installed software.
 [Identity-held credentials](55-identity-held-credentials.md) owns model credential selection.
 [Identity-held tools](56-identity-held-tools.md) owns tool account selection and consent.

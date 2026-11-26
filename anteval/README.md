@@ -185,6 +185,14 @@ volumes, networks, systemd unit, or store account, keys and tables.
 | Full catalog                                                | 14/24; 112 minutes; exit 1.                         |
 | Egress dimension after case corrections                     | 3/3; exit 0.                                        |
 
+The backend run used Codex as the instance default. The default case reported
+`codex` in 38 s; the Pi document
+`{"backend":"pi","model":"openai-codex/gpt-6.1-sol"}` reported `pi` in 30 s;
+the Codex document `{"backend":"codex","effort":"low"}` reported `codex` in
+43 s. Each case checked the guest process name, and routd's usage row named
+the same harness. The run prerequisites are in Run; BUGS `L951` owns the
+separate Claude credential requirement.
+
 These runs used a host process to set newly staged `.codex`, `.claude/skills`
 and `.claude/hooks` directories to uid 1000. The image under test lacked the
 runed ownership fixes covered by `TestBuildMountsNewGroupHomeWritable` and

@@ -48,7 +48,7 @@ faces supply different callers and target bounds.
   Deny wins within the selected layer. No matching allow means refusal.
   A failed policy read refuses the request. Folder depth grants nothing.
 - **Containment is the scope glob.** Guest capabilities (`share_mount`,
-  `egress`, `web:publish`, `gh:write`, `codex`) resolve from `acl` at dispatch into
+  `egress`, `web:publish`, `gh:write`) resolve from `acl` at dispatch into
   typed booleans on the run request. A capability derived from folder depth
   reaches every folder at that depth, whatever the operator granted, so no
   code derives one. `ARIZUKO_TIER` is not emitted: the agent's identity is

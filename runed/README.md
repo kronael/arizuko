@@ -5,8 +5,12 @@ runed implements the execution plane of an arizuko instance, and routd calls it 
 ## What runed does
 
 runed carries the opaque group harness document as `ARIZUKO_HARNESS`.
-Instance defaults arrive through `Config.AgentEnv`; ant owns their selection
-and validation. Settings affect the next run. Before switching backends, end
+`RunRequest.Harness` carries raw JSON through the HTTP encoder into `Turn.Env`;
+runed emits its compacted text without interpreting fields. Absence omits the
+env key. Compose sends the instance defaults to runed, and `Config.AgentEnv`
+maps `ARIZUKO_DEFAULT_MODEL` and `ARIZUKO_DEFAULT_EFFORT` to
+`ARIZUKO_MODEL` and `ARIZUKO_EFFORT`. [ant](../ant/README.md#the-harness) owns
+selection and validation. Settings affect the next run. Before switching backends, end
 active runs and use `/new` on affected topics.
 
 Model API keys use the env-profile policy. Direct mode also stages the

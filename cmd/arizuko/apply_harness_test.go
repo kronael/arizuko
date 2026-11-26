@@ -10,7 +10,7 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// spec 6/53 §Contract: a group's harness document survives a bulk import of a
+// store/README.md, "Group settings preserve the harness document": a group's harness document survives a bulk import of a
 // rows file and reaches the run request as the same value, compacted.
 func TestApplyRows_CarriesHarnessDocument(t *testing.T) {
 	ctx := context.Background()

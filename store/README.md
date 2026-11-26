@@ -68,6 +68,26 @@ and why. The table is the summary; the file is the authority.
 | `invites`               | the invite ref                                                   | `target_glob`, issuer, issued and expiry instants, `max_uses`, `used_count`                                                                                                                                                                                                                         |
 | `invite_redemptions`    | the person, then the instant                                     | one unspent redemption's `target_glob`; the point delete is the claim                                                                                                                                                                                                                               |
 
+## Group settings preserve the harness document
+
+`groups.config.harness` is one opaque JSON value. `GroupConfig` reads it;
+`SetGroupSettings` replaces it while preserving unrelated settings and writing
+an audit row in the same batch. These operations preserve the raw value's
+key order, escapes, unknown fields and numeric spelling through unrelated
+settings writes and bulk `arizuko apply`. JSON encoding can compact whitespace.
+Decoding the value through `map[string]any` would lose large-number precision.
+
+Settings writes check that a supplied harness is an object; ant owns backend,
+model and effort semantics. Malformed stored settings return a read error,
+never empty defaults. Observe-window updates return the error without writing;
+prompt assembly logs the error and uses its instance window.
+[Harness selection](../ant/README.md#the-harness) owns the document's meaning.
+
+`routd/harness_carry_test.go` checks stored JSON through dispatch and the real
+HTTP client/server into `Turn.Env`. `cmd/arizuko/apply_harness_test.go` checks
+the same carry after import. `store/groups_test.go` covers preservation and
+audit atomicity; `routd/groups_detail_test.go` covers REST/MCP target denial.
+
 ## Multi-table writes are security invariants
 
 A write that spans two entities carries a security property, not tidiness.

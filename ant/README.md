@@ -26,7 +26,29 @@ Ant validates the document before starting the adapter. Backend is required;
 model and effort are optional. A present document replaces instance defaults
 as a whole. Omitted optional fields use the adapter's native defaults.
 Without the document, ant reads `ARIZUKO_BACKEND`, `ARIZUKO_MODEL` and
-`ARIZUKO_EFFORT`. Pi writes native MCP configuration for the same routd socket.
+`ARIZUKO_EFFORT`. An absent instance backend selects Claude. Empty instance
+model or effort uses native defaults.
+
+The group document never inherits from a parent folder. Top-level group
+`model` and `effort` settings do not select the harness. Omitted optional
+fields use native defaults even when the group and instance backend match.
+`parseHarness` in `src/backend.ts` requires an object and nonempty strings.
+It rejects null, arrays, unknown fields, unknown backends and unsupported
+effort. Model IDs pass verbatim; the adapter reports a vendor rejection.
+An empty env value or `{}` is invalid, not a request for instance defaults.
+
+Validation runs inside the error-reporting boundary before adapter startup.
+Invalid configuration submits a visible terminal failure and enters no
+transient retry loop. Codex forwards effort on both new and resumed runs
+through its TOML argument renderer. Pi writes native MCP configuration for
+the same routd socket.
+
+`ant/src/harness-main.test.ts` exercises configuration failures at the entry
+point. `src/backend.test.ts` covers whole-document selection and native
+optional defaults; Codex tests cover effort on exec and resume.
+[Store settings](../store/README.md#group-settings-preserve-the-harness-document)
+own the raw value. [runed](../runed/README.md#what-runed-does) owns credential
+delivery, egress independence and the procedure for switching active topics.
 
 ant does not implement an agent loop; it wraps one. `src/claude.ts`
 drives Claude Code via `@anthropic-ai/claude-agent-sdk` — spawn the

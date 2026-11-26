@@ -1,5 +1,5 @@
 # Per-backend acceptance of the group harness document
-# (specs/6/53-per-group-harness.md). One disposable instance answers on its
+# (ant/README.md). One disposable instance answers on its
 # default backend, on pi and on codex, because each case writes its own document:
 #
 #   anteval run --env FILE --sink URL --cases backends
