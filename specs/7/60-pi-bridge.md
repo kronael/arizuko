@@ -307,7 +307,7 @@ steps:
         job: record v0.75.4 behavior in the required announcement form
         names: ['Unreleased']
         never: claim the live check passed before it runs
-      - path: specs/6/47-voluntary-reply.md (changed)
+      - path: routd/README.md (changed)
         job: reconcile the pi row with delivery through submit_turn
         names: ['Day one, per harness']
         never: retain the pi selection refusal as target behavior

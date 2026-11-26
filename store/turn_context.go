@@ -464,8 +464,8 @@ func (s *Store) IncrementNudged(turnID string) error {
 }
 
 // SetTurnAddressed records whether a person put a question to the turn's folder
-// (spec 6/47 §"Addressed"). The attribute is a set flag and false removes it, so
-// a re-dispatch that resolves differently clears a stale true.
+// (routd/README.md, "Addressed turns share one delivery decision"). The attribute
+// is a set flag and false removes it, so re-dispatch clears a stale true.
 func (s *Store) SetTurnAddressed(turnID string, addressed bool) error {
 	key, err := turnKey(turnID)
 	if err != nil {

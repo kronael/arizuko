@@ -504,7 +504,8 @@ type resolution struct {
 	TopicPinned bool
 	Observe     string
 	// Addressed: a person put a question to this folder and is owed an answer
-	// (spec 6/47 §"Addressed"). Declared here once and stored on the turn.
+	// (routd/README.md, "Addressed turns share one delivery decision").
+	// Declared here once and stored on the turn.
 	Addressed bool
 	// AtName: the message's leading @name selected Folder. The turn that takes
 	// the row drops the prefix and engages the chat and topic for Folder.

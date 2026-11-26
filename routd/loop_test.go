@@ -539,9 +539,9 @@ func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 	}
 }
 
-// TestResolve_Addressed pins one row per row of specs/6/47-voluntary-reply.md
-// §"Addressed". The observe rule on an engaged chat is BUGS L445: nobody spoke
-// to the folder, so the turn it fires owes nobody an answer.
+// TestResolve_Addressed pins the distinctions in routd/README.md,
+// "Addressed turns share one delivery decision". The observe rule on an engaged
+// chat is BUGS L445: nobody spoke to the folder, so its turn owes no answer.
 func TestResolve_Addressed(t *testing.T) {
 	const slack = "slack:T/C"
 	tests := []struct {

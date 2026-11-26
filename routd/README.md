@@ -126,6 +126,43 @@ in `schedule_test.go` cover firing and retry behavior.
 - **Delivery dedup belongs to the adapter.** `chanlib/README.md` section "Delivery is claimed before the platform call" describes it.
 - **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's status row takes `status-<sha256(turn id, chat)>` (`turn_status.go`), one row per turn and chat. An operator `POST /v1/outbound` row takes `out-<hex>`. An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
 
+## Addressed turns share one delivery decision
+
+`loop.go` declares `Addressed` once and stores it on the turn. A person using
+a direct web chat, a leading name route or a trigger route addresses the
+folder. Direct hooks and bare-folder messages do not. Observation routes,
+engagement alone, scheduled senders and system senders create no addressed
+obligation. `TestResolve_Addressed` in [loop_test.go](loop_test.go) covers
+these distinctions.
+
+`turns.go` checks delivery for that exact turn and return destination. Status
+rows do not count as answers. The hidden `check_turn` and `submit_turn`
+methods share a persisted nudge count under the turn lock. A successful
+addressed turn without delivery continues once; another missing delivery
+ends with a notice. A successful unaddressed turn may end silently.
+[ipc lifecycle](../ipc/README.md#submit_turn-ends-the-turn) owns the wire form;
+[ant](../ant/README.md#the-harness) owns harness continuation and Stop hooks.
+A fresh follow-up waits for its own run and bound MCP socket.
+
+### Decided, and why
+
+Keep explicit delivery tools and one check over stored turn facts. A prose
+parser or a second hook counter would duplicate the delivery decision.
+Printed prose stays private. The mechanism provides no success-rate guarantee.
+
+`voluntary_reply_test.go` covers delivery evidence, the shared concurrent
+nudge, socket binding, holds and completion outcomes. `voluntary_main_test.go`
+uses the real ant entry point and MCP client with a controlled harness.
+These checks call no live model.
+
+Live acceptance still needs an unaddressed GitHub comment that stays silent,
+an addressed comment that gets a reply, and a print-only instruction that
+gets one correction. A disposable Codex turn must reach `reply` through MCP.
+A week of `arizuko_nudged_turns_total{folder,outcome}` must establish delivered
+and silent outcomes; local tests establish no weekly rate. Packaged instruction
+changes reach installations through the release image; source tests prove no
+fleet rollout.
+
 ## Provider refusals pause the instance
 
 `ProviderFailure` comes from an attempt-ending provider error. Authentication
