@@ -7472,7 +7472,7 @@ Measured in the krons store before and after:
 **The owner's ruling (2026-10-21) replaces the delete proposal above:**
 anteval does not touch a live instance; it makes its own and removes it.
 `anteval/README.md` §"One release, one isolated instance" owns the lifecycle
-and its isolation boundaries. A teardown of what anteval makes on krons is no longer the fix.
+and its isolation boundaries. A teardown of what anteval makes on krons is not the fix.
 
 - **Severity:** high — every release pays one guest turn per leaked child,
   and the eval measures the queue those turns make.
