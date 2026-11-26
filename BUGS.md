@@ -860,6 +860,9 @@ reads those words now.
 - `L537` — DECIDED: each group sizes its own guest with `mem`, `smp` and
   `timeout` keys in `container_config` (`specs/9/20-group-machine-size.md`);
   waits for a measured group that needs more than 2 GB or 2 vCPUs.
+- `L538` — routd reads the guest capabilities through the action lattice, so
+  every onboarded world's agent gets a read-only share: exact match, and
+  delete `share_mount(readonly)`?
 **Found while measuring `L535` (2026-10-23).**
 - `L543` — the chassis sets no `turn.signal`: delete the claude and pi readers,
   or give them a writer?
@@ -3105,6 +3108,39 @@ place of `memoryFits`. Not a grant: the `cap:` acl-row draft is dropped.
   build waits on `L656` and on the spec's open question 1 (`runed.Turn` gains
   `Mem` and `CPUs`).
 - **Status:** open — waits on the trigger.
+
+## L538 — routd reads the guest capabilities through the action lattice, so `admin` or `mcp:*` makes a folder's share read-only (2026-10-23, open — needs sign-off)
+
+READ at `491204eb`: `routd/dispatch.go:762-765` resolves
+`mcp:share_mount(readonly=true)`, `egress`, `web:publish` and `gh:write` with
+`auth.Authorize`. That evaluator applies the action lattice
+(`auth/authorize.go:391`: `admin` and `mcp:*` cover every `mcp:<tool>`, `*`
+covers every action), and a row with empty `params` matches any arguments
+(`:443`). So:
+
+- a folder holding `admin` or `mcp:*` on itself resolves the read-only share
+  TRUE, and its `/var/lib/share` is mounted read-only (`runed/mounts.go:77`):
+  more authority gives less. onbod grants every world it creates `mcp:*` on
+  its own subtree (`onbod/main.go:908-911`), so every onboarded world's agent
+  runs this way. `admin` is also the default action of `arizuko group grant`
+  (`store/acl.go:184` `GrantDefaults`);
+- a folder holding `*` resolves `egress`, `web:publish` and `gh:write` true.
+
+`specs/5/33-paths-roles.md` §"Where the axis deliberately does NOT reach" says
+these container capabilities "already refuse the action lattice"; the code
+does not. Exposure: the krons `grants` listing of 2026-10-20 has no folder
+holding `admin`, `mcp:*` or `*`, no onboarded world and no `share_mount` row.
+sloth was not read.
+
+- **Severity:** medium — every onboarded world's agent loses its writable
+  share; latent on krons.
+- **Fix:** read the four by exact match, `namespacedAllows`
+  (`auth/authorize.go:619`), as `ShellEnvKeys` and `CheckHold` do, and delete
+  `share_mount(readonly)`, which no row on krons uses.
+- **Test:** none yet. A folder holding `admin`, one holding `mcp:*` and one
+  holding `*` each resolve `egress`, `web:publish` and `gh:write` false with a
+  writable share; an explicit row resolves true; a deny wins.
+- **Status:** open — needs sign-off (an auth change).
 
 ## L570 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
 

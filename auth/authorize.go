@@ -114,14 +114,10 @@ func readPolicy(s *store.Store, caller Caller) (Policy, error) {
 	return p, nil
 }
 
-func (p Policy) applies(r core.ACLRow, scope string, params map[string]string) bool {
-	return matchPattern(r.Scope, scope) && predicateMatches(r.Predicate, p.caller.Claims) && paramsMatch(r.Params, params)
-}
-
 func (p Policy) matching(rows []core.ACLRow, action, scope string, params map[string]string) []core.ACLRow {
 	var out []core.ACLRow
 	for _, r := range rows {
-		if !p.applies(r, scope, params) {
+		if !matchPattern(r.Scope, scope) || !predicateMatches(r.Predicate, p.caller.Claims) || !paramsMatch(r.Params, params) {
 			continue
 		}
 		if r.Effect == store.EffectDeny || p.caller.Route == "" || anyPrincipalMatches(r.Principal, p.route) {
@@ -149,36 +145,6 @@ func (p Policy) Allows(action, scope string, params map[string]string) bool {
 		return verdict(rows)
 	}
 	return verdict(p.matching(p.defaults, action, scope, params))
-}
-
-// HasCapability reports whether folder holds a guest capability: an allow row
-// on the folder's own principal that names the action itself. The lattice
-// confers none, so `admin`, `mcp:*` and `*` do not grant one; a deny row is
-// read through the lattice and wins. A failed policy read answers false.
-func HasCapability(s *store.Store, folder, action string, params map[string]string) bool {
-	if s == nil || folder == "" || action == "" {
-		return false
-	}
-	p, _, err := ReadPolicy(s, Caller{Principal: FolderPrincipal(folder)})
-	if err != nil {
-		slog.Error("capability: policy read failed; denying", "err", err)
-		return false
-	}
-	for _, layer := range [][]core.ACLRow{p.local, p.defaults} {
-		var rows []core.ACLRow
-		for _, r := range layer {
-			if !p.applies(r, folder, params) {
-				continue
-			}
-			if r.Action == action || (r.Effect == store.EffectDeny && actionCovers(r.Action, action)) {
-				rows = append(rows, r)
-			}
-		}
-		if len(rows) > 0 {
-			return verdict(rows)
-		}
-	}
-	return false
 }
 
 // routePrincipals is the ROUTE axis's own expansion: the destination folder's
