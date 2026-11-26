@@ -128,8 +128,8 @@ whether the number resolves, never whether it names the same document
 (BUGS `L237`).
 
 This is not hypothetical arithmetic. **MEASURED 2026-09-20: 56 spec numbers are
-live today and named a different file before** — among them `5/9`,
-`5/33` and every number in phases 16 and 17.
+live today and named a different file before** — among them `5/33`
+and every number in phases 16 and 17.
 
 Two corollaries, both of which have cost real work:
 
