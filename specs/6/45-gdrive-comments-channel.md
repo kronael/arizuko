@@ -52,8 +52,8 @@ existing 90-day `audit_log` policy permits log expiry.
 
 The owner blocker is **a service-account credential whose project enables the
 Drive API, plus real files shared with that account as Commenter**. The last
-recorded project, `morha-427320`, has Drive disabled. This closeout does not
-probe the project or change its API settings.
+record names Drive disabled in project `morha-427320`. Current project state
+is unverified. This closeout does not probe the project or change its API settings.
 
 These nine probes remain unmeasured:
 

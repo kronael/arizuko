@@ -14,6 +14,26 @@
 > so counting one as open overstates the queue.
 
 
+## L955 — the spec checker rejects the repository's lifecycle and index forms (2026-11-26, open — needs sign-off)
+
+The installed `speclint` accepts only `draft`, `experiment`, `planned`,
+`partial`, `shipped` and `reference`. Project instructions also use `defected`,
+and phase indexes use `active` or `queued`. The checker follows explicit phase
+index links, while the root index also links phase directories and repeats rows.
+**Measured:** `speclint specs` at
+`880119f1b75548b3d3fdbab40d4eda526f3fd060` returns 66 errors and 272 warnings.
+The errors include unsupported statuses, undiscovered phase-index rows,
+duplicate rows and nonnumeric historical names. The Go spec-reference suite
+checks links and citations, not that lifecycle contract.
+**Options:** (a) approve a project/checker contract that covers phase indexes,
+project statuses and historical names; (b) normalize the corpus to the current
+checker, including the project's documented defect status.
+**Default if nothing is decided:** preserve the corpus outside the requested
+specs and keep the checker failure visible. Passing `make lint` does not mean
+`speclint` passed.
+**Type:** design — no test — design; checker compatibility and corpus migration
+need one approved contract.
+
 ## 📋 RECORD L951 — the per-backend acceptance holds no claude case (2026-11-26, not a defect; owner decision)
 
 `anteval/backends/backends.toml` holds a case for the instance default, for pi
@@ -622,6 +642,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
+- `L955` — approve one lifecycle/index contract for the spec checker and corpus; the baseline full-corpus checker reports 66 errors.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.

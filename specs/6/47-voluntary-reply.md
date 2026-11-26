@@ -39,7 +39,7 @@ delivery contract. No renderer, wire field, grant, cache or expiry changes.
 The deleted-code claims in the filing need no code change.
 `ipc/README.md` already describes explicit delivery.
 `ant/README.md` already points to the shared grammar test:
-`tests/contract_ant_test.go::TestStatusBlockGrammarMatchesAcrossLanguages`.
+`tests/contract_ant_test.go`, `TestStatusBlockGrammarMatchesAcrossLanguages`.
 
 ## More enforcement would duplicate existing state
 
@@ -62,7 +62,7 @@ shared concurrent nudge, successful social delivery, exact socket binding,
 holding before recording, and completion outcomes.
 `routd/voluntary_main_test.go` runs the real ant entrypoint and MCP client
 with a controlled harness. It proves continuation and follow-up identity.
-`routd/loop_test.go::TestResolve_Addressed` covers trigger classification.
+`routd/loop_test.go`, `TestResolve_Addressed`, covers trigger classification.
 `ant/src/index.test.ts` covers private prose and same-turn continuation.
 `ant/src/reply-owed.test.ts` covers the Stop check and both hook renderers.
 The Go/TypeScript payload and status-grammar tests compare both sources.
