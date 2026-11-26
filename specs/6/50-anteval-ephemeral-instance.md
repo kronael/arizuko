@@ -214,11 +214,13 @@ group failed on `hooks.json` (`TestBuildMountsNewGroupHomeWritable`), and it
 staged `~/.claude/skills` and `~/.claude/hooks` as root, so the agent could add
 no skill (`TestStageTargetsInsideAHomeBelongToTheRunUID`).
 
-Three failures stay open as BUGS entries, each a decision: `L950`
-(`register_group` refuses a delegated folder its own web child; five catalog
-cases, two of them in the smoke), `L952` (`unknown-addressee`) and `L953`
-(`web-route`). `34-resident-prompt.md` §"The catalog on a disposable instance"
-holds the result of each case.
+Three failures needed a decision, and each is fixed in the tree: `register_group`
+refused a delegated folder its own web child (five catalog cases, two of them in
+the smoke), the manual and the routing reference disagreed on a message that
+opens with an unknown `@name` (`unknown-addressee`), and `web-route` asked for a
+path no web route governs. Their seven cases have not run again.
+`34-resident-prompt.md` §"The catalog on a disposable instance" holds the result
+and the fix of each case.
 
 The runed fixes are in the tree and not in the v0.75.28 image. Every later run
 that reached a turn therefore had a host process beside it that gave the
@@ -230,6 +232,5 @@ holds the fixes needs no such process, and no such run exists yet.
 ## Ties
 
 BUGS `L72` (the leak, and the entry this spec answers; it holds the operator
-cleanup of what the live runs left), `L188` (the record of the moved rules
-that no case can observe), `L950`, `L952` and `L953` (the failures the measured
-runs left open).
+cleanup of what the live runs left) and `L188` (the record of the moved rules
+that no case can observe).
