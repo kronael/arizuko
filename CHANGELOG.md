@@ -13,6 +13,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.30] — 2026-11-26
+
+> arizuko v0.75.30 — the agent pushes as it works
+>
+> The agent pushes its commits to the pull request branch before each progress reply and before a turn ends.
+>
+> • GitHub — work no longer waits in the agent's clone; every progress reply has its commits on the branch.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- The agent manual says to push to the pull request's branch before posting
+  progress and before the turn ends; a repository rule against `git push`
+  does not apply to a change the user asked for.
+- Docs: the retries page names exit 78 as the only terminal exit and topic
+  admission per folder and topic; runed, egress and comment text match the
+  code (routd resolves credentials; each turn's proxy sits on its tap pair).
+
 ## [v0.75.29] — 2026-11-25
 
 > arizuko v0.75.29 — no caches, a lighter guest, and fewer moving parts
