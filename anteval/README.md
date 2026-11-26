@@ -133,6 +133,78 @@ uses.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 
+## One release, one isolated instance
+
+`anteval run` uses the ordinary `arizuko` CLI lifecycle; anteval owns no second
+Compose generator, startup path or removal implementation. The release image
+supplies packages and manuals. `APP_SRC_DEV` stays off, and release kernel and
+rootfs assets stay read-only. A run certifies that release, not a serving
+instance's data.
+
+Every CLI call supplies the fresh instance name and private data base.
+Inherited instance settings cannot select a target. The external test store
+serves no user instance; `store enroll` creates an isolated account owning all
+eval tables and credentials. `rm` removes that account, never the store server.
+Model credentials come from the run's explicit configuration, never another
+instance. Missing credentials fail before creation and name the backend.
+
+The runner sets `MAX_CONCURRENT_AGENTS=1`. Memory preflight reserves 1536 MiB
+for services and gateway plus the configured guest. Each CID, vsock, tap and
+proxy allocation must be separate from other instances.
+
+Cleanup stops and reaps the foreground child before `arizuko rm`, with an
+uncanceled cleanup context. A create failure with no data directory needs no
+removal. Cleanup completes before process exit on all handled paths. A hard
+crash can leave resources; use the reported instance name and data base with
+`arizuko rm` before retrying. Removal never sweeps by name prefix.
+
+Only lifecycle setup invokes the operator CLI. Cases, driver and checkers use
+public HTTP, REST and MCP surfaces, with no daemon or storage imports and no
+instance-file reads. [lifecycle tests](cmd/anteval/lifecycle_test.go) cover
+existing-target refusal, unrelated-instance isolation, partial creation,
+report failure, signals and cleanup with fake commands.
+
+## Measured on a disposable instance
+
+The acceptance record uses daemon image v0.75.28, Codex with an explicit
+operator login, and CLI/anteval built from the source tree on 2026-11-25.
+The isolated store used PostgreSQL 17 and ExtendDB 0.1.13. Each listed run left
+no owned data directory, Compose project, services, guests, tap addresses,
+volumes, networks, systemd unit, or store account, keys and tables.
+
+| Path                                                        | Result                                              |
+| ----------------------------------------------------------- | --------------------------------------------------- |
+| Create failure before a data directory                      | Error; no removal needed.                           |
+| Partial startup, interrupted by SIGINT                      | Canceled; cleanup completed.                        |
+| Setup failure after account enrollment and healthy services | Error; cleanup completed.                           |
+| Case failure                                                | 0/1; exit 1.                                        |
+| `rest-roundtrip`                                            | 1/1; exit 0.                                        |
+| `--cases backends`                                          | 3/3; exit 0; harness documents written and cleared. |
+| Helpdesk product smoke                                      | 2/2; exit 0.                                        |
+| Smoke                                                       | 6/9; 43 minutes; exit 1.                            |
+| Full catalog                                                | 14/24; 112 minutes; exit 1.                         |
+| Egress dimension after case corrections                     | 3/3; exit 0.                                        |
+
+These runs used a host process to set newly staged `.codex`, `.claude/skills`
+and `.claude/hooks` directories to uid 1000. The image under test lacked the
+runed ownership fixes covered by `TestBuildMountsNewGroupHomeWritable` and
+`TestStageTargetsInsideAHomeBelongToTheRunUID`. This evidence does not certify
+a run without that assistance or establish a pass rate for the current image.
+
+### Capability acceptance limits
+
+The catalog record above does not certify the current case definitions.
+The delegated web-child registration, unknown-addressee rule and public-slot
+web-route cases have corrections covered by `routd/groups_github_test.go`,
+`tests/resident/resident_test.go` and `proxyd/anteval_web_route_test.go`.
+Those seven cases have no recorded rerun on a release image with the
+corrections. `world-create-refusal-honest` remains an agent failure: a denied
+world creation did not produce either required callback marker.
+
+The accepted rules without observable checks stay listed once in
+[BUGS L188](../BUGS.md). A static resident-file check establishes pointers and
+required text, not live compliance with those rules.
+
 ## Products use the same runner
 
 A product ships `eval/*.toml`. `--cases <dir>` loads each TOML file through the

@@ -386,6 +386,6 @@ Go does not infer a backend from a model name.
   `backend-c-codex` (document `{"backend":"codex","effort":"low"}`) answered
   `codex` in 43 s; routd's usage record of each turn carries the same harness.
   The run used the `.codex` ownership stand-in that
-  `specs/6/50-anteval-ephemeral-instance.md` §"Measured on a disposable instance"
+  `anteval/README.md` §"Measured on a disposable instance"
   describes. The suite holds no claude case (BUGS record `L951`).
   No anteval run reaches a live instance.

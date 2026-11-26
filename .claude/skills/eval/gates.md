@@ -6,7 +6,7 @@ Run this file after every deploy.
 
 **Every deploy runs gates 1-4, in order. Gate 5 runs `anteval` against a
 throwaway instance only, never against krons or another live instance
-(`specs/6/50-anteval-ephemeral-instance.md`), and only when the owner starts it
+(`anteval/README.md`), and only when the owner starts it
 by hand.** Gates 1-3 are free and catch everything mechanical; 4 is a
 minute; 5 is the only one that proves a live agent still works, and it is
 the only one that costs money (~$5).

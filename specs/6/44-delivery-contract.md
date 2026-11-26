@@ -1,6 +1,5 @@
 ---
 status: reference
-depends: [34-resident-prompt]
 ---
 
 # specs/6/44 — one delivery door, and the nudge that teaches it
@@ -225,7 +224,7 @@ prices.
 ## What this subtracts from `ant/CLAUDE.md`
 
 The file is 198 lines / 16,482 bytes / 22 top-level sections (measured
-2026-09-20). `6/34` already classified every section and set the rule: a
+2026-09-20). The residency contract in `ant/README.md` sets the rule: a
 section stays resident only if breaking it fails silently, **and it leaves when
 a mechanism makes the failure loud**. This is that mechanism, for the delivery
 subset only.
@@ -240,7 +239,7 @@ subset only.
 
 **18 lines, 1,918 bytes — 9.1 % of the lines, 11.6 % of the bytes.** That is
 the whole shrink this mechanism earns, and it is not the bulk of the file. The
-honest reason is that `6/34` already did the bulk (the file went 388 → 198
+honest reason is that the residency carve-out did the bulk (the file went 388 → 198
 lines), and what
 survived is resident under its rules 1, 3 and 4 — the envelope, the map, and
 sections a skill names as its source. A nudge cannot replace any of those: they
@@ -251,12 +250,12 @@ Sections that stay, and why the nudge does not take them:
 - **Response Style** (21 lines / 2,322 B, the largest section) stays. No state
   detects a register breach, and length belongs to `ant/skills/self/messages.md`.
   Firing on delivered text would nudge after the user has read it.
-- **Task discipline**'s `AskUserQuestion` rule stays. `6/34` already assigned it
+- **Task discipline**'s `AskUserQuestion` rule stays. The residency contract requires
   a different mechanism — a `PreToolUse` deny — and that one stops the call
   instead of catching its aftermath. Two mechanisms for one concern is drift;
   the deny wins.
 - **Reactions**' floor rule stays. A reaction is a delivery tool call and does
-  satisfy the contract, but `6/34` guard 1 blocks the move: no `anteval` case
+  satisfy the contract, but `ant/README.md` §"Residency guards" blocks the move: no `anteval` case
   exercises it.
 - **When blocked**'s "never answer I don't know without `/recall-memories`" is
   the next plausible state detector (no memory tool called, a not-found answer
@@ -265,7 +264,7 @@ Sections that stay, and why the nudge does not take them:
 
 ### The conformance case this ships
 
-`6/34` guard 1: a section leaves residency only when an `anteval` case exercises
+`ant/README.md` §"Residency guards": a section leaves residency only when an `anteval` case exercises
 the behaviour. `anteval/cases/anteval.toml` covers the owed answer
 (`rest-roundtrip`) and the public-URL rule (`link-is-public-url`). It has **no
 case for the L329 shape**. This change adds one: a message in a chat the folder
@@ -346,7 +345,7 @@ the experiment.
   `ant/src/spool.ts:19` `STEER_SPOOL`.
 - `obs/metrics.go:135` `RecordSilentTurn`; `routd/dispatch.go:583` its one call
   site, `:745` `silentTurnNotice`.
-- [`34-resident-prompt.md`](34-resident-prompt.md) — the residency rule and the
+- [ant residency contract](../../ant/README.md#the-resident-file) — the residency rule and the
   three guards this change must satisfy.
 - `ipc/README.md` § submit_turn ends the turn — the contract the nudge enters
   through.

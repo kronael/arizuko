@@ -116,6 +116,12 @@ So a section stays resident only when one of four tests holds:
 3. it is a pointer whose trigger is not a phrase a user says;
 4. a workflow skill reads it from there.
 
+A silent failure earns residency until a mechanism reports it to the agent.
+A visible error points to the on-demand explanation. A pointer for an envelope
+tag, mount state or error code names its owner in one row; it carries no copy
+of the content. A workflow's override stays at the file the workflow reads:
+a project skill with the same name as a global skill can be shadowed.
+
 Anything else is a skill body, a tool description or the
 doc that owns it. A commit that adds a section names the test it passes.
 The sections that stay are the ones that fail with no error and no user
@@ -130,6 +136,26 @@ floor, the map of `/self`, the memory stores and storage, and rigor.
 names does not exist, because a dangling pointer routes the agent to
 nothing and no other check notices. `TestAgentFileCarriesTheCarveOut` fails
 when one of the carve-out strings leaves the file.
+
+### Residency guards
+
+A behavior rule moves out of the resident file only with an anteval case that
+exercises the behavior. [BUGS L188](../BUGS.md) owns the accepted unmeasured
+rules and the operator mount procedure outside anteval's scope. Static
+pointer checks prove discoverability, not that a model reads the pointer.
+The answer rule for an unknown `@name` stays in `ant/CLAUDE.md`, under
+When to respond; `self/chat-routing.md` points there.
+
+The maintainer's root `CLAUDE.md` has no model conformance harness. Its
+invariant sentences stay resident; explanations belong to owning docs.
+`TestMaintainerFilePointersResolve` checks its targets, and
+`TestMaintainerFileCarriesTheSkillReadSections` preserves the sections that
+refine and release skills read as project overrides.
+
+Prompt caching discounts a stable prefix but does not prove attention to its
+rules. Token savings require gateway cache-read usage measurements;
+[anteval acceptance](../anteval/README.md#measured-on-a-disposable-instance)
+records capability evidence and its limits.
 
 ## The system prompt
 

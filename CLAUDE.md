@@ -305,7 +305,7 @@ agent` fail without it).
   instances only on explicit user request.
 - **`anteval` never runs against a live instance.** It runs against a
   throwaway instance it creates and removes
-  (`specs/6/50-anteval-ephemeral-instance.md`), and only when the owner starts
+  (`anteval/README.md`), and only when the owner starts
   it by hand. Gates 1-4 (build, ship, schema, census) pass on a
   fleet whose agents answer nothing — BUGS `L149` shipped green through all of
   them. Procedure: `.claude/skills/eval/gates.md`.

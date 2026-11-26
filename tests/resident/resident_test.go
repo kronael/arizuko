@@ -1,5 +1,5 @@
-// Package resident checks the two always-loaded files against the rule of
-// specs/6/34: what left `ant/CLAUDE.md` and root `CLAUDE.md` lives behind a
+// Package resident checks the two always-loaded files against the rule in
+// ant/README.md: what left `ant/CLAUDE.md` and root `CLAUDE.md` lives behind a
 // pointer, so a pointer that does not resolve routes the reader to nothing —
 // and nothing else in the repo would notice. The agent file is seeded into
 // every group and rendered into every codex and pi system prompt; a stale
@@ -78,7 +78,7 @@ func TestAgentFilePointersResolve(t *testing.T) {
 	}
 }
 
-// TestAgentFileCarriesTheCarveOut: the sections spec 6/34 argues cannot leave
+// TestAgentFileCarriesTheCarveOut: the sections ant/README.md says cannot leave
 // residency — the reader must obey them before it can know to ask. A section
 // dropped by a trim is invisible at runtime; here it fails the build.
 func TestAgentFileCarriesTheCarveOut(t *testing.T) {
@@ -134,7 +134,7 @@ func TestMaintainerFilePointersResolve(t *testing.T) {
 // CLAUDE.md are the project half of a global skill — `~/.claude/skills/refine`
 // reads the live project file for its lenses, and `~/.claude/skills/release`
 // reads it for the steps and the broadcast shape that override its defaults
-// (`6/34` rule 4). A project skill cannot hold them: a project skill whose name
+// (ant/README.md, residency rule 4). A project skill cannot hold them: a project skill whose name
 // matches a global one is shadowed by it, so the copy would reach no reader.
 func TestMaintainerFileCarriesTheSkillReadSections(t *testing.T) {
 	body := read(t, "CLAUDE.md")

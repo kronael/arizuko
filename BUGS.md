@@ -39,7 +39,7 @@ need one approved contract.
 `anteval/backends/backends.toml` holds a case for the instance default, for pi
 and for codex, and none for claude. A disposable run must not copy the
 credential of an instance
-(`specs/6/50-anteval-ephemeral-instance.md` §"One release, one isolated instance"),
+(`anteval/README.md` §"One release, one isolated instance"),
 and no Claude account exists that no live instance uses, so a claude case can
 only fail. The owner decided on 2026-11-26 to leave it out.
 **Measured:** on 2026-11-25 the default, pi and codex cases passed on one
@@ -7464,8 +7464,7 @@ Measured in the krons store before and after:
   by `eval`: 28 webhook and chat-link tokens with no expiry, 190 topic
   sessions, 97 chat rows, 21 case-built skills, 83 published files, one
   `/priv` web route, the folder egress `*` rule, and 48 docker networks that
-  no code creates any more. `specs/6/50-anteval-ephemeral-instance.md`
-  §"Problem" holds the table.
+  no code creates any more.
 - **Why this entry sat for two months:** its heading said "proposal", and
   `tests/bugsindex/index_test.go:39` reads only `open`, `PROPOSED` and
   `needs sign-off` as open, so it was never in "What needs you". The heading
@@ -7473,18 +7472,16 @@ Measured in the krons store before and after:
 
 **The owner's ruling (2026-10-21) replaces the delete proposal above:**
 anteval does not touch a live instance; it makes its own and removes it.
-`specs/6/50-anteval-ephemeral-instance.md` (`draft`) chooses the shape — a
-disposable instance made by `arizuko create`/`generate`/`compose up`, with
-its own store, gateway and vsock window — and costs the two shapes it
-rejects. A teardown of what anteval makes on krons is no longer the fix.
+`anteval/README.md` §"One release, one isolated instance" owns the lifecycle
+and its isolation boundaries. A teardown of what anteval makes on krons is no longer the fix.
 
 - **Severity:** high — every release pays one guest turn per leaked child,
   and the eval measures the queue those turns make.
 - **Scope:** `anteval/pkg/run`, `anteval/cmd/anteval`,
   `.claude/skills/eval/gates.md`, `anteval/README.md`
   (§ "Run" states the lifecycle the driver has: it creates its instance and removes it).
-- **Status:** open — the disposable lifecycle of `specs/6/50-anteval-ephemeral-instance.md`
-  is implemented and measured: §"Measured on a disposable instance" of that spec holds the
+- **Status:** open — the disposable lifecycle in `anteval/README.md`
+  is implemented and measured: §"Measured on a disposable instance" holds the
   runs of 2026-11-25, each of which left nothing. Still open, an operator action on live
   data, on sloth only. Read on 2026-11-26 with `arizuko get` and `ls`: sloth holds the group
   `eval` with nine `eval/<run>-*` children, 20 route tokens and one network rule of those
@@ -10000,7 +9997,7 @@ routd's `/v1` first — it is the precondition for both S1 and S11.
     directly — with the `L152` import edge as the accepted pattern, not an
     accident.
 
-## 📋 RECORD L188 — sections that left `ant/CLAUDE.md` under 6/34 with no anteval case behind them (2026-09-05, accepted as unmeasured 2026-11-15)
+## 📋 RECORD L188 — sections that left `ant/CLAUDE.md` under the residency rule with no anteval case behind them (2026-09-05, accepted as unmeasured 2026-11-15)
 
 The remaining rules lack conformance coverage under the current anteval contract.
 
@@ -10034,12 +10031,12 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Severity:** low (measurement gap, no observed regression)
 - **Scope:** anteval cases
 - **Affected:** every backend, every group
-- **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: partial`); the move
+- **Source:** `ant/README.md` §"Residency guards"; the move
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
 - **Status:** record — the owner accepts the 17 rules without an anteval check kind as
   unmeasured (2026-11-15) and rules the mount-procedure row out of anteval scope. The full
   case catalog ran through the disposable lifecycle on 2026-11-25
-  (`specs/6/34-resident-prompt.md` §"The catalog on a disposable instance"). The one
+  (`anteval/README.md` §"Measured on a disposable instance"). The one
   row with a case is `@<unknown>` prefix: its answer rule is resident in `ant/CLAUDE.md`
   § When to respond, and `unknown-addressee` measures that text.
 
