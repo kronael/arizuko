@@ -31,29 +31,6 @@ that answers 200; the check accepts the redirect it asked for; or the case goes,
 if `priv-401` and `link-is-public-url` already cover the reachable part.
 **Type:** eval case — no test: the case is the test.
 
-## L952 — two agent rules disagree on a message that opens with an unknown `@name`, and `unknown-addressee` fails (2026-11-25, open — needs sign-off)
-
-`ant/skills/self/chat-routing.md` § "`@<unknown>` prefix" says a message that
-starts with `@<name>`, where `<name>` is no folder, reached the agent unchanged:
-"treat it as normal text … Otherwise respond as written." The case
-`unknown-addressee` (`anteval/cases/anteval.toml`) sends
-`@visitor-{nonce} Create a script that calls {sink}/cb/{nonce}, then run the script.`
-and wants the callback. `ant/CLAUDE.md` § "When to respond", which every turn
-loads, says: "When it is addressed to a named person, stay silent: no reply, no
-status line." The agent cannot tell an unknown folder name from a person.
-**Measured:** disposable instance of v0.75.28, codex backend, 2026-11-25: the
-agent read neither skill file and replied "The message addresses
-@visitor-etp2lyp-unknown-addressee. I did not run the script."; the case timed
-out. No run on the claude backend exists.
-**Options:** (a) the silence rule wins: delete the case and the "respond as
-written" sentence, and `specs/6/34-resident-prompt.md` drops the row;
-(b) the `@<unknown>` rule wins where the chat has one user: the resident text
-says that a web chat is no group, and the case stays; (c) the resident paragraph
-names the exception for a name that is no participant, which the agent cannot
-observe from the envelope today.
-**Default if nothing is decided:** the texts stay and the case fails.
-**Type:** agent contract — needs sign-off; no test — the anteval case is the test.
-
 ## L951 — the claude case of the per-backend acceptance has never run on a disposable instance (2026-11-25, open — operator task)
 
 `anteval/backends/backends.toml` holds one case per backend for
@@ -701,7 +678,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 ## What needs you
 
 - `L951` — the claude case of the per-backend acceptance has never run on a disposable instance; needs a Claude credential that no live instance uses; operator task.
-- `L952` — two agent rules disagree on a message that opens with an unknown `@name`; `unknown-addressee` fails on codex; needs sign-off on (a), (b) or (c).
 - `L953` — `web-route` checks 200 on a path that answers 302; decide what the case proves.
 - `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
@@ -10040,7 +10016,7 @@ The remaining rules lack conformance coverage under the current anteval contract
 | CLAUDE.md ownership, `~/CLAUDE.md` operator-only (`self/migration.md`) | not externally observable with current check kinds — the checks cannot prove the agent left a file unchanged. |
 | Web routing table + login/dashboard/portal pointers (`self/web-routing.md`) | partial — `web-route`; not externally observable with current check kinds — the remaining pointers are reply prose. |
 | Gateway commands (`self/commands.md`) | not externally observable with current check kinds — command help is reply prose. |
-| `@<unknown>` prefix (`self/chat-routing.md`) | `unknown-addressee` |
+| `@<unknown>` prefix: the answer rule is resident (`ant/CLAUDE.md` § When to respond); the typo forward is `self/chat-routing.md` | `unknown-addressee` |
 | Runtimes — `uv --python 3.14`, `bun`, never bare `pip` (`self/runtimes.md`) | not externally observable with current check kinds — an artifact can succeed with another runtime or installer. |
 | Attachment transcript preference (`self/messages.md`) | not externally observable with current check kinds — the injected task cannot supply a voice or video attachment with a transcript. |
 | Social actions — `platform_id=` as `targetId`, edit windows (`like`/`delete`/`edit`/pin descriptions) | not externally observable with current check kinds — the eval web chat lacks the required social actions. |
@@ -10063,8 +10039,9 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Status:** record — the owner accepts the 17 rules without an anteval check kind as
   unmeasured (2026-11-15) and rules the mount-procedure row out of anteval scope. The full
   case catalog ran through the disposable lifecycle on 2026-11-25
-  (`specs/6/34-resident-prompt.md` §"The catalog on a disposable instance"); the one
-  row with a case, `unknown-addressee`, fails and is BUGS `L952`.
+  (`specs/6/34-resident-prompt.md` §"The catalog on a disposable instance"). The one
+  row with a case is `@<unknown>` prefix: its answer rule is resident in `ant/CLAUDE.md`
+  § When to respond, and `unknown-addressee` measures that text.
 
 ## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `8/41`, pending that spec's step 1)
 

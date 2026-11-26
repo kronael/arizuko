@@ -151,3 +151,33 @@ func TestMaintainerFileCarriesTheSkillReadSections(t *testing.T) {
 		}
 	}
 }
+
+// TestUnknownAddresseeHasOneRule: the manual owns when an agent answers a
+// message that opens with an `@name`, and the routing reference points there.
+// A second answer rule in the reference tells the agent the opposite of the
+// manual, and the agent then declines a request that is for it.
+func TestUnknownAddresseeHasOneRule(t *testing.T) {
+	manual := read(t, "ant/CLAUDE.md")
+	for _, must := range []string{
+		"addressed to another person you know",
+		"An `@name` you do not know names no such person: answer that message as written.",
+	} {
+		if !strings.Contains(manual, must) {
+			t.Errorf("ant/CLAUDE.md does not carry %q", must)
+		}
+	}
+	reference := read(t, "ant/skills/self/chat-routing.md")
+	_, section, ok := strings.Cut(reference, "## `@<unknown>` prefix")
+	if !ok {
+		t.Fatal("ant/skills/self/chat-routing.md has no `@<unknown>` prefix section")
+	}
+	section, _, _ = strings.Cut(section, "\n## ")
+	if !strings.Contains(section, "§ When to respond") {
+		t.Error("the `@<unknown>` prefix section does not point at the manual's When to respond")
+	}
+	for _, second := range []string{"respond as written", "normal text"} {
+		if strings.Contains(section, second) {
+			t.Errorf("the `@<unknown>` prefix section states its own answer rule: %q", second)
+		}
+	}
+}

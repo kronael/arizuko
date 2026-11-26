@@ -23,6 +23,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `gh:write`) needs a row that names it. `admin`, `mcp:*` and `*` confer none:
   a folder that held `admin` or `mcp:*` on itself ran with a read-only share,
   and a folder that held `*` got egress, the web surface and GitHub writes.
+- The agent manual holds one rule for a message that opens with an `@name`:
+  the agent answers it unless the name is another person it knows. The routing
+  reference pointed the other way and now points at that rule.
 
 ## [v0.75.30] — 2026-11-26
 
