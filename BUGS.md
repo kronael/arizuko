@@ -870,7 +870,7 @@ reads those words now.
   subcommand: delete it or port it.
 **Found by the anteval-leak investigation (2026-10-21).**
 - `L72` — the disposable anteval lifecycle is built and measured; the operator
-  cleanup of the eval leftovers on krons and sloth remains.
+  cleanup of the eval leftovers on sloth remains (ten groups, 20 tokens).
 **Found by the memory and cleanup pass (2026-10-21).**
 - `L513` — may runed's start check sum the guest budget of every instance on
   the host? Today each instance passes alone; krons and sloth together cap 8 GB
@@ -7467,13 +7467,15 @@ rejects. A teardown of what anteval makes on krons is no longer the fix.
   and the eval measures the queue those turns make.
 - **Scope:** `anteval/pkg/run`, `anteval/cmd/anteval`,
   `.claude/skills/eval/gates.md`, `specs/5/9-agent-capability-eval.md`
-  (now `defected` on this entry: § "Approach" claims a teardown).
+  (§ "Approach" states the lifecycle the driver has: it creates its instance and removes it).
 - **Status:** open — the disposable lifecycle of `specs/6/50-anteval-ephemeral-instance.md`
   is implemented and measured: §"Measured on a disposable instance" of that spec holds the
   runs of 2026-11-25, each of which left nothing. Still open, an operator action on live
-  data: the leftovers on krons listed above (28 tokens, 48 networks, case-built skills and
-  files), unverified since, and on sloth the group `eval` with nine `eval/<run>-*` children
-  (`arizuko get -i sloth groups`, 2026-11-25). No test — ops.
+  data, on sloth only. Read on 2026-11-26 with `arizuko get` and `ls`: sloth holds the group
+  `eval` with nine `eval/<run>-*` children, 20 route tokens and one network rule of those
+  folders, `groups/eval` and `web/pub/eval`; krons holds no `eval` group, token, web route,
+  network rule or directory, and the host has no `eval` docker network. The cleanup is
+  `arizuko group -i sloth rm <folder>` for each of the ten folders. No test — ops.
 
 ## ✅ FIXED 2026-10-08 L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25)
 

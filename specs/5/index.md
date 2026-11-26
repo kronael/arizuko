@@ -41,7 +41,7 @@ surfaces, identity, and tenancy. The directory `../9/` closes and minimizes:
 
 | Spec | Status | Hook |
 | -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| [9-agent-capability-eval.md](9-agent-capability-eval.md) | defected | `anteval` — a black-box capability gate driving real tasks through the public surfaces. **DEFECTED `L72`**: § "Approach" says teardown is best-effort, and the driver has no teardown; facts in `anteval/README.md`, `howto/build-a-product.html` |
+| [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability prober driving real tasks through the public surfaces of an instance it creates and removes; facts in `anteval/README.md`, `howto/build-a-product.html` |
 
 ## Tenancy, onboarding, credentials
 

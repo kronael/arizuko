@@ -1,9 +1,5 @@
 ---
-status: defected
-# defects: an OPEN BUGS entry contradicts this spec —
-# §"Approach" says teardown is best-effort; the driver has none, and every
-# run leaves its child groups on the live instance
-defects: [L72]
+status: shipped
 ---
 
 # 5/9 — agent-capability eval (`anteval`)
@@ -20,22 +16,21 @@ green, tests pass, and the gap surfaces only when a user hits it.
 Nothing else measures agent _capability_. The `eval` skill checks daemon
 **operational health**; `create-eval` generates a project's test-criteria
 **skill**; `make test-e2e` drives **one** round through webd in-tree. None
-answers: _given a real task, does the live agent know how to do it?_
+answers: _given a real task, does a running agent know how to do it?_
 
 ## Approach
 
 `anteval` is a **black-box capability prober**: inject a real task through
-a public surface, let the live agent perform it with its own MCP tools,
+a public surface, let a running agent perform it with its own MCP tools,
 then assert the **externally observable effect** — never the agent's
 prose, never the instance's internal state.
 
 - **Public surfaces only.** routd REST, proxyd HTTP (`/pub` `/priv`
   `/chat` `/hook`), the MCP face, and a harness-owned callback sink. If a
   capability can't be proven through a public surface, that is a _surface
-  gap to fix_, not a licence to read internals. Zero
-  `github.com/kronael/arizuko/*` imports (11/A) — `anteval` could eval a
-  different platform behind a thin adapter. Reading the data dir is a
-  `--debug` aid and **never gates a case**.
+  gap to fix_, not a licence to read internals. The cases, checkers and
+  driver import no daemon and no store package; `expand`, the template
+  expander, is the one package they take from the tree.
 - **Callback sink, not prose.** The driver serves `POST /cb/{nonce}`; a
   case tells the agent to wire its artifact to hit `{sink}/cb/{nonce}`.
   Grading an HTTP hit carrying a unique token is deterministic; grading
@@ -43,10 +38,15 @@ prose, never the instance's internal state.
 - **One case, one capability, one checker** — no workflow decomposition,
   no duplicate transport paths (a codex review 2026-06-07 collapsed an
   earlier matrix that had both).
+- **The run owns its instance.** `anteval run` creates a fresh instance
+  with the `arizuko` CLI, runs the cases against it and removes it; an
+  existing instance is refused, and a failed removal fails the run
+  (`specs/6/50-anteval-ephemeral-instance.md`). It never runs against a
+  live instance: its cases register groups, mint tokens and publish pages,
+  and on a live instance nothing removed them (BUGS `L72`).
 - **Run-nonce idempotence.** Every run mints a nonce embedded in every
   folder, URL, body, child id, and token the cases create; checkers match
-  only that nonce, so concurrent and repeated runs never collide. Teardown
-  is best-effort, not correctness-critical.
+  only that nonce, so the cases of one run never collide.
 - **Cost is a budget, not a readout.** Each case declares `max_wall_ms`
   and `max_tokens` (overspend fails the case, read from routd cost via
   REST). Turn counts aren't exposed black-box, so there is no `max_turns`.
@@ -59,29 +59,28 @@ prose, never the instance's internal state.
   fail). The LLM reasons; the sink judges; the harness stays dumb.
 
 **WHY a shipped component, not a `go test`:** capability must be checkable
-against a **live deployed** instance — release gate, post-migrate smoke,
-regression watch — not only in the build.
+on a running instance of a release, with real daemons, a real guest and a
+real model, and a `go test` builds none of them. The owner starts a run by
+hand; `anteval/README.md` § Run holds the command and what the env file
+supplies.
 
 ## Cases
 
-Data, not spec: the case registry is `anteval/cases/anteval.toml`
-(22 cases as of 2026-08-21, reduced from 35 — a passing case costs ~50s
-live but a failing one burns its full wall cap, so the catalog's cost is
-failure-dominated and same-effect/same-path duplicates,
-want=404 shapes a total failure also satisfies, and cases whose success
-arm is unreachable on the documented web:eval chat were deleted, each
-with an in-place note; `smoke = true` tags the 9-case release-gate
-basis). Do not mirror the case list here — it drifts the moment a case
-lands.
+Data, not spec: the case registry is `anteval/cases/anteval.toml`. A
+passing case costs about 50 s and a failing one burns its full wall cap, so
+the catalog's cost is failure-dominated; same-effect and same-path
+duplicates, want=404 shapes a total failure also satisfies, and cases whose
+success arm is unreachable on the eval chat were deleted, each with a note
+in place. `smoke = true` tags the shorter suite. Do not mirror the case
+list or its count here — it drifts the moment a case lands.
 
 Ten dimensions: self-modification · subagents + privileges · web
 publishing · online chat apps · reach via REST + MCP · composites ·
 routing · egress · the backend contract floor · continuity
-(added 2026-08-20: the group diary,
-read on demand, must carry a fact to a transcript-less isolated turn — the
-portability claim; what stays live-unmeasured and why is in
+(the group diary, read on demand, must carry a fact to a transcript-less
+isolated turn — the portability claim; what stays unmeasured and why is in
 `anteval/README.md` §"Continuity coverage"), plus a
-**fabricate-vs-surface** family added 2026-07-12
+**fabricate-vs-surface** family
 (evidence-ranked from ~50 candidates mined from cross-project memory, live
 `journalctl`, and doc anti-patterns) where the agent gives a confident
 wrong answer instead of surfacing a real failure.
@@ -98,38 +97,39 @@ Scoring is **binary per case** (effect present or absent), aggregated to
 pass-rate per dimension. Partial credit is additive and out of scope for
 the gate.
 
-### A product carries its own cases (2026-08-15)
+### A product carries its own cases
 
-The harness already takes `--cases <dir>` and `spec.Load` reads every
-`*.toml` under it, so **a product ships `eval/*.toml` and the same harness
-runs it** — no second runner, no per-product mode. The convention is the
-whole mechanism:
+The harness takes `--cases <dir>` and `spec.Load` reads every `*.toml`
+under it, so **a product ships `eval/*.toml` and the same harness runs
+it** — no second runner, no per-product mode:
 
-- the payload falls to the blend's catch-all, so `products apply` copies
-  it into the group home verbatim;
-- `anteval validate --cases <data-dir>/groups/<folder>/eval` checks schema
+- `anteval validate --cases <checkout>/packages/<name>/eval` checks schema
   and templates for free;
-- `anteval run <target> --cases <data-dir>/groups/<folder>/eval` runs it
-  against the live agent, and costs model credits like any other run.
+- `anteval run --product <checkout>/packages/<name> --cases
+<checkout>/packages/<name>/eval` installs the product for the eval group
+  of the instance the run creates and runs the suite; it costs model
+  credits like any other run.
 
-**What a product case asserts is different in kind from the 35 above.**
-Those certify the PLATFORM's capability — can an agent modify itself,
-publish, reach REST. A product's case certifies that ITS persona, rules
-and facts produce the behaviour its page promises: `rest_reply` with the
-string the answer must contain is the usual shape. An agent that replies
-politely and offers the refund has regressed even though every daemon is
-healthy and all 35 platform cases pass.
+**What a product case asserts is different in kind from the platform
+catalog.** The catalog certifies the PLATFORM's capability — can an agent
+modify itself, publish, reach REST. A product's case certifies that ITS
+persona, rules and facts produce the behaviour its page promises:
+`rest_reply` with the string the answer must contain is the usual shape.
+An agent that replies politely and offers the refund has regressed even
+though every daemon is healthy and every platform case passes.
 
 Reference product: `packages/helpdesk/eval/helpdesk.toml` (4 cases).
-One of them — the triage skill being loaded — doubles as the live check
-for `L37`, which is the intended pattern: a platform bug becomes visible
-as a product behaviour failure rather than a file-placement detail.
+One of them — the triage skill being loaded — doubles as the check that a
+product's skill reaches the agent, which is the intended pattern: a platform
+bug becomes visible as a product behaviour failure rather than a
+file-placement detail.
 
-Authoring guide (canonical for operators):
-`template/web/pub/arizuko/howto/build-a-product.html` §"Ship tests with
-it". Do not restate the case schema anywhere else — it drifts.
+Authoring guide for operators:
+`template/web/pub/arizuko/howto/build-a-product.html` §"Ship tests with the workspace".
+The case schema is `anteval/README.md` §"How a case proves itself"; do not
+restate it anywhere else — it drifts.
 
-## What the first live run proved (krons, 2026-07-11, $4.78 / 23 turns)
+## What the first run proved (krons, 2026-07-11, $4.78 / 23 turns)
 
 7/8 of the then-`--smoke` basis passed. The 8th, `webhook-in`, FAILED —
 **and that is the eval doing its job**: it caught a real krons bug, not an
@@ -137,62 +137,30 @@ agent-capability gap. The `/hook/` proxyd route was never seeded on the
 instance (seeded-once drift) and live proxyd doesn't hot-reload the route
 table, so `ROUTING.md` webhooks were dead there. A green health check missed it;
 the capability prober did not. That single result is the spec's
-justification.
+justification. The run was on a live instance, which the driver then
+allowed. The runs on an instance the driver creates are in
+`specs/6/50-anteval-ephemeral-instance.md` §"Measured on a disposable instance".
 
-Surface gaps the run exposed, kept honest rather than silent: with
-`--mcp` unset, every parity check fails loudly ("surface not
-configured") rather than passing on an unread surface. Configuring it is
-anteval-side work — the platform's half is served. `HTTPTarget.McpMessages`
-GETs a REST-shaped `/v1/messages/inspect`, so it can only be pointed at a
-REST URL, while webd's MCP face answers `get_history` over streamable HTTP
-on both `POST /mcp` and `POST /chat/{token}/mcp`.
+## One chat worker, in sequence
 
-## Live-run preconditions (learned the hard way)
-
-- **Token**: `arizuko token -i <inst> issue bearer <folder> --scope
-messages:write,messages:read` (add `cost:read` for budgets). Pass
-  `--ttl 6h`: the default is one hour, and a full suite outlives it, so
-  every remaining case 401s and the run reads as a total capability
-  failure.
-- **API base**: `--api http://localhost:<routd-port>`. The public host
-  serves no `/v1`, so pointing at it 404s every injected message.
-- **Eval folder**: `arizuko group -i <inst> add web:<folder> <folder>` —
-  never a manual `mkdir`; `--chat web:<folder>` then routes 1:1. Creating
-  it seeds five `/compact-memories` tasks that fire at once (BUGS `L312`),
-  and each of those turns persists a root session, so the first run after
-  the folder is created aborts on the baseline unless it drains first.
-- **Subagent cases need a child that exists**: nothing auto-creates a
-  group. Create the child with `register_group` (the eval folder must hold
-  `mcp:register_group`) before a child-delegate case can pass.
-- **Sink reachability**: bind `--sink-addr :PORT` on the eval host and
-  pass the target's docker-gateway IP as `--sink http://<gateway-ip>:PORT`
-  — reachable from containers even on internal networks. That gateway is
-  the agent's OWN per-folder network (`docker network inspect
-<inst>_<folder>`, e.g. `10.99.15.1`), never `docker0`'s `172.17.0.1`:
-  a container on a user-defined network cannot reach the default bridge,
-  so every callback case times out with an empty artifact URL and reads
-  as an agent failure. crackbox
-  name-matching skips IP entries, so a name-based allowlist rule cannot
-  cover it (a folder `*` rule can). The eval host must sit on the target
-  folder's egress allowlist, or a default-deny refusal reads as a
-  capability failure.
-- **Sequential cases share one chat worker**: a case that blows its wall
-  budget leaves the agent mid-task and the backlog bleeds into the next
-  case's window (routd serializes turns per chat). Per-case latencies are
-  honest only when the prior turn finished; `--case` re-runs isolate
-  cleanly.
+routd serializes turns per chat and every case shares the eval chat. A
+case that blows its wall budget leaves the agent mid-task and the backlog
+bleeds into the next case's window, so the driver waits for the model
+gateway to meter a turn before it injects the next case, and
+per-case latencies are honest only when the prior turn finished.
+`--case` reruns one case alone.
 
 ## Session isolation
 
 Each case injects into its own fresh topic, so each case gets its own
-Claude session — sharing the chat's default topic made case 1's refusal
-the context of cases 2–8 on the 2026-08-08 live run.
+session — sharing the chat's default topic made case 1's refusal
+the context of cases 2–8 on the 2026-08-08 run.
 
 Per-case topics alone stopped being isolation the day topic forking was
-repaired (BUGS L54): the first turn of any non-main topic forks the
-folder's MAIN session (`ROUTING.md`), so a root session — prior runs, operator
-chat — sits in front of every case. The driver therefore establishes a
-pristine baseline itself, before EVERY case (`--folder` names the root):
+repaired: the first turn of any non-main topic forks the
+folder's MAIN session (`ROUTING.md`), so a root session sits in front of
+every case. The driver therefore establishes a
+pristine baseline itself, before EVERY case:
 
 1. Read `GET /v1/topic_sessions?folder=<folder>&topic=`. Empty → inject
    the case.
@@ -216,14 +184,14 @@ the platform as shipped; the harness owns its baseline.
 
 ## Component shape
 
-`anteval/` is a sibling component (11/A), structured like `crackbox/`:
+`anteval/` is a sibling component:
 `cmd/anteval` (`run` | `validate` | `dash`), `pkg/spec` (TOML schema),
 `pkg/check` (the closed vocabulary), `pkg/run` (driver + sink),
-`pkg/report` (JSON + markdown), `cases/`, and a standalone
-Dockerfile/Makefile. Cases are data, checkers are a small fixed
-vocabulary, driver and report are thin. The dashboard is a subcommand over
-report artifacts — split a daemon out only if a hosted always-on watch is
-needed.
+`pkg/report` (JSON + markdown), `cases/`, `backends/` (the per-backend
+suite), and a standalone Dockerfile/Makefile. Cases are data, checkers are
+a small fixed vocabulary, driver and report are thin. The dashboard is a
+subcommand over report artifacts — split a daemon out only if a hosted
+always-on watch is needed.
 
 ## Neighbors
 
