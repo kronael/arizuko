@@ -119,9 +119,9 @@ So a section stays resident only when one of four tests holds:
 Anything else is a skill body, a tool description or the
 doc that owns it. A commit that adds a section names the test it passes.
 The sections that stay are the ones that fail with no error and no user
-phrase to load a skill: the envelope tags, the delivery contract (only the
-final text block leaves, a `<status>` owes an answer, a think-only turn is
-silence, a mention must produce visible output), authority (a folder
+phrase to load a skill: the envelope tags, the delivery contract (answers use
+delivery tools, printed prose stays private, a `<status>` reports progress and
+owes an answer, a mention must produce visible output), authority (a folder
 isolates and confers nothing; the tool list is the grant set), the register
 floor, the map of `/self`, the memory stores and storage, and rigor.
 

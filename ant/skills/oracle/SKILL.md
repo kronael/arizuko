@@ -3,8 +3,8 @@ name: oracle
 description: >
   Run `codex` CLI as subprocess for a one-shot second opinion from a
   different model. USE for "ask the oracle", "second opinion", "/oracle",
-  tricky algorithms, unfamiliar libraries, self-disagreement after a
-  `<think>` round, before non-obvious implementations. NOT for routine
+  tricky algorithms, unfamiliar libraries, self-disagreement after
+  private reasoning, before non-obvious implementations. NOT for routine
   uncertainty (use recall-memories + find first — faster, no external
   call).
 user-invocable: true
@@ -69,8 +69,6 @@ like `tokens used: 4321 ($0.11)` or a `total_cost_usd` field in
   codex output.
 - Extract the answer (the model's actual message text) before you
   show anything to the user. Drop the trailing cost block.
-- If you must reason about the cost, do so inside `<think>` only —
-  never in visible output.
 
 Keep the cost number out of visible output entirely. There is nowhere
 to record it: the model gateway meters what passes through it, and a
