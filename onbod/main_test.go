@@ -2115,6 +2115,19 @@ func TestJIDRoutesMatchesLiteralRoom(t *testing.T) {
 	}
 }
 
+// A registration by an agent names the platform before the room. The page
+// reads that rule as a route of the chat, and not one of another platform.
+func TestJIDRoutesReadsRegistrationRoute(t *testing.T) {
+	routes := []core.Route{
+		{Match: "platform=web room=foo_bar", Target: "a"},
+		{Match: "platform=telegram room=foo_bar", Target: "b"},
+	}
+	got := jidRoutes(routes, "web:foo_bar")
+	if len(got) != 1 || got[0].Target != "a" {
+		t.Fatalf("routes = %+v, want only %+v", got, routes[0])
+	}
+}
+
 func TestDashboardShowsPickerForExistingUserWithSubgroupInvite(t *testing.T) {
 	db := testDB(t)
 	seedProfile(t, db, "github:bob")

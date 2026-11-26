@@ -823,11 +823,12 @@ func adminFolders(db *store.Store, userSub string) []string {
 }
 
 func jidRoutes(routes []core.Route, jid string) []core.Route {
-	room := core.JidRoom(jid)
-	exact := "room=" + room
+	room := "room=" + core.JidRoom(jid)
+	platform := "platform=" + core.JidPlatform(jid) + " "
 	var out []core.Route
 	for _, r := range routes {
-		if r.Match == exact || strings.HasPrefix(r.Match, exact+" ") {
+		match := strings.TrimPrefix(r.Match, platform)
+		if match == room || strings.HasPrefix(match, room+" ") {
 			out = append(out, r)
 		}
 	}

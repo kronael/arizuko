@@ -142,7 +142,7 @@ func TestGroupsMCP_RegisterCreatesChild(t *testing.T) {
 	routes, _ := db.Routes()
 	var found bool
 	for _, r := range routes {
-		if r.Match == "room=900" && r.Target == "world/team/child" {
+		if r.Match == "platform=telegram room=900" && r.Target == "world/team/child" {
 			found = true
 		}
 	}

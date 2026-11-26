@@ -14,38 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L950 — a delegated folder cannot register its own web child: the GitHub ingress gate refuses every room with a slash (2026-11-25, open — needs sign-off)
-
-`routd/groups_resource.go` `groupsPostBuild` refuses `register_group` with
-"operator access required" when `router.HasGitHubIngress(groupRouteMatch(jid))`
-holds and the caller is no operator (`f38b014aa`, 2026-11-08). `groupRouteMatch`
-(`routd/mcp.go`) is `room=<the jid after its platform>`, so the route names no
-platform, and `HasGitHubIngress` (`router/router.go`) answers true for every room
-that holds a slash. The web chat of a child folder is `web:<parent>/<child>`: its
-room always holds a slash. A folder that holds `mcp:register_group` on its
-subtree can therefore register no child by the child's web chat, which is the
-delegation `ant/CLAUDE.md` § "Tenancy model" describes.
-**Measured:** disposable instance of v0.75.28, 2026-11-25 (`anteval run --smoke`,
-codex backend): the eval folder held `mcp:register_group` on `eval/**`; the agent
-called `register_group({folder:"eval/etp1s83-child-delegate",
-jid:"web:eval/etp1s83-child-delegate"})` and got "operator access required"; routd
-logged `groups:register … outcome=denied` twice. `child-delegate` and `priv-grant`
-failed on it; `priv-deny`, `subchat-needs-subgroup` and `spawn-publish-reach`
-register a child the same way.
-`routd/groups_github_test.go::TestGroupsMCPWebChildNeedsNoOperator` asserts the
-registration and is skipped under this id.
-**Options:** (a) the registration route carries the platform of the jid
-(`platform=web room=<room>`), so the gate asks about a route that can match a
-GitHub chat only for a `github:` or a glob platform; this changes the route row
-a registration writes and the `telegram:` row of `TestGroupsMCPGitHubIngress`,
-which then passes without an operator; (b) the gate skips a jid that is exactly
-`web:<the folder being registered>` and the route stays `room=<folder>`, which a
-GitHub chat with that room still matches; (c) keep the gate: only an operator
-registers a group whose room holds a slash, and the five anteval cases and the
-tenancy text change to say so.
-**Default if nothing is decided:** (c), the code as it is; the five cases fail.
-**Type:** auth and routing contract — needs sign-off.
-
 ## L953 — `web-route` asks for a page at `/eval-{nonce}` and checks 200 on a path that answers 302 (2026-11-25, open)
 
 `anteval/cases/anteval.toml` `web-route`: "Add a web route on your instance that
@@ -732,7 +700,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
-- `L950` — a delegated folder cannot register its own web child: the GitHub ingress gate refuses every room with a slash; five anteval cases fail; needs sign-off on (a), (b) or (c).
 - `L951` — the claude case of the per-backend acceptance has never run on a disposable instance; needs a Claude credential that no live instance uses; operator task.
 - `L952` — two agent rules disagree on a message that opens with an unknown `@name`; `unknown-addressee` fails on codex; needs sign-off on (a), (b) or (c).
 - `L953` — `web-route` checks 200 on a path that answers 302; decide what the case proves.

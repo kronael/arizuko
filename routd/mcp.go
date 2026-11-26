@@ -268,13 +268,13 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 }
 
 func groupRouteMatch(jid string) string {
-	return "room=" + core.JidRoom(jid)
+	return "platform=" + core.JidPlatform(jid) + " room=" + core.JidRoom(jid)
 }
 
-// registerGroup persists the group, adds a room-matched default route (deleting
-// the group row it wrote on a failed insert so a route-less orphan is never
-// left; nothing under the folder goes with it),
-// then git-inits the group dir. The jid supplies the route's room literal.
+// registerGroup persists the group, adds a default route for the platform and
+// room of the jid (deleting the group row it wrote on a failed insert so a
+// route-less orphan is never left; nothing under the folder goes with it),
+// then git-inits the group dir.
 func (s *Server) registerGroup(jid string, g core.Group) error {
 	// Whether the folder was ALREADY there decides whether a rollback may
 	// delete its row: PutGroup upserts (BUGS L245).

@@ -112,7 +112,7 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 	routes, _ := db.Routes()
 	var found bool
 	for _, r := range routes {
-		if r.Match == "room=777" && r.Target == "ops" {
+		if r.Match == "platform=telegram room=777" && r.Target == "ops" {
 			found = true
 		}
 	}

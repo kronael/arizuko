@@ -13,6 +13,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- `register_group` writes the route `platform=<platform> room=<room>`, so a
+  folder that holds `mcp:register_group` on its subtree registers a chat whose
+  room has a slash, such as the web chat of its child or a Slack channel. A
+  `github:` chat or a platform glob that matches it still needs an operator.
+
 ## [v0.75.30] — 2026-11-26
 
 > arizuko v0.75.30 — the agent pushes as it works

@@ -71,7 +71,7 @@
         The <code>?observe</code> row stores every channel message, so the agent has context. The mention row starts a turn when someone writes <code>@atlas</code>.
       </li>
       <li><strong>The world agent sees a channel without a folder.</strong> When <code>atlas</code> runs a turn, it sees the <code>chat_jid</code> of the inbound message. Assume that no child folder has a route for that JID and that the sender holds an operator grant. Then the agent calls the MCP tool <code>register_group</code> with the JID and a sanitized folder name.</li>
-      <li><strong><code>register_group</code> writes the group and the route.</strong> <code>routd</code> writes the group row, adds the route <code>room=&lt;jid-room&gt;</code> to the new folder at <code>seq=0</code>, and runs <code>git init</code> in the folder. The next message in that channel goes to <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
+      <li><strong><code>register_group</code> writes the group and the route.</strong> <code>routd</code> writes the group row, adds the route <code>platform=&lt;jid-platform&gt; room=&lt;jid-room&gt;</code> to the new folder at <code>seq=0</code>, and runs <code>git init</code> in the folder. The next message in that channel goes to <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
     </ol>
 
     <h2>One Slack channel gets its own folder</h2>
@@ -79,7 +79,7 @@
     <ol>
       <li>The route table has no row for <code>C5678</code>. The catch-all rule sends the message to <code>atlas</code> with <code>verb=mention</code>.</li>
       <li><code>atlas</code> runs a turn, sees the JID and the operator grant of the sender, and calls <code>register_group(jid="slack:T1234/channel/C5678", folder="atlas/eng-support")</code>.</li>
-      <li><code>routd</code> writes the group and adds the route <code>room=T1234/channel/C5678</code> to <code>atlas/eng-support</code> at <code>seq=0</code>.</li>
+      <li><code>routd</code> writes the group and adds the route <code>platform=slack room=T1234/channel/C5678</code> to <code>atlas/eng-support</code> at <code>seq=0</code>.</li>
       <li>The agent replies in the thread from <code>atlas</code>. The next message in that channel goes directly to <code>atlas/eng-support</code>, with its own folder, its own session and its own <code>CLAUDE.md</code>.</li>
     </ol>
 
@@ -114,7 +114,7 @@ senders &mdash; ask the operator instead.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/autoviv.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

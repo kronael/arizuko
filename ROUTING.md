@@ -130,8 +130,13 @@ filter. `routd` evaluates the rules in `seq` order, and the first rule whose
 predicates all match wins.
 
 Registering a group writes exactly one rule. The rule has `seq` 0, `match`
-`room=<the JID after the colon>` and the new folder as `target`, see `registerGroup` in `routd/mcp.go`. The route write of `onbod` has the same
-shape.
+`platform=<the JID before the colon> room=<the JID after the colon>` and the
+new folder as `target`, see `registerGroup` in `routd/mcp.go`. The platform
+keeps the rule off every other platform, so a folder that holds
+`mcp:register_group` registers a chat whose room has a slash, such as the web
+chat of its child. Only an operator registers a `github:` chat or a platform
+glob that matches it. The route write of `onbod` is `room=<the JID after the
+colon>` alone.
 
 ```bash
 # All Telegram chats go to atlas/content by default
