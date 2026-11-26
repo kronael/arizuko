@@ -81,7 +81,7 @@ func rel(p string) string { return strings.TrimPrefix(p, root+"/") }
 //
 // Four forms are in use: a bare stem in the same phase (`42-dynamo-over-postgres`), a
 // phase-qualified stem (`5/33-paths-roles`), a repo-rooted one
-// (`specs/5/9-agent-capability-eval`) and a relative one (`../5/33-paths-roles`).
+// (`specs/5/33-paths-roles`) and a relative one (`../5/33-paths-roles`).
 func TestEveryDependsEntryResolves(t *testing.T) {
 	dependsRe := regexp.MustCompile(`(?m)^depends:\s*\[([^\]]*)\]`)
 	specDir := filepath.Join(root, "specs") + string(filepath.Separator)
@@ -297,7 +297,7 @@ func TestEveryBareSectionCitationResolves(t *testing.T) {
 	docs := ""
 	for _, f := range sourceFiles(t) {
 		// `.html` is in the haystack because a spec may cite an operator page's
-		// heading, and `5/9` does: the only target of §"Ship tests with it" is an
+		// heading, such as product authoring: the target can be an
 		// `<h2>` in `howto/build-a-product.html`.
 		if ext := filepath.Ext(f); ext != ".md" && ext != ".html" {
 			continue

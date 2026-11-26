@@ -1,11 +1,6 @@
 ---
 status: shipped
-depends:
-  [
-    ../5/9-agent-capability-eval,
-    ../8/41-qemu-substrate,
-    ../8/42-dynamo-over-postgres,
-  ]
+depends: [../8/41-qemu-substrate, ../8/42-dynamo-over-postgres]
 ---
 
 # specs/6/50 — anteval runs against an instance it creates
@@ -30,7 +25,7 @@ chain, with the code that makes each link:
 | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | Two smoke cases tell the agent to `register_group` a child named after the per-case nonce: `eval/<run>-child-delegate`, `eval/<run>-priv-grant-g` | `anteval/cases/anteval.toml:73`, `:106`; nonce `anteval/pkg/run/run.go:178`, run id `anteval/cmd/anteval/main.go:85`                       | 47 child groups on 2026-10-21; the first `/migrate` row to one is dated 2026-07-11                             |
 | The driver has no teardown, and the groups resource has no delete for it to call                                                                  | `Drive` is sink, reset, case, settle (`anteval/pkg/run/run.go:66-104`); `routd/groups_resource.go:45-81` serves `list` and `register` only | `grep` finds no delete in `anteval/`                                                                           |
-| The documents say a teardown exists                                                                                                               | `specs/5/9-agent-capability-eval.md` §"Approach", `anteval/README.md:128`                                                                  | —                                                                                                              |
+| The documents say a teardown exists                                                                                                               | `anteval/README.md` §"Run", `anteval/README.md:128`                                                                                        | —                                                                                                              |
 | Every release enqueues `/migrate` for EVERY group behind `MIGRATION_VERSION`, eval children included                                              | `routd/loop.go:484-518`                                                                                                                    | 1001 `/migrate` rows to the 47 children since 2026-07-11; on 2026-10-21, 87 of 129 spawns and 11.5 guest-hours |
 | The entry that recorded it in August was not in the queue a person reads                                                                          | `L72`'s heading said "proposal", which `tests/bugsindex/index_test.go:39` does not read as open                                            | —                                                                                                              |
 

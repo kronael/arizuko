@@ -10,8 +10,8 @@ single channel adapter.
 ## Phase status
 
 **Phase 5 is partial.** The shipped specs that the docs now hold are
-retired; four shipped specs stay while the QEMU substrate spec depends on
-them. Three files carry `reference` — analysis with no lifecycle to finish
+retired. The authorization spec remains `defected` on BUGS `L538`.
+Three files carry `reference` — analysis with no lifecycle to finish
 (`25`, `26`, `35`).
 
 ## Scope boundary
@@ -36,12 +36,6 @@ surfaces, identity, and tenancy. The directory `../9/` closes and minimizes:
 
 | Spec | Status | Hook |
 | ---- | ------ | ---- |
-
-## Runtime — the turn and the container
-
-| Spec | Status | Hook |
-| -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability prober driving real tasks through the public surfaces of an instance it creates and removes; facts in `anteval/README.md`, `howto/build-a-product.html` |
 
 ## Tenancy, onboarding, credentials
 

@@ -228,8 +228,8 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 	}
 }
 
-// TestEveryProductShipsEvalCases locks the other half of spec 5/9-agent-capability-eval, "a product carries
-// its own cases": the harness takes `--cases <dir>`, and for a while exactly one of eleven
+// TestEveryProductShipsEvalCases locks the other half of anteval/README.md, "Products use
+// the same runner": the harness takes `--cases <dir>`, and for a while exactly one of eleven
 // used it. A product with no cases regresses invisibly — every daemon healthy, all 34
 // platform cases green, and the persona quietly answering the way it must not.
 //
@@ -252,7 +252,7 @@ func TestEveryProductShipsEvalCases(t *testing.T) {
 		}
 		if len(files) == 0 {
 			t.Errorf("product %q ships no eval/*.toml — a product proves its own behaviour "+
-				"or it regresses silently (spec 5/9)", e.Name())
+				"or it regresses silently (anteval/README.md)", e.Name())
 			continue
 		}
 		cases := 0

@@ -40,7 +40,6 @@ proxy) is the concrete component spec.
 
 ## Ties
 
-`concepts/primitives.html` of the operator docs (positioning) · `5/9` (`anteval` — the agent conformance
-basis) · `chanlib/README.md` (channel protocol) · `USELESS.md` (the honest gaps this
+`concepts/primitives.html` of the operator docs (positioning) · `anteval/README.md` (the agent conformance basis) · `chanlib/README.md` (channel protocol) · `USELESS.md` (the honest gaps this
 closes) · the Agent Research Hub · self-learning (`ARCHITECTURE.md` § Decided, and why; the loop turned
 outward).

@@ -288,7 +288,7 @@ guards, one per class of moved content:
 
 1. **No case, no move.** A section leaves residency only if an
    `anteval` case exercises the behaviour it teaches — `anteval` is the
-   agent conformance basis (`5/9`), `--smoke` is gate 5 of every
+   agent conformance basis (`anteval/README.md`), `--smoke` is gate 5 of every
    deploy, and the ≈$5 run is what turns "the agent still follows this"
    from a belief into a measurement. Of the sections marked move above,
    these are covered by cases in `anteval/cases/anteval.toml`

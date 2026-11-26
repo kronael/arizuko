@@ -1,6 +1,6 @@
 ---
 status: reference
-depends: [34-resident-prompt, ../5/9-agent-capability-eval]
+depends: [34-resident-prompt]
 ---
 
 # specs/6/44 — one delivery door, and the nudge that teaches it

@@ -12,6 +12,16 @@ REST/MCP — never the agent's prose, never the instance's internal state. Zero
 arizuko-internal imports: a black-box client over the same surfaces a human or
 external tool uses, so it can ship alone.
 
+The platform catalog covers self-modification, delegated children, web and
+chat apps, REST/MCP parity, routing, egress, backend selection and continuity.
+Its composite task asks a child agent to publish an app with a public chat
+entrypoint. The privilege pair checks access through the public surface:
+allowed access returns 200; denied access returns 404.
+
+Operational health belongs to the `eval` skill. `create-eval` writes a project's
+evaluation skill, and `make test-e2e` drives one in-tree round through webd.
+Neither certifies a running model's platform capability.
+
 ## Run
 
 ```bash
@@ -76,18 +86,10 @@ fail the run and report the exact name and data base for a manual retry.
 Reports stay outside the disposable instance. Cases run sequentially and wait
 for gateway metering between turns.
 
-**Tiers** (2026-08-21; `cases/anteval.toml` notes in place the traps that
-rule a case out): `--smoke` is the shorter manual suite —
-9 cases, ~10 min measured on a healthy run (krons 2026-08-21: passing cases
-22–156s, avg ~50s), bounded by the wall caps at ~21 min. The full catalog —
-25 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs when
-the owner chooses to certify a backend (`ARIZUKO_BACKEND` = claude | codex | pi).
-The suite's cost is failure-dominated: a failing case burns its whole
-`max_wall_ms` (a misconfigured sink once made the catalog read ~4 min/case),
-so a case that cannot pass is pure burn — the reduction cut ~30 min of cap
-exposure per backend, of which three cases were guaranteed-fail on the
-documented setup. A catalog too expensive to run certifies nothing; a case
-earns its slot only by evidence no cheaper tier can produce.
+`--smoke` selects the shorter suite; the full catalog certifies the selected
+backend. [cases/anteval.toml](cases/anteval.toml) owns the case list and
+`smoke` flags. A failing case spends its wall cap, so duplicate effects and
+checks that also pass on total failure do not earn a case.
 
 **anteval is a manual, operator-invoked tool.** It creates a throwaway
 instance and drives a real agent at real cost. Never wire it into CI,
@@ -131,6 +133,20 @@ uses.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 
+## Products use the same runner
+
+A product ships `eval/*.toml`. `--cases <dir>` loads each TOML file through the
+same schema, checkers and driver as the platform catalog. Validate with
+`anteval validate --cases <checkout>/packages/<name>/eval`; run with
+`anteval run --product <checkout>/packages/<name> --cases <checkout>/packages/<name>/eval`
+and the Run options above.
+
+Platform cases certify platform capabilities. Product cases certify the
+behavior its persona, rules and facts promise, usually through `rest_reply`.
+The helpdesk suite at [packages/helpdesk/eval](../packages/helpdesk/eval/helpdesk.toml)
+also checks that a product skill reaches its agent. Authoring instructions:
+[build a product](../template/web/pub/arizuko/howto/build-a-product.html).
+
 ## How a case proves itself
 
 Templates expand per run: `{nonce}` (unique per run+case), `{sink}`, `{target}`,
@@ -154,7 +170,7 @@ any other brace fails to load, because the runner cannot expand it. Checkers:
 
 The vocabulary is closed: a case with any other `kind` fails to load
 (`pkg/spec/spec.go`). One case tests one capability with one checker and
-scores pass or fail. A case that needs negation or diagnosis hands it to the
+scores pass or fail; reports aggregate the pass rate per dimension. A case that needs negation or diagnosis hands it to the
 agent: the prompt asks the agent to call back only the marker that matches
 what it found, so the harness compares a marker and never interprets.
 

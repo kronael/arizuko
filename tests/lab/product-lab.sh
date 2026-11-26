@@ -154,7 +154,7 @@ esac
 
 say "a product ships its OWN live tests"
 # A product carries its own cases; the harness reads them with --cases. Contract:
-# specs/5/9 §"A product carries its own cases". `validate` is the free tier —
+# anteval/README.md §"Products use the same runner". `validate` is the free tier —
 # `anteval run` spends model credits, so it is not run here.
 [ -f "$GROUP/eval/helpdesk.toml" ] \
   && ok "product eval cases landed at <group>/eval/" || bad "eval cases missing"

@@ -63,8 +63,8 @@ text = "bye"
 	}
 }
 
-// Every product ships its own eval suite (spec 5/9-agent-capability-eval: "a product carries its own
-// cases"), and `anteval validate` is what keeps them loadable. A suite that
+// Every product ships its own eval suite (anteval/README.md, "Products use the
+// same runner"), and `anteval validate` keeps it loadable. A suite that
 // stops parsing is a product whose behaviour nothing checks any more —
 // silently, because the harness simply finds no cases.
 func TestEveryShippedProductSuiteValidates(t *testing.T) {

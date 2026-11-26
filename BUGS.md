@@ -7481,8 +7481,8 @@ rejects. A teardown of what anteval makes on krons is no longer the fix.
 - **Severity:** high — every release pays one guest turn per leaked child,
   and the eval measures the queue those turns make.
 - **Scope:** `anteval/pkg/run`, `anteval/cmd/anteval`,
-  `.claude/skills/eval/gates.md`, `specs/5/9-agent-capability-eval.md`
-  (§ "Approach" states the lifecycle the driver has: it creates its instance and removes it).
+  `.claude/skills/eval/gates.md`, `anteval/README.md`
+  (§ "Run" states the lifecycle the driver has: it creates its instance and removes it).
 - **Status:** open — the disposable lifecycle of `specs/6/50-anteval-ephemeral-instance.md`
   is implemented and measured: §"Measured on a disposable instance" of that spec holds the
   runs of 2026-11-25, each of which left nothing. Still open, an operator action on live
