@@ -226,6 +226,12 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	return auth.Authorize(d.store(), caller, action, folder, params)
 }
 
+// HasCapability reports whether folder holds a guest capability by a row that
+// names it (auth.HasCapability).
+func (d *DB) HasCapability(folder, action string, params map[string]string) bool {
+	return auth.HasCapability(d.store(), folder, action, params)
+}
+
 // AuthorizeTurn is the agent tool-call check on the two axes of 5/33-paths-roles:
 // turnFolder is the ROUTE and confers in full; senderSub is the attested sender
 // and adds only inside that folder's subtree; scope is the ACTUAL target. Two

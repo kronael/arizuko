@@ -991,11 +991,10 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	}
 	maps.Copy(secrets, shellEnv)
 
-	sub := "folder:" + folder
-	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})
-	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)
-	webPublish := elevated || l.db.Authorize(sub, folder, "web:publish", nil)
-	ghWrite := elevated || l.db.Authorize(sub, folder, "gh:write", nil)
+	shareRO := !elevated && l.db.HasCapability(folder, "mcp:share_mount", map[string]string{"readonly": "true"})
+	egress := elevated || l.db.HasCapability(folder, "egress", nil)
+	webPublish := elevated || l.db.HasCapability(folder, "web:publish", nil)
+	ghWrite := elevated || l.db.HasCapability(folder, "gh:write", nil)
 
 	slog.Info("dispatch capabilities resolved",
 		"folder", folder, "turn_id", turnID, "elevated", elevated,

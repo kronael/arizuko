@@ -1,9 +1,5 @@
 ---
-status: defected
-# defects: OPEN BUGS entries contradict this spec —
-# L538: § "Where the axis deliberately does NOT reach" says the container
-# capabilities refuse the action lattice; routd reads them through it
-defects: [L538]
+status: shipped
 ---
 
 # specs/5/33 — paths, roles, and grant-option (tiers removed)
@@ -32,7 +28,7 @@ the tier axis was net cost.
 1. **Root is a GRANT, not a location.** The operator holds a root grant and
    invokes it with `/root`. There is no root folder to occupy and no
    tier-0-by-position. `auth.Identity` carries `Folder` + `IsRoot` and nothing
-   else (`auth/identity.go:14`).
+   else (`auth/identity.go`).
 
 2. **The path carries zero authorization.** `world/org/team` is a routing
    target, JID prefix, container home, and web vhost. Depth means nothing to
@@ -58,10 +54,11 @@ the tier axis was net cost.
    onboard, `onbod/README.md`); everything under it exists by delegation. No third
    structural tier.
 
-6. **Mounts and egress are grants.** Filesystem share, network egress, and web
-   publishing are resolved from `acl` at dispatch, not from depth
-   (`routd/dispatch.go:532-534` → typed `ShareReadOnly`/`Egress`/`WebPublish`
-   booleans on the run request). **Still open:** skill modification as a grant,
+6. **Mounts and egress are grants.** Filesystem share, network egress, web
+   publishing and GitHub writes are resolved from `acl` at dispatch, not from
+   depth (`dispatchRun` in `routd/dispatch.go` → typed
+   `ShareReadOnly`/`Egress`/`WebPublish`/`GHWrite` booleans on the run
+   request). **Still open:** skill modification as a grant,
    with global skills operator-only — no skill-write tool exists yet, so there
    is nothing to gate.
 
@@ -82,13 +79,13 @@ the tier axis was net cost.
    is how both break.
 
 10. **No tier scalar survives anywhere, including display.** `ARIZUKO_TIER` is
-    not emitted (`container/runner.go:818`, pinned by
-    `container/container_test.go:222`); the agent's identity is world + path +
+    not emitted (`runed/settings.go`, pinned by `runed/settings_test.go`); the
+    agent's identity is world + path +
     grants, never a rank.
 
 11. **Inspect is the read face of the `acl` resource**, scoped to the caller's
     own effective grants — not a bespoke tool. Tool visibility
-    (`auth.EffectiveActions`, `auth/authorize.go:86`), the per-call gate, and the
+    (`auth.EffectiveActions`, `auth/authorize.go`), the per-call gate, and the
     prompt summary all read one `acl`, so they agree by construction.
 
 12. **A blocked egress attempt must name the egress proxy** as the blocker, and
@@ -139,7 +136,7 @@ both required:
    mechanism — `/root`, gated on `IsOperator`, one-shot, explicit
    (`routd.cmdRoot`) — and this must not become an implicit second one. It is
    the namespace isolation `auth.actionCovers` applies to holds and shell env
-   (`template/web/pub/arizuko/reference/grants.html` Hazard 2).
+   (`auth/README.md`, "Hold and shell actions use isolated namespaces").
 
 **Deny is never bounded by the axes.** Within the selected layer, a person's deny refuses the turn
 they triggered wherever it reaches. That is the only NARROWING a union of grant
@@ -177,17 +174,20 @@ type makes it impossible rather than the convention discouraging it.
 
 Three reads stay single-axis on `folder:<folder>`, and each for its own reason:
 
-- **Container capabilities** (`share_mount`, `egress`, `web:publish`, resolved at
-  `routd/dispatch.go`) describe the SANDBOX, not a call. They are decided once
-  per spawn; letting whoever spoke change what the container is mounted with
-  makes the sandbox a function of the conversation.
+- **Guest capabilities** (`share_mount`, `egress`, `web:publish`, `gh:write`,
+  resolved at `routd/dispatch.go` by `auth.HasCapability`) describe the SANDBOX,
+  not a call. They are decided once per spawn; letting whoever spoke change what
+  the guest is mounted with makes the sandbox a function of the conversation.
 - **`auth.ShellEnvKeys`** hands a folder secret into the agent's shell. Folding a
   person in would put their credentials in a container they do not control.
 - **`auth.CheckHold`** answers "must this wait for a human?". Whether a call is
   held is a property of the folder's policy, not of who asked.
 
-All three already refuse the action lattice for the same family of reason
-(`template/web/pub/arizuko/reference/grants.html` Hazard 2). Adding an axis to any of them is a separate decision.
+All three refuse the action lattice for the same family of reason: `admin`,
+`mcp:*` and `*` confer no guest capability, shell secret or hold, and only a
+row that names the action or its own namespace wildcard does
+(`routd/capability_lattice_test.go`, `auth/shellenv_test.go`). A capability has
+no namespace wildcard. Adding an axis to any of them is a separate decision.
 
 ### Residual, recorded
 
@@ -199,14 +199,13 @@ delegation, and it is bounded the same way.
 
 ## What shipped
 
-One evaluator, `auth.Authorize` (`auth/authorize.go:25`), over `acl` rows with
+One evaluator, `auth.Authorize` (`auth/authorize.go`), over `acl` rows with
 deny-wins and **no fallback** — a folder with no matching allow row is denied,
-loud (`auth/authorize_test.go:211` `TestAuthorizeWith_NoTierFallback`). The
+loud (`auth/authorize_test.go` `TestAuthorizeWith_NoTierFallback`). The
 parallel `[]string` grant plane (`grants/`), the folder-prefix containment
 (`auth/policy.go` `AuthorizeStructural`), the persisted containment backfill
 (`auth/backfill.go`), and the `RunRequest.Grants []string` transport are all
-deleted. `grant_option` is a column on `acl`
-(`routd/migrations/0021-acl-grant-option.sql`, `store/migrations/0075`).
+deleted. `grant_option` is a field of the `acl` row (`core.ACLRow.GrantOption`).
 
 **The one cost worth recording.** An early attempt to move egress/web off depth
 routed the predicate through the tier scalar and was reverted (`3a8b8291`):

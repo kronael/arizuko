@@ -19,6 +19,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   folder that holds `mcp:register_group` on its subtree registers a chat whose
   room has a slash, such as the web chat of its child or a Slack channel. A
   `github:` chat or a platform glob that matches it still needs an operator.
+- A guest capability (`share_mount(readonly=true)`, `egress`, `web:publish`,
+  `gh:write`) needs a row that names it. `admin`, `mcp:*` and `*` confer none:
+  a folder that held `admin` or `mcp:*` on itself ran with a read-only share,
+  and a folder that held `*` got egress, the web surface and GitHub writes.
 
 ## [v0.75.30] — 2026-11-26
 
