@@ -80,7 +80,7 @@ for gateway metering between turns.
 rule a case out): `--smoke` is the shorter manual suite —
 9 cases, ~10 min measured on a healthy run (krons 2026-08-21: passing cases
 22–156s, avg ~50s), bounded by the wall caps at ~21 min. The full catalog —
-23 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs when
+25 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs when
 the owner chooses to certify a backend (`ARIZUKO_BACKEND` = claude | codex | pi).
 The suite's cost is failure-dominated: a failing case burns its whole
 `max_wall_ms` (a misconfigured sink once made the catalog read ~4 min/case),
@@ -139,7 +139,8 @@ any other brace fails to load, because the runner cannot expand it. Checkers:
   child) that fires `{sink}/cb/{nonce}`; firing is the proof.
 - `http_status` — a `{cb.url}`/`{cb.token}` URL's FIRST response carries the
   expected code (publish → 200, gated → 303-to-login, deleted/denied → 404);
-  redirects are asserted, never followed.
+  redirects are asserted, never followed. A page outside `/pub/` and `/priv/`
+  answers 302 to `/pub/<path>`, so a case names a page in a web slot.
 - `rest_reply` — a **bot-authored** message carrying `{nonce}` is readable in
   `{chat}` via REST (the user-injected prompt is excluded, so the marker the
   harness itself sent can't false-pass). `rest_observe` matches any author.

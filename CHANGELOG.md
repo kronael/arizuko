@@ -26,6 +26,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - The agent manual holds one rule for a message that opens with an `@name`:
   the agent answers it unless the name is another person it knows. The routing
   reference pointed the other way and now points at that rule.
+- anteval: `web-route` asks for a page in the folder's public slot with a
+  `public` web route and wants 200; the new `web-route-private` puts an `auth`
+  route on such a page and wants the 303 to the login. The earlier prompt named
+  a path outside `/pub/`, which answers 302 whatever the route table holds.
 
 ## [v0.75.30] — 2026-11-26
 

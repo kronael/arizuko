@@ -19,8 +19,9 @@ func TestCaseRequiresTheRegisteredTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"chat-entrypoint": "mcp:" + routeTokensMCPNames[routeTokensActionIssueChat],
-		"web-route":       "mcp:" + resources.WebRoutesMCPNames[resreg.ActionCreate],
+		"chat-entrypoint":   "mcp:" + routeTokensMCPNames[routeTokensActionIssueChat],
+		"web-route":         "mcp:" + resources.WebRoutesMCPNames[resreg.ActionCreate],
+		"web-route-private": "mcp:" + resources.WebRoutesMCPNames[resreg.ActionCreate],
 	}
 	for _, c := range cases {
 		tool, ok := want[c.ID]

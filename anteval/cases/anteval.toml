@@ -147,16 +147,33 @@ want = 303
 # pinned in Go (proxyd/proxy_internals_test.go); its live 404 was satisfiable
 # by a wrong cb.path alone.
 
+# A web route decides who may open a path under /pub/: `public` serves it and
+# `auth` sends an unauthenticated client to the login, which the checker reads
+# as the first response, 303 (the note on priv-401). proxyd reads the web route
+# table only under /pub/, and any other unrouted path answers 302 to
+# /pub/<path> whatever the table holds, so both cases name a page in the
+# folder's own public slot.
 [[case]]
 id = "web-route"
 requires = ["mcp:set_web_route"]
 dimension = "web"
-prompt = "Add a web route on your instance that serves a public page at path /eval-{nonce}. POST the resulting full URL to {sink}/cb/{nonce}?url=<url>."
+prompt = "Publish a page containing {nonce} in your public web slot and add a web route with access public on the path of the page. POST the full URL of the page to {sink}/cb/{nonce}?url=<url>."
 max_wall_ms = 150000
 [case.check]
 kind = "http_status"
 url = "{cb.url}"
 want = 200
+
+[[case]]
+id = "web-route-private"
+requires = ["mcp:set_web_route"]
+dimension = "web"
+prompt = "Publish a page containing {nonce} in your public web slot, then add a web route that makes the path of the page need a login. POST the full /pub/ URL of the page to {sink}/cb/{nonce}?url=<url>. An unauthenticated client must be redirected to the login, never served the page."
+max_wall_ms = 150000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 303
 
 # Doc: ant/CLAUDE.md "The user CANNOT open container paths (~/…, /var/lib/www/…).
 # NEVER emit those in chat as if they were links" + the wrong/right example pair.

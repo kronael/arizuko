@@ -14,23 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L953 — `web-route` asks for a page at `/eval-{nonce}` and checks 200 on a path that answers 302 (2026-11-25, open)
-
-`anteval/cases/anteval.toml` `web-route`: "Add a web route on your instance that
-serves a public page at path /eval-{nonce}. POST the resulting full URL", check
-`http_status` 200 on that URL. The checker reads the first response and follows
-no redirect.
-**Measured:** disposable instance of v0.75.28, codex backend, 2026-11-25, the
-eval folder holding `mcp:set_web_route`: `GET /eval-<nonce>` answered
-`302 Location: /pub/eval-<nonce>` before any route existed; the agent published
-the page in its slot, set two `access: redirect` routes to it and posted
-`…/eval-<nonce>`; the checker read 302 and the case timed out. Whether a route
-can make a path outside `/pub/<folder>/` answer 200 itself was not measured.
-**Fix:** decide what the case proves, then one of: the prompt asks for the URL
-that answers 200; the check accepts the redirect it asked for; or the case goes,
-if `priv-401` and `link-is-public-url` already cover the reachable part.
-**Type:** eval case — no test: the case is the test.
-
 ## L951 — the claude case of the per-backend acceptance has never run on a disposable instance (2026-11-25, open — operator task)
 
 `anteval/backends/backends.toml` holds one case per backend for
@@ -678,7 +661,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 ## What needs you
 
 - `L951` — the claude case of the per-backend acceptance has never run on a disposable instance; needs a Claude credential that no live instance uses; operator task.
-- `L953` — `web-route` checks 200 on a path that answers 302; decide what the case proves.
 - `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.
